@@ -91,19 +91,42 @@ function containsPhrase(haystack: string, phrase: string): boolean {
   return phrase.length > 0 && ` ${haystack} `.includes(` ${phrase} `);
 }
 
+/**
+ * Names that contain another place's name: New South Wales isn't in Wales and
+ * Latin America isn't the US. They're blanked out before matching, unless
+ * they're one of the names being looked for.
+ */
+const CONTAINING_NAMES = [
+  "new south wales",
+  "new england",
+  "new mexico",
+  "northern ireland",
+  "latin america",
+  "south america",
+  "central america",
+  "north america",
+].map((name) => ({ name, pattern: new RegExp(`(?<=^| )${name}(?= |$)`, "g") }));
+
+function containsName(location: string, names: string[]): boolean {
+  let text = location;
+  for (const { name, pattern } of CONTAINING_NAMES) if (!names.includes(name)) text = text.replace(pattern, "|");
+  return names.some((name) => containsPhrase(text, name));
+}
+
 function namesPlace(location: string, place: Place): boolean {
-  return [...place.country, ...place.cities].some((name) => containsPhrase(location, name));
+  return containsName(location, [...place.country, ...place.cities]);
 }
 
 /** Whether a job location (normalised + raw) is in the given country. */
 function inPlace(location: string, raw: string, place: Place): boolean {
-  if (namesPlace(location, place)) return true;
+  if (containsName(location, place.country)) return true;
+  // A named country wins over a city name shared with it: "London, Ontario, Canada" isn't in the UK.
+  const others = Object.values(PLACES).filter((other) => other !== place);
+  if (others.some((other) => containsName(location, other.country))) return false;
+  if (containsName(location, place.cities)) return true;
   // State codes are ambiguous ("Berlin, DE" isn't Delaware), so only trust them
   // when the location doesn't name somewhere in another country.
-  return Boolean(
-    place.pattern?.test(raw) &&
-      !Object.values(PLACES).some((other) => other !== place && namesPlace(location, other)),
-  );
+  return Boolean(place.pattern?.test(raw) && !others.some((other) => namesPlace(location, other)));
 }
 
 /** The country a typed location refers to ("Manchester" → gb), else the selected country. */

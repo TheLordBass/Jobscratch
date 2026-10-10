@@ -48,6 +48,23 @@ describe("on-site jobs", () => {
     expect(locationMatches(onsite(""), uk)).toBe(true);
   });
 
+  it("isn't fooled by place names that contain another country's name", () => {
+    expect(locationMatches(onsite("Sydney, New South Wales, Australia"), uk)).toBe(false);
+    expect(locationMatches(onsite("Sydney, New South Wales, Australia"), { ...uk, country: "au" })).toBe(true);
+    expect(locationMatches(onsite("Boston, New England"), uk)).toBe(false);
+    expect(locationMatches(onsite("Albuquerque, New Mexico"), { ...uk, country: "mx" })).toBe(false);
+    expect(locationMatches(onsite("Belfast, Northern Ireland"), { ...uk, country: "ie" })).toBe(false);
+    expect(locationMatches(onsite("Belfast, Northern Ireland"), uk)).toBe(true);
+    expect(locationMatches(remote("Remote - Latin America"), { ...uk, country: "us" })).toBe(false);
+    expect(locationMatches(remote("Remote - Latin America"), { ...uk, country: "br" })).toBe(true);
+  });
+
+  it("goes by the named country when a city name exists in several", () => {
+    expect(locationMatches(onsite("London, Ontario, Canada"), uk)).toBe(false);
+    expect(locationMatches(onsite("London, Ontario, Canada"), { ...uk, country: "ca" })).toBe(true);
+    expect(locationMatches(onsite("Cambridge, MA, United States"), uk)).toBe(false);
+  });
+
   it("matches a typed city exactly and a typed country anywhere in it", () => {
     expect(locationMatches(onsite("London, England"), { ...uk, query: "london" })).toBe(true);
     expect(locationMatches(onsite("Manchester, England"), { ...uk, query: "London" })).toBe(false);
@@ -62,5 +79,6 @@ describe("placeFor", () => {
     expect(placeFor("gb", "Lagos")).toBe(PLACES.ng);
     expect(placeFor("gb", "Somewhere")).toBe(PLACES.gb);
     expect(placeFor("gb", undefined)).toBe(PLACES.gb);
+    expect(placeFor("au", "New South Wales")).toBe(PLACES.au);
   });
 });

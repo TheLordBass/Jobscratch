@@ -23,7 +23,12 @@ const STATUS_STYLE: Record<ApplicationStatus, string> = {
 };
 
 function toCsv(rows: string[][]): string {
-  return rows.map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(",")).join("\n");
+  return rows.map((row) => row.map((cell) => `"${csvSafe(cell).replace(/"/g, '""')}"`).join(",")).join("\n");
+}
+
+/** Job titles and notes come from other sites, so stop Excel/Sheets running one that starts like a formula. */
+function csvSafe(cell: string): string {
+  return /^[=+\-@\t\r]/.test(cell) ? `'${cell}` : cell;
 }
 
 export function SavedView() {
@@ -33,8 +38,9 @@ export function SavedView() {
   const [statusFilter, setStatusFilter] = useState<ApplicationStatus | "all">("all");
   const [openNotes, setOpenNotes] = useState<string | null>(null);
 
+  // Newest saved first. Not by last update, or a job would jump to the top as soon as you change its status or notes.
   const entries = useMemo(
-    () => Object.values(saved).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+    () => Object.values(saved).sort((a, b) => b.savedAt.localeCompare(a.savedAt)),
     [saved],
   );
   const counts = useMemo(() => {

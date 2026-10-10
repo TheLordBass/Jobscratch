@@ -124,6 +124,7 @@ function DocumentPanel({
   job,
   markdown,
   generation,
+  blocker,
   onEdit,
   onGenerate,
   onStop,
@@ -132,6 +133,8 @@ function DocumentPanel({
   job: Job;
   markdown: string | undefined;
   generation: Generation;
+  /** Why a document can't be written yet (no CV or job description). */
+  blocker: string | undefined;
   onEdit: (text: string) => void;
   onGenerate: () => void;
   onStop: () => void;
@@ -175,9 +178,10 @@ function DocumentPanel({
         ) : (
           <p className="mb-3">No {label} yet.</p>
         )}
-        <button type="button" className="btn btn-primary" onClick={onGenerate}>
+        <button type="button" className="btn btn-primary" disabled={Boolean(blocker)} onClick={onGenerate}>
           ✨ Write my {label}
         </button>
+        {blocker && <p className="mt-2 text-xs">{blocker}</p>}
       </div>
     );
   }
@@ -238,6 +242,8 @@ function DocumentPanel({
           <button
             type="button"
             className="btn btn-ghost btn-sm ml-auto"
+            disabled={Boolean(blocker)}
+            title={blocker}
             onClick={() => {
               if (!markdown || window.confirm(`Replace this ${label} with a new version?`)) onGenerate();
             }}
@@ -291,7 +297,13 @@ function TailorWorkspace({ job }: { job: Job }) {
   const description = docs?.jobDescription ?? job.description;
   const options = settings.tailor;
   const cvText = cv?.text ?? "";
-  const ready = cvText.trim().length >= 50 && description.trim().length > 0;
+  const blocker =
+    cvText.trim().length < 50
+      ? "Add your CV first, on the My CV page."
+      : !description.trim()
+        ? "Paste the job description first."
+        : undefined;
+  const ready = !blocker;
 
   const updateDocs = (patch: Partial<TailoredDocs>) =>
     setTailored((previous) => ({
@@ -619,6 +631,7 @@ function TailorWorkspace({ job }: { job: Job }) {
                     <button type="button" className="btn btn-primary" disabled={!ready || busy} onClick={() => void analyse()}>
                       Analyse match
                     </button>
+                    {blocker && <p className="mt-2 text-xs">{blocker}</p>}
                   </div>
                 )}
               </>
@@ -630,6 +643,7 @@ function TailorWorkspace({ job }: { job: Job }) {
               job={job}
               markdown={docs?.[tab]}
               generation={generations[tab]}
+              blocker={blocker}
               onEdit={(text) => updateDocs({ [tab]: text })}
               onGenerate={() => {
                 if (ready) void generate(tab);
