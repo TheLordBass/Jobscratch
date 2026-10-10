@@ -32,8 +32,8 @@ function csvSafe(cell: string): string {
 
 export function SavedView() {
   const hydrated = useHydrated();
-  const { saved, updateJob, removeJob } = useSavedJobs();
-  const [tailored] = useTailored();
+  const { saved, updateJob, removeJob, removeJobs } = useSavedJobs();
+  const [tailored, setTailored] = useTailored();
   const [statusFilter, setStatusFilter] = useState<ApplicationStatus | "all">("all");
 
   // Newest saved first. Not by last update, or a job would jump to the top as soon as you change its status or notes.
@@ -65,6 +65,28 @@ export function SavedView() {
     downloadBlob(new Blob([toCsv(rows)], { type: "text/csv" }), "jobscratch-applications.csv");
   }
 
+  /** Remove every job in the current view (all of them, or one status), with its tailored documents. */
+  function clearShown() {
+    const ids = shown.map((entry) => entry.job.id);
+    if (ids.length === 0) return;
+    const one = ids.length === 1;
+    const label = statusFilter === "all" ? "" : ` “${STATUS_LABEL[statusFilter]}”`;
+    const which = one ? `this${label} job` : `${statusFilter === "all" ? "all" : "the"} ${ids.length}${label} jobs`;
+    const documents = ids.some((id) => tailored[id])
+      ? one
+        ? " Its tailored CV and cover letter will be deleted too."
+        : " Their tailored CVs and cover letters will be deleted too."
+      : "";
+    if (!window.confirm(`Remove ${which}?${documents} This can’t be undone, so use Export CSV first if you want a record.`)) return;
+    removeJobs(ids);
+    setTailored((previous) => {
+      const next = { ...previous };
+      for (const id of ids) delete next[id];
+      return next;
+    });
+    setStatusFilter("all");
+  }
+
   if (!hydrated) return <div className="card muted p-8 text-center text-sm">Loading your jobs…</div>;
 
   return (
@@ -75,9 +97,14 @@ export function SavedView() {
           <p className="muted text-sm">Open a job to check your match, tailor your CV and track your application.</p>
         </div>
         {entries.length > 0 && (
-          <button type="button" className="btn btn-ghost btn-sm" onClick={exportCsv}>
-            Export CSV
-          </button>
+          <div className="flex gap-1">
+            <button type="button" className="btn btn-ghost btn-sm" onClick={exportCsv}>
+              Export CSV
+            </button>
+            <button type="button" className="btn btn-danger btn-sm" onClick={clearShown} disabled={shown.length === 0}>
+              {statusFilter === "all" ? "Clear all" : `Clear “${STATUS_LABEL[statusFilter]}”`}
+            </button>
+          </div>
         )}
       </div>
 
