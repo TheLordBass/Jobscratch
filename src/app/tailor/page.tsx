@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import { TailorView } from "@/components/TailorView";
 
-export const metadata: Metadata = { title: "Tailor your CV" };
+export const metadata: Metadata = { title: "Job" };
 
 export default function TailorPage() {
   return (

@@ -2,11 +2,10 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { ApplyButton, OtherApplyLinks } from "@/components/JobCard";
 import { downloadBlob, formatPosted, formatSalary } from "@/lib/format";
 import { APPLICATION_STATUSES, useHydrated, useSavedJobs, useTailored, type ApplicationStatus } from "@/lib/store";
 
-const STATUS_LABEL: Record<ApplicationStatus, string> = {
+export const STATUS_LABEL: Record<ApplicationStatus, string> = {
   saved: "Saved",
   applied: "Applied",
   interviewing: "Interviewing",
@@ -14,7 +13,7 @@ const STATUS_LABEL: Record<ApplicationStatus, string> = {
   rejected: "Closed",
 };
 
-const STATUS_STYLE: Record<ApplicationStatus, string> = {
+export const STATUS_STYLE: Record<ApplicationStatus, string> = {
   saved: "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
   applied: "bg-sky-50 text-sky-700 dark:bg-sky-950 dark:text-sky-300",
   interviewing: "bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
@@ -36,7 +35,6 @@ export function SavedView() {
   const { saved, updateJob, removeJob } = useSavedJobs();
   const [tailored] = useTailored();
   const [statusFilter, setStatusFilter] = useState<ApplicationStatus | "all">("all");
-  const [openNotes, setOpenNotes] = useState<string | null>(null);
 
   // Newest saved first. Not by last update, or a job would jump to the top as soon as you change its status or notes.
   const entries = useMemo(
@@ -67,26 +65,34 @@ export function SavedView() {
     downloadBlob(new Blob([toCsv(rows)], { type: "text/csv" }), "jobscratch-applications.csv");
   }
 
-  if (!hydrated) return <div className="card muted p-8 text-center text-sm">Loading saved jobs…</div>;
+  if (!hydrated) return <div className="card muted p-8 text-center text-sm">Loading your jobs…</div>;
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold">Saved jobs</h1>
-          <p className="muted text-sm">Track where you are with each application.</p>
+          <h1 className="text-xl font-semibold">My jobs</h1>
+          <p className="muted text-sm">Open a job to check your match, tailor your CV and track your application.</p>
         </div>
         {entries.length > 0 && (
-          <button type="button" className="btn btn-secondary btn-sm" onClick={exportCsv}>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={exportCsv}>
             Export CSV
           </button>
         )}
       </div>
 
       {entries.length === 0 ? (
-        <div className="card muted p-8 text-center text-sm">
-          Nothing saved yet. <Link href="/" className="link">Search for jobs</Link> or{" "}
-          <Link href="/import" className="link">import one from LinkedIn</Link>.
+        <div className="card space-y-3 p-8 text-center text-sm">
+          <p className="text-base font-medium">No jobs yet</p>
+          <p className="muted">Save jobs from a search, or add one from LinkedIn or any link.</p>
+          <div className="flex justify-center gap-2">
+            <Link href="/" className="btn btn-primary">
+              Search jobs
+            </Link>
+            <Link href="/import" className="btn btn-secondary">
+              Add a job
+            </Link>
+          </div>
         </div>
       ) : (
         <>
@@ -105,79 +111,63 @@ export function SavedView() {
             ))}
           </div>
 
-          <div className="space-y-3">
+          {shown.length === 0 && (
+            <p className="card muted p-6 text-center text-sm">No jobs are marked “{STATUS_LABEL[statusFilter as ApplicationStatus]}”.</p>
+          )}
+          <ul className="space-y-2">
             {shown.map(({ job, status, notes, savedAt }) => {
               const docs = tailored[job.id];
               const salary = formatSalary(job.salary);
+              const href = `/tailor?job=${encodeURIComponent(job.id)}`;
               return (
-                <article key={job.id} className="card p-4">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h2 className="font-semibold">{job.title}</h2>
-                        <span className={`chip ${STATUS_STYLE[status]}`}>{STATUS_LABEL[status]}</span>
-                      </div>
-                      <p className="text-sm text-zinc-700 dark:text-zinc-300">
-                        {job.company}
-                        {job.location && <span className="muted"> · {job.location}</span>}
-                      </p>
-                      <p className="muted mt-1 text-xs">
-                        {[salary, `via ${job.sourceName}`, `saved ${formatPosted(savedAt)}`].filter(Boolean).join(" · ")}
-                        {docs?.cv && " · tailored CV ready"}
-                        {docs?.analysis && ` · ${docs.analysis.matchScore}% match`}
-                      </p>
-                      <div className="mt-1">
-                        <OtherApplyLinks job={job} />
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <ApplyButton job={job} />
-                      <Link href={`/tailor?job=${encodeURIComponent(job.id)}`} className="btn btn-secondary btn-sm">
-                        ✨ {docs?.cv ? "Open tailored CV" : "Tailor CV"}
-                      </Link>
-                      <select
-                        className="input w-auto py-1 text-xs"
-                        value={status}
-                        onChange={(e) => updateJob(job.id, { status: e.target.value as ApplicationStatus })}
-                        aria-label="Application status"
-                      >
-                        {APPLICATION_STATUSES.map((s) => (
-                          <option key={s} value={s}>
-                            {STATUS_LABEL[s]}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        type="button"
-                        className="btn btn-ghost btn-sm"
-                        onClick={() => setOpenNotes(openNotes === job.id ? null : job.id)}
-                      >
-                        Notes{notes ? " •" : ""}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-danger btn-sm"
-                        onClick={() => {
-                          if (window.confirm(`Remove “${job.title}” from saved jobs?`)) removeJob(job.id);
-                        }}
-                      >
-                        Remove
-                      </button>
-                    </div>
+                <li key={job.id} className="card flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
+                  <div className="min-w-0 flex-1">
+                    <Link href={href} className="font-semibold hover:text-indigo-600 dark:hover:text-indigo-400">
+                      {job.title}
+                    </Link>
+                    <p className="text-sm text-zinc-700 dark:text-zinc-300">
+                      {job.company}
+                      {job.location && <span className="muted"> · {job.location}</span>}
+                    </p>
+                    <p className="muted mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                      {docs?.analysis && <span className="chip">{docs.analysis.matchScore}% match</span>}
+                      {docs?.cv && <span className="chip">CV tailored</span>}
+                      {docs?.coverLetter && <span className="chip">Cover letter</span>}
+                      <span>{[salary, `saved ${formatPosted(savedAt)}`, notes.trim() && "has notes"].filter(Boolean).join(" · ")}</span>
+                    </p>
                   </div>
-                  {openNotes === job.id && (
-                    <textarea
-                      className="input mt-3 min-h-24"
-                      placeholder="Contacts, interview dates, salary discussed…"
-                      value={notes}
-                      onChange={(e) => updateJob(job.id, { notes: e.target.value })}
-                      aria-label={`Notes for ${job.title}`}
-                    />
-                  )}
-                </article>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <select
+                      className={`input w-auto py-1 text-xs font-medium ${STATUS_STYLE[status]}`}
+                      value={status}
+                      onChange={(e) => updateJob(job.id, { status: e.target.value as ApplicationStatus })}
+                      aria-label={`Status of ${job.title}`}
+                    >
+                      {APPLICATION_STATUSES.map((s) => (
+                        <option key={s} value={s}>
+                          {STATUS_LABEL[s]}
+                        </option>
+                      ))}
+                    </select>
+                    <Link href={href} className="btn btn-primary btn-sm">
+                      {docs?.cv ? "Open" : "Tailor CV"}
+                    </Link>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => {
+                        if (window.confirm(`Remove “${job.title}” from your jobs?`)) removeJob(job.id);
+                      }}
+                      aria-label={`Remove ${job.title}`}
+                      title="Remove"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </li>
               );
             })}
-          </div>
+          </ul>
         </>
       )}
     </div>

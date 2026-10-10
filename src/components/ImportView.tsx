@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { FIND_TABS, SectionTabs } from "@/components/Nav";
 import { buildBookmarklet, payloadToJob, readImportHash, type ImportPayload } from "@/lib/import";
 import { useSavedJobs } from "@/lib/store";
 
@@ -129,12 +130,12 @@ export function ImportView() {
   const alreadySaved = previewJob ? Boolean(saved[previewJob.id]) : false;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
+      <SectionTabs tabs={FIND_TABS} />
       <div>
-        <h1 className="text-xl font-semibold">Import a job</h1>
+        <h1 className="text-xl font-semibold">Add a job</h1>
         <p className="muted text-sm">
-          Bring in jobs from sites that can’t be searched directly, like LinkedIn, Indeed and Glassdoor, or from any
-          careers page.
+          Found a job somewhere else? Bring it in to track it and tailor your CV for it.
         </p>
       </div>
 
@@ -182,8 +183,8 @@ export function ImportView() {
           </div>
           {savedId ? (
             <p className="text-sm text-emerald-700 dark:text-emerald-300">
-              Saved. <Link href={`/tailor?job=${encodeURIComponent(savedId)}`} className="link">Tailor your CV</Link> or{" "}
-              <Link href="/saved" className="link">see saved jobs</Link>.
+              Saved to My jobs. <Link href={`/tailor?job=${encodeURIComponent(savedId)}`} className="link">Open it</Link>{" "}
+              to tailor your CV.
             </p>
           ) : (
             <div className="flex flex-wrap gap-2">
@@ -198,17 +199,49 @@ export function ImportView() {
         </section>
       )}
 
+      <section className="card space-y-3 p-4">
+        <div>
+          <h2 className="font-semibold">Paste a link</h2>
+          <p className="muted text-sm">
+            A job on a company careers page or job board (Greenhouse, Lever, Workday, Ashby and so on).
+          </p>
+        </div>
+        <form onSubmit={importUrl} className="flex flex-col gap-2 sm:flex-row">
+          <input
+            className="input"
+            type="url"
+            required
+            placeholder="https://careers.example.com/jobs/123"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            aria-label="Job link"
+          />
+          <button type="submit" className="btn btn-primary" disabled={fetching}>
+            {fetching ? "Reading…" : "Add job"}
+          </button>
+        </form>
+        {urlError && (
+          <p
+            role="alert"
+            className={`rounded-lg px-3 py-2 text-sm ${urlError.blockedSite ? "bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-200" : "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300"}`}
+          >
+            {urlError.message}
+          </p>
+        )}
+      </section>
+
       <section className="card space-y-4 p-4">
         <div>
-          <h2 className="font-semibold">From LinkedIn, Indeed, Glassdoor (or any site)</h2>
+          <h2 className="font-semibold">From LinkedIn, Indeed or Glassdoor</h2>
           <p className="muted text-sm">
-            These sites don’t allow automated scraping. Instead, open a job in your browser and send it here with one
-            click. Only the page you’re looking at is read, and only when you click.
+            These sites don’t allow automated reading, so their links can’t be pasted above. Instead, open the job in
+            your browser and send it here with one click. Only the page you’re looking at is read, and only when you
+            click.
           </p>
         </div>
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2 rounded-lg bg-zinc-50 p-3 dark:bg-zinc-800/50">
-            <h3 className="text-sm font-semibold">Option 1: Bookmarklet (any browser)</h3>
+            <h3 className="text-sm font-semibold">Bookmark button (any browser)</h3>
             <ol className="list-decimal space-y-1 pl-5 text-sm">
               <li>
                 Drag this to your bookmarks bar: <Bookmarklet />
@@ -222,7 +255,7 @@ export function ImportView() {
             </p>
           </div>
           <div className="space-y-2 rounded-lg bg-zinc-50 p-3 dark:bg-zinc-800/50">
-            <h3 className="text-sm font-semibold">Option 2: Browser extension (Chrome, Edge)</h3>
+            <h3 className="text-sm font-semibold">Browser extension (Chrome, Edge)</h3>
             <ol className="list-decimal space-y-1 pl-5 text-sm">
               <li>
                 Open <code>chrome://extensions</code> and turn on Developer mode.
@@ -237,38 +270,11 @@ export function ImportView() {
         </div>
       </section>
 
-      <section className="card space-y-3 p-4">
-        <h2 className="font-semibold">From a link</h2>
-        <p className="muted text-sm">
-          Paste a link to a job on a company careers page or job board (Greenhouse, Lever, Workday, Ashby and so on).
-        </p>
-        <form onSubmit={importUrl} className="flex flex-col gap-2 sm:flex-row">
-          <input
-            className="input"
-            type="url"
-            required
-            placeholder="https://careers.example.com/jobs/123"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            aria-label="Job link"
-          />
-          <button type="submit" className="btn btn-primary" disabled={fetching}>
-            {fetching ? "Reading…" : "Import"}
-          </button>
-        </form>
-        {urlError && (
-          <p
-            role="alert"
-            className={`rounded-lg px-3 py-2 text-sm ${urlError.blockedSite ? "bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-200" : "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300"}`}
-          >
-            {urlError.message}
-          </p>
-        )}
-      </section>
-
-      <section id="paste" className="card space-y-3 p-4">
-        <h2 className="font-semibold">Paste it yourself</h2>
-        <p className="muted text-sm">Copy a job description from anywhere, including an email or a PDF.</p>
+      <section id="paste" className="card flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
+        <div className="flex-1">
+          <h2 className="font-semibold">Type or paste it in</h2>
+          <p className="muted text-sm">From an email, a PDF, a recruiter’s message or anywhere else.</p>
+        </div>
         <button
           type="button"
           className="btn btn-secondary"
@@ -279,7 +285,7 @@ export function ImportView() {
             window.scrollTo({ top: 0, behavior: "smooth" });
           }}
         >
-          Enter a job manually
+          Enter a job
         </button>
       </section>
     </div>

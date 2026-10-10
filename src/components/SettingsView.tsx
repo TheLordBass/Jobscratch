@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type ChangeEvent } from "react";
+import { PROFILE_TABS, SectionTabs } from "@/components/Nav";
 import { useSources } from "@/components/useSources";
 import { COUNTRIES, downloadBlob } from "@/lib/format";
 import { parseBoardToken } from "@/lib/sources/boards";
@@ -104,6 +105,7 @@ export function SettingsView() {
 
   return (
     <div className="space-y-6">
+      <SectionTabs tabs={PROFILE_TABS} />
       <div>
         <h1 className="text-xl font-semibold">Settings</h1>
         <p className="muted text-sm">Choose where to search. API keys go in the server’s <code>.env.local</code> (see README).</p>
