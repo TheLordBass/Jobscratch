@@ -6,9 +6,10 @@ import {
   analysisInstruction,
   coverLetterInstruction,
   cvInstruction,
+  hasProfile,
   materialsBlock,
   type MatchAnalysis,
-  type TailorJob,
+  type TailorMaterials,
   type TailorOptions,
 } from "./prompts";
 
@@ -44,20 +45,21 @@ function getClient(env: Env): Anthropic {
  * Model plus server-side refusal fallback: if Claude's safety classifiers
  * decline a request, the API retries it on Anthropic's recommended model for
  * that case instead of failing. Set ANTHROPIC_FALLBACKS=off to disable.
+ * Haiku models have no fallback model, so the parameter is left off for them.
  */
 function modelParams(env: Env) {
   const model = env.ANTHROPIC_MODEL?.trim() || DEFAULT_MODEL;
-  if (env.ANTHROPIC_FALLBACKS === "off") return { model };
+  if (env.ANTHROPIC_FALLBACKS === "off" || model.startsWith("claude-haiku")) return { model };
   return { model, betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const };
 }
 
-function buildMessages(cv: string, job: TailorJob, instruction: string): Anthropic.Beta.BetaMessageParam[] {
+function buildMessages(materials: TailorMaterials, instruction: string): Anthropic.Beta.BetaMessageParam[] {
   return [
     {
       role: "user",
       content: [
-        // The CV + job prefix is identical for analysis, CV and cover letter, so cache it.
-        { type: "text", text: materialsBlock(cv, job), cache_control: { type: "ephemeral" } },
+        // The CV + profile + job prefix is identical for analysis, CV and cover letter, so cache it.
+        { type: "text", text: materialsBlock(materials), cache_control: { type: "ephemeral" } },
         { type: "text", text: instruction },
       ],
     },
@@ -95,14 +97,14 @@ export function toAiError(error: unknown): AiError {
 const REFUSAL_MESSAGE =
   "Claude declined this request. Check the CV and job text for anything unusual, then try again.";
 
-export async function analyzeMatch(cv: string, job: TailorJob, env: Env, signal?: AbortSignal): Promise<MatchAnalysis> {
+export async function analyzeMatch(materials: TailorMaterials, env: Env, signal?: AbortSignal): Promise<MatchAnalysis> {
   const client = getClient(env);
   const response = await client.beta.messages.parse(
     {
       ...modelParams(env),
       max_tokens: 16000,
       system: SYSTEM_PROMPT,
-      messages: buildMessages(cv, job, analysisInstruction()),
+      messages: buildMessages(materials, analysisInstruction(hasProfile(materials.profile))),
       output_config: { effort: "medium", format: betaZodOutputFormat(MatchAnalysisSchema) },
     },
     { signal },
@@ -126,15 +128,16 @@ export type StreamEvent =
 /** Streams a tailored CV or cover letter as text deltas (plus reasoning summaries for progress). */
 export async function* streamDocument(
   kind: DocumentKind,
-  cv: string,
-  job: TailorJob,
+  materials: TailorMaterials,
   options: TailorOptions,
   env: Env,
   signal?: AbortSignal,
 ): AsyncGenerator<StreamEvent> {
   try {
     const client = getClient(env);
-    const instruction = kind === "cv" ? cvInstruction(options) : coverLetterInstruction(options);
+    const withProfile = hasProfile(materials.profile);
+    const instruction =
+      kind === "cv" ? cvInstruction(options, withProfile) : coverLetterInstruction(options, withProfile);
     const stream = client.beta.messages.stream(
       {
         ...modelParams(env),
@@ -142,7 +145,7 @@ export async function* streamDocument(
         thinking: { type: "adaptive", display: "summarized" },
         output_config: { effort: kind === "cv" ? "high" : "medium" },
         system: SYSTEM_PROMPT,
-        messages: buildMessages(cv, job, instruction),
+        messages: buildMessages(materials, instruction),
       },
       { signal },
     );

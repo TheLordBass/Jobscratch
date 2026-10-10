@@ -35,6 +35,16 @@ export interface StoredCv {
   updatedAt: string;
 }
 
+/** The candidate's website / GitHub and the text read from them (shown to the user before use). */
+export interface StoredProfile {
+  website: string;
+  github: string;
+  evidence: string;
+  /** Whether to send these to Claude when tailoring and matching. */
+  enabled: boolean;
+  fetchedAt?: string;
+}
+
 export interface Settings {
   country: string;
   includeRemoteAnywhere: boolean;
@@ -60,12 +70,14 @@ export const DEFAULT_SETTINGS: Settings = {
   tailor: { style: "uk-cv", tone: "professional", length: "two-pages", extraInstructions: "" },
 };
 
+export const EMPTY_PROFILE: StoredProfile = { website: "", github: "", evidence: "", enabled: true };
+
 const EMPTY_GROUPS: SearchGroup[] = [];
 const EMPTY_SAVED: Record<string, SavedJob> = {};
 const EMPTY_TAILORED: Record<string, TailoredDocs> = {};
 
 const PREFIX = "jobscratch:";
-type Key = "groups" | "saved" | "cv" | "settings" | "tailored";
+type Key = "groups" | "saved" | "cv" | "profile" | "settings" | "tailored";
 
 const listeners = new Set<() => void>();
 const parsed = new Map<string, { raw: string | null; value: unknown }>();
@@ -152,6 +164,10 @@ export function useGroups() {
 
 export function useCv() {
   return useStored<StoredCv | null>("cv", null);
+}
+
+export function useProfile() {
+  return useStored("profile", EMPTY_PROFILE);
 }
 
 export function useTailored() {

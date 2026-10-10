@@ -63,11 +63,13 @@ Upload your CV once (**My CV**: PDF, Word .docx, Markdown or text). Then choose 
 - **Rewrites your CV** for the job: a new profile, skills ordered by relevance, and bullets that bring forward what this employer cares about. You choose UK CV or US resume conventions, length and tone.
 - **Writes a cover letter** that connects your real achievements to the job's requirements.
 
+**Your website and GitHub (optional):** on **My CV**, add your portfolio site and GitHub, then click **Fetch details**. JobScratch reads your site's main pages (plus About and Projects pages) and your public repositories: descriptions, languages, topics and short README excerpts. It shows you exactly what Claude will see, and you can edit or remove anything. When tailoring, Claude can add your links to the CV, include a "Projects" section for relevant work, and count your projects in the match analysis. A project is described as a project, never as paid experience. Reading GitHub without a token allows 60 requests an hour; add a `GITHUB_TOKEN` (no permissions needed) if you hit the limit.
+
 **It's told never to invent anything.** Employers, titles, dates, qualifications and numbers must come from your CV. Anything the job wants that your CV doesn't show goes in the gap analysis, not in the CV. Still, read every line before you send it.
 
 Results stream in as they're written. You can edit them and download as **Word (.docx)**, **PDF** (via Print), or **Markdown**. They're saved with the job, so you can come back to them.
 
-**Privacy:** your CV and the job description are sent to the Anthropic API only when you click one of the tailoring buttons. Nothing is stored on the JobScratch server.
+**Privacy:** your CV, the job description and (if you've added them) the details from your website and GitHub are sent to the Anthropic API only when you click one of the tailoring buttons. Nothing is stored on the JobScratch server.
 
 **Model:** the default is `claude-opus-5-5`; set `ANTHROPIC_MODEL` to use another. If Claude's safety checks ever decline a request, the API automatically retries it on Anthropic's recommended fallback model. Set `ANTHROPIC_FALLBACKS=off` to disable that.
 
@@ -102,9 +104,11 @@ src/
     api/tailor/*        match analysis (structured output) and streamed CV / cover letter
     api/cv/parse        PDF / Word / text → plain text
     api/import/url      fetches a public job page safely (blocks private networks and LinkedIn/Indeed/Glassdoor)
+    api/profile         reads your own website and public GitHub for tailoring
   lib/sources/          one adapter per job source, all producing the same Job shape
   lib/search.ts         keyword/location/date filtering, de-duplication and ranking
   lib/ai/               Claude prompts and API calls
+  lib/profile/          website and GitHub readers
   lib/store.ts          browser storage for CV, saved jobs, groups and settings
 public/extractor.js     reads a job from a web page; used by the bookmarklet, extension and URL import
 extension/              Chrome/Edge extension (extractor.js is a copy: run `npm run sync:extension`)

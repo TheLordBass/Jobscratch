@@ -1,12 +1,13 @@
 import { z } from "zod";
 import { analyzeMatch, toAiError } from "@/lib/ai/claude";
-import { TailorJobSchema } from "@/lib/ai/prompts";
+import { CandidateProfileSchema, TailorJobSchema } from "@/lib/ai/prompts";
 
 export const maxDuration = 300;
 
 const Body = z.object({
   cv: z.string().min(50, "Add your CV first").max(60_000),
   job: TailorJobSchema,
+  profile: CandidateProfileSchema.optional(),
 });
 
 export async function POST(request: Request) {
@@ -15,7 +16,7 @@ export async function POST(request: Request) {
     return Response.json({ error: parsed.error.issues[0]?.message ?? "Invalid request" }, { status: 400 });
   }
   try {
-    const analysis = await analyzeMatch(parsed.data.cv, parsed.data.job, process.env, request.signal);
+    const analysis = await analyzeMatch(parsed.data, process.env, request.signal);
     return Response.json(analysis);
   } catch (error) {
     const aiError = toAiError(error);
