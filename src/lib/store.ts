@@ -248,7 +248,18 @@ export function useSavedJobs() {
     [setSaved],
   );
 
-  return { saved, saveJob, updateJob, removeJob };
+  const removeJobs = useCallback(
+    (ids: string[]) => {
+      setSaved((previous) => {
+        const next = { ...previous };
+        for (const id of ids) delete next[id];
+        return next;
+      });
+    },
+    [setSaved],
+  );
+
+  return { saved, saveJob, updateJob, removeJob, removeJobs };
 }
 
 export function newId(): string {
