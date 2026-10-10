@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "JobScratch – Send job",
+  "version": "0.1.0",
+  "description": "Send the job you're viewing (LinkedIn, Indeed, Glassdoor or any careers page) to your JobScratch app.",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "action": {
+    "default_title": "Send this job to JobScratch",
+    "default_popup": "popup.html"
+  }
+}

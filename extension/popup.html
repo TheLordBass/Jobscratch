@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>JobScratch</title>
+    <style>
+      :root { color-scheme: light dark; --accent: #4f46e5; }
+      body { font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; margin: 0; padding: 14px; width: 300px; }
+      h1 { font-size: 15px; margin: 0 0 4px; }
+      p { margin: 0 0 12px; color: GrayText; font-size: 12.5px; }
+      button { width: 100%; padding: 9px 12px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+      button:disabled { opacity: 0.6; cursor: progress; }
+      label { display: block; margin-top: 14px; font-size: 12px; color: GrayText; }
+      input { width: 100%; box-sizing: border-box; margin-top: 4px; padding: 6px 8px; border: 1px solid #8884; border-radius: 6px; font: inherit; background: transparent; color: inherit; }
+      #status { margin-top: 10px; font-size: 12.5px; min-height: 1em; }
+      #status.error { color: #dc2626; }
+    </style>
+  </head>
+  <body>
+    <h1>Send this job to JobScratch</h1>
+    <p>Open a job posting, then click below. Tip: if the description isn't picked up, select it on the page first.</p>
+    <button id="send">Send job</button>
+    <div id="status" role="status"></div>
+    <label for="appUrl">JobScratch address</label>
+    <input id="appUrl" type="url" placeholder="http://localhost:3000" />
+    <script src="popup.js"></script>
+  </body>
+</html>
