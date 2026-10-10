@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState, type ChangeEvent, type DragEvent } from "react";
+import { ProfileLinks } from "@/components/ProfileLinks";
 import { useCv, useHydrated } from "@/lib/store";
 
 export function CvView() {
@@ -141,6 +142,8 @@ export function CvView() {
           )}
         </div>
       </div>
+
+      <ProfileLinks />
     </div>
   );
 }

@@ -28,7 +28,9 @@ afterAll(() => {
   else process.env.ANTHROPIC_API_KEY = originalKey;
 });
 
-beforeEach(() => fetchMock.mockReset());
+beforeEach(() => {
+  fetchMock.mockReset();
+});
 
 function sse(events: object[]): Response {
   const body = events.map((e) => `event: ${(e as { type: string }).type}\ndata: ${JSON.stringify(e)}\n\n`).join("");
@@ -81,7 +83,7 @@ function lastRequest() {
 describe("streamDocument", () => {
   it("streams a tailored CV with the right request shape", async () => {
     fetchMock.mockResolvedValueOnce(streamOf(["# Jane Doe\n", "Tailored CV"]));
-    const events = await collect(streamDocument("cv", CV, JOB, OPTIONS, ENV));
+    const events = await collect(streamDocument("cv", { cv: CV, job: JOB }, OPTIONS, ENV));
 
     expect(events).toEqual([
       { type: "thinking", text: "Matching skills…" },
@@ -112,7 +114,7 @@ describe("streamDocument", () => {
 
   it("uses the cover-letter prompt and a lower effort", async () => {
     fetchMock.mockResolvedValueOnce(streamOf(["Dear hiring team"]));
-    await collect(streamDocument("cover-letter", CV, JOB, { ...OPTIONS, extraInstructions: "Mention I can start in May" }, ENV));
+    await collect(streamDocument("cover-letter", { cv: CV, job: JOB }, { ...OPTIONS, extraInstructions: "Mention I can start in May" }, ENV));
     const { body } = lastRequest();
     expect(body.output_config).toEqual({ effort: "medium" });
     expect(body.messages[0].content[1].text).toContain("cover letter");
@@ -121,11 +123,11 @@ describe("streamDocument", () => {
 
   it("reports refusals and truncation as errors", async () => {
     fetchMock.mockResolvedValueOnce(streamOf(["partial"], "refusal"));
-    const refused = await collect(streamDocument("cv", CV, JOB, OPTIONS, ENV));
+    const refused = await collect(streamDocument("cv", { cv: CV, job: JOB }, OPTIONS, ENV));
     expect(refused.at(-1)).toMatchObject({ type: "error", status: 422 });
 
     fetchMock.mockResolvedValueOnce(streamOf(["partial"], "max_tokens"));
-    const truncated = await collect(streamDocument("cv", CV, JOB, OPTIONS, ENV));
+    const truncated = await collect(streamDocument("cv", { cv: CV, job: JOB }, OPTIONS, ENV));
     expect(truncated.at(-1)).toMatchObject({ type: "error", message: expect.stringContaining("cut off") });
   });
 
@@ -136,23 +138,63 @@ describe("streamDocument", () => {
         { status: 401 },
       ),
     );
-    const events = await collect(streamDocument("cv", CV, JOB, OPTIONS, ENV));
+    const events = await collect(streamDocument("cv", { cv: CV, job: JOB }, OPTIONS, ENV));
     expect(events).toEqual([
       { type: "error", status: 401, message: "Anthropic rejected the API key. Check ANTHROPIC_API_KEY." },
     ]);
   });
 
   it("explains a missing API key without calling the API", async () => {
-    const events = await collect(streamDocument("cv", CV, JOB, OPTIONS, {}));
+    const events = await collect(streamDocument("cv", { cv: CV, job: JOB }, OPTIONS, {}));
     expect(events[0]).toMatchObject({ type: "error", status: 503 });
     expect(fetchMock).not.toHaveBeenCalled();
     expect(isAiConfigured({})).toBe(false);
   });
 
+  it("passes the candidate's website and GitHub to Claude when given", async () => {
+    fetchMock.mockResolvedValueOnce(streamOf(["ok"]));
+    const profile = {
+      website: "https://jane.dev",
+      github: "https://github.com/janedoe",
+      evidence: "## GitHub (https://github.com/janedoe)\n- sales-dashboard: Power BI and Python sales dashboard",
+    };
+    await collect(streamDocument("cv", { cv: CV, job: JOB, profile }, OPTIONS, ENV));
+    const { body } = lastRequest();
+    const [materials, instruction] = body.messages[0].content;
+    expect(materials.text).toContain("<candidate_links>\nWebsite: https://jane.dev\nGitHub: https://github.com/janedoe\n</candidate_links>");
+    expect(materials.text).toContain("<online_profile>");
+    expect(materials.text).toContain("sales-dashboard: Power BI and Python sales dashboard");
+    // The profile sits inside the cached prefix, before the job.
+    expect(materials.text.indexOf("<online_profile>")).toBeLessThan(materials.text.indexOf("<job_posting>"));
+    expect(instruction.text).toContain('"Projects" section');
+    expect(instruction.text).toContain("website and GitHub links from candidate_links");
+    expect(body.system).toContain("never as paid work experience");
+  });
+
+  it("leaves profile sections out when there is no profile", async () => {
+    fetchMock.mockResolvedValueOnce(streamOf(["ok"]));
+    await collect(
+      streamDocument("cv", { cv: CV, job: JOB, profile: { website: "", github: "", evidence: " " } }, OPTIONS, ENV),
+    );
+    const [materials, instruction] = lastRequest().body.messages[0].content;
+    expect(materials.text).not.toContain("<candidate_links>");
+    expect(materials.text).not.toContain("<online_profile>");
+    expect(instruction.text).not.toContain("Projects");
+  });
+
+  it("doesn't ask for a fallback on Haiku, which has none", async () => {
+    fetchMock.mockResolvedValueOnce(streamOf(["ok"]));
+    await collect(streamDocument("cv", { cv: CV, job: JOB }, OPTIONS, { ...ENV, ANTHROPIC_MODEL: "claude-haiku-5-5" }));
+    const { headers, body } = lastRequest();
+    expect(body.model).toBe("claude-haiku-5-5");
+    expect(body.fallbacks).toBeUndefined();
+    expect(headers.get("anthropic-beta") ?? "").not.toContain("server-side-fallback");
+  });
+
   it("can turn off fallbacks and switch model", async () => {
     fetchMock.mockResolvedValueOnce(streamOf(["ok"]));
     await collect(
-      streamDocument("cv", CV, JOB, OPTIONS, { ...ENV, ANTHROPIC_MODEL: "claude-sonnet-5-5", ANTHROPIC_FALLBACKS: "off" }),
+      streamDocument("cv", { cv: CV, job: JOB }, OPTIONS, { ...ENV, ANTHROPIC_MODEL: "claude-sonnet-5-5", ANTHROPIC_FALLBACKS: "off" }),
     );
     const { headers, body } = lastRequest();
     expect(body.model).toBe("claude-sonnet-5-5");
@@ -185,7 +227,7 @@ describe("analyzeMatch", () => {
         usage: { input_tokens: 10, output_tokens: 10 },
       }),
     );
-    const result = await analyzeMatch(CV, JOB, ENV);
+    const result = await analyzeMatch({ cv: CV, job: JOB }, ENV);
     expect(result.matchScore).toBe(100);
     expect(result.keywordsMissing).toEqual(["stakeholder management"]);
 
@@ -193,6 +235,28 @@ describe("analyzeMatch", () => {
     expect(body.output_config.effort).toBe("medium");
     expect(body.output_config.format.type).toBe("json_schema");
     expect(Object.keys(body.output_config.format.schema.properties)).toEqual(Object.keys(analysis));
+  });
+
+  it("uses the online profile in the match analysis", async () => {
+    fetchMock.mockResolvedValueOnce(
+      Response.json({
+        id: "msg_4",
+        type: "message",
+        role: "assistant",
+        model: "claude-opus-5-5",
+        content: [{ type: "text", text: JSON.stringify(analysis) }],
+        stop_reason: "end_turn",
+        stop_sequence: null,
+        usage: { input_tokens: 10, output_tokens: 10 },
+      }),
+    );
+    await analyzeMatch(
+      { cv: CV, job: JOB, profile: { website: "", github: "janedoe", evidence: "## GitHub\n- etl-pipeline" } },
+      ENV,
+    );
+    const [materials, instruction] = lastRequest().body.messages[0].content;
+    expect(materials.text).toContain("etl-pipeline");
+    expect(instruction.text).toContain("where it comes from (CV, website or GitHub)");
   });
 
   it("throws a friendly error on refusal", async () => {
@@ -209,6 +273,6 @@ describe("analyzeMatch", () => {
         usage: { input_tokens: 10, output_tokens: 0 },
       }),
     );
-    await expect(analyzeMatch(CV, JOB, ENV)).rejects.toMatchObject({ status: 422 });
+    await expect(analyzeMatch({ cv: CV, job: JOB }, ENV)).rejects.toMatchObject({ status: 422 });
   });
 });

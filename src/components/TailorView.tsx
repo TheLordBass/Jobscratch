@@ -10,7 +10,7 @@ import type { MatchAnalysis, TailorOptions } from "@/lib/ai/prompts";
 import { markdownToDocx } from "@/lib/export-docx";
 import { downloadBlob, slugify } from "@/lib/format";
 import { inlinesToText, parseMarkdown, printableHtml } from "@/lib/markdown";
-import { useCv, useHydrated, useSavedJobs, useSettings, useTailored, type TailoredDocs } from "@/lib/store";
+import { useCv, useHydrated, useProfile, useSavedJobs, useSettings, useTailored, type TailoredDocs } from "@/lib/store";
 import type { Job } from "@/lib/types";
 
 type DocKind = "cv" | "coverLetter";
@@ -270,6 +270,7 @@ function DocumentPanel({
 
 function TailorWorkspace({ job }: { job: Job }) {
   const [cv] = useCv();
+  const [profile] = useProfile();
   const [settings, setSettings] = useSettings();
   const [tailored, setTailored] = useTailored();
   const sources = useSources();
@@ -301,6 +302,15 @@ function TailorWorkspace({ job }: { job: Job }) {
   const setOptions = (patch: Partial<TailorOptions>) =>
     setSettings({ ...settings, tailor: { ...settings.tailor, ...patch } });
 
+  const hasLinks = Boolean(profile.website.trim() || profile.github.trim() || profile.evidence.trim());
+  const profileSources =
+    [profile.website.trim() && "website", profile.github.trim() && "GitHub"].filter(Boolean).join(" and ") ||
+    "website and GitHub details";
+  const payloadProfile =
+    hasLinks && profile.enabled
+      ? { website: profile.website.trim(), github: profile.github.trim(), evidence: profile.evidence.slice(0, 24_000) }
+      : undefined;
+
   const payloadJob = {
     title: job.title,
     company: job.company,
@@ -316,7 +326,7 @@ function TailorWorkspace({ job }: { job: Job }) {
       const response = await fetch("/api/tailor/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cv: cvText, job: payloadJob }),
+        body: JSON.stringify({ cv: cvText, job: payloadJob, profile: payloadProfile }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Analysis failed");
@@ -341,7 +351,13 @@ function TailorWorkspace({ job }: { job: Job }) {
       const response = await fetch("/api/tailor/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kind: kind === "cv" ? "cv" : "cover-letter", cv: cvText, job: payloadJob, options }),
+        body: JSON.stringify({
+          kind: kind === "cv" ? "cv" : "cover-letter",
+          cv: cvText,
+          job: payloadJob,
+          profile: payloadProfile,
+          options,
+        }),
         signal: controller.signal,
       });
       if (!response.ok || !response.body) {
@@ -428,9 +444,25 @@ function TailorWorkspace({ job }: { job: Job }) {
               </Link>
             </div>
             {cv ? (
-              <p className="muted text-xs">
-                {cv.fileName ?? "Pasted CV"} · {cvText.trim().split(/\s+/).length} words
-              </p>
+              <>
+                <p className="muted text-xs">
+                  {cv.fileName ?? "Pasted CV"} · {cvText.trim().split(/\s+/).length} words
+                </p>
+                <p className="muted text-xs">
+                  {payloadProfile ? (
+                    <>
+                      Also using your {profileSources}
+                      {!profile.evidence.trim() && " links (details not fetched yet)"}.
+                    </>
+                  ) : hasLinks ? (
+                    "Your website and GitHub are turned off for tailoring."
+                  ) : (
+                    <Link href="/cv" className="link">
+                      Add your website or GitHub
+                    </Link>
+                  )}
+                </p>
+              </>
             ) : (
               <p className="text-sm text-amber-700 dark:text-amber-300">
                 Add your CV first. <Link href="/cv" className="link">Upload or paste it</Link>.
