@@ -2,9 +2,12 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { JobCard } from "@/components/JobCard";
 import { FIND_TABS, SectionTabs } from "@/components/Nav";
+import { formatPosted } from "@/lib/format";
 import { buildBookmarklet, payloadToJob, readImportHash, type ImportPayload } from "@/lib/import";
+import { parseJobspyFile, type JobspyImport } from "@/lib/jobspy";
 import { useSavedJobs } from "@/lib/store";
 
 type Extract = (doc: Document, href: string) => ImportPayload;
@@ -57,6 +60,90 @@ function Bookmarklet() {
     >
       ➕ Send to JobScratch
     </a>
+  );
+}
+
+/** Loads a results file from scripts/jobspy/search.py, which the user runs on their own computer. */
+function JobspyImporter() {
+  const router = useRouter();
+  const { saved, saveJob, removeJob } = useSavedJobs();
+  const [result, setResult] = useState<JobspyImport | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  async function load(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setError(null);
+    try {
+      setResult(parseJobspyFile(await file.text()));
+    } catch (err) {
+      setResult(null);
+      setError((err as Error).message);
+    }
+  }
+
+  const unsaved = result?.jobs.filter((job) => !saved[job.id]) ?? [];
+
+  return (
+    <section className="card space-y-3 p-4" aria-labelledby="jobspy-title">
+      <div>
+        <h2 id="jobspy-title" className="flex items-center gap-2 font-semibold">
+          From JobSpy
+          <span className="chip bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-200">Unofficial</span>
+        </h2>
+        <p className="muted text-sm">
+          Load the results of the JobSpy script, which searches LinkedIn, Indeed, Glassdoor and Google Jobs from your
+          own computer. Those sites don’t allow scraping, so use it at your own risk. The README explains how to run it.
+        </p>
+      </div>
+      <label className="btn btn-secondary">
+        Choose results file
+        <input type="file" accept=".json,application/json" className="sr-only" onChange={load} />
+      </label>
+      {error && (
+        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
+          {error}
+        </p>
+      )}
+      {result && (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2" role="status">
+            <p className="text-sm">
+              <strong>{result.jobs.length}</strong> jobs{result.query && ` for “${result.query}”`}
+              {result.createdAt && <span className="muted">, found {formatPosted(result.createdAt)}</span>}
+              {result.skipped > 0 && <span className="muted"> ({result.skipped} without a title or link left out)</span>}
+            </p>
+            {unsaved.length > 0 && (
+              <button type="button" className="btn btn-secondary btn-sm ml-auto" onClick={() => unsaved.forEach((job) => saveJob(job))}>
+                Save all ({unsaved.length})
+              </button>
+            )}
+          </div>
+          {result.jobs.map((job) => (
+            <JobCard
+              key={job.id}
+              job={job}
+              status={saved[job.id]?.status}
+              expanded={expanded === job.id}
+              onToggle={() => setExpanded(expanded === job.id ? null : job.id)}
+              onSave={() => {
+                const entry = saved[job.id];
+                if (!entry) saveJob(job);
+                else if (entry.status === "saved" || window.confirm(`Remove this job? It's marked “${entry.status}”.`)) {
+                  removeJob(job.id);
+                }
+              }}
+              onTailor={() => {
+                saveJob(job);
+                router.push(`/tailor?job=${encodeURIComponent(job.id)}`);
+              }}
+            />
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -269,6 +356,8 @@ export function ImportView() {
           </div>
         </div>
       </section>
+
+      <JobspyImporter />
 
       <section id="paste" className="card flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
         <div className="flex-1">

@@ -44,3 +44,7 @@ next-env.d.ts
 # Personal Claude Code settings
 .claude/settings.local.json
 .claude/launch.json
+
+# JobSpy results (scripts/jobspy/search.py)
+jobspy-results*.json
+scripts/jobspy/.venv/

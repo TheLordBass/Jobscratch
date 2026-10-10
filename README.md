@@ -48,12 +48,27 @@ These sites don't offer a public jobs API, and their terms forbid automated scra
 
 1. **In search results**: the two Google for Jobs sources above return listings that are on LinkedIn, Indeed and Glassdoor, with links to apply there.
 2. **One job at a time, from your browser**: open a job on LinkedIn (or anywhere) and click **Send to JobScratch**. The job's title, company, location, description and link are read from the page you're looking at and opened in JobScratch, ready to save and tailor your CV to. Nothing runs in the background, and nothing is fetched by the server.
-   - **Bookmarklet** (any browser): drag the button on the **Import** page to your bookmarks bar.
+   - **Bookmarklet** (any browser): drag the button on the **Add a job** page to your bookmarks bar.
    - **Extension** (Chrome, Edge, Brave): see [`extension/README.md`](extension/README.md).
 
    If LinkedIn changes its layout and the description doesn't come through, select the description text on the page before clicking. Selected text always wins.
 
-You can also paste a link to a job on a company careers page (Greenhouse, Lever, Workday, Ashby…) on the **Import** page, or type a job in by hand.
+You can also paste a link to a job on a company careers page (Greenhouse, Lever, Workday, Ashby…) on the **Add a job** page, or type a job in by hand.
+
+### JobSpy (unofficial, on your own computer)
+
+[JobSpy](https://github.com/speedyapply/JobSpy) searches LinkedIn, Indeed, Glassdoor, Google Jobs and ZipRecruiter by scraping them. Those sites' terms forbid that, so the app never runs it. If you choose to, you can run it yourself and load the results:
+
+```bash
+pip install -r scripts/jobspy/requirements.txt
+python scripts/jobspy/search.py "data analyst" --location London
+```
+
+Then, in JobScratch, go to **Find jobs → Add a job → From JobSpy** and choose the `jobspy-results.json` file it wrote. Save the jobs you want, or tailor your CV to one straight away.
+
+Options: `--sites indeed linkedin glassdoor google zip_recruiter` (default: Indeed and LinkedIn; Google often returns nothing, and the app already has Google Jobs through SerpApi), `--results 25` per site, `--hours 72` for recent jobs only, `--remote`, `--country usa` for Indeed and Glassdoor outside the UK, and `--linkedin-descriptions` for full LinkedIn descriptions (slower). Run `python scripts/jobspy/search.py --help` for the full list.
+
+Expect sites to block it from time to time, LinkedIn especially, after a page or two. Running it from a home connection works best. You'll need Python 3.10 or newer.
 
 ## AI CV tailoring
 
