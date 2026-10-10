@@ -1,8 +1,8 @@
 import { SOURCES, SOURCE_BY_ID, missingEnvKeys } from "@/lib/sources";
 import type { JobSource, SearchContext } from "@/lib/sources/types";
+import { locationMatches } from "@/lib/location";
 import {
   isExcluded,
-  locationMatches,
   matchesAnyKeyword,
   normalizeForMatch,
   relevanceScore,
@@ -122,7 +122,11 @@ export async function runSearch(request: SearchRequest, options: RunSearchOption
         .filter(
           (job) =>
             source.locationSearch ||
-            locationMatches(job.location, job.remote, query.location, query.includeRemoteAnywhere),
+            locationMatches(job, {
+              query: query.location,
+              country: query.country,
+              includeRemoteAnywhere: query.includeRemoteAnywhere,
+            }),
         )
         .filter((job) => !cutoff || !job.postedAt || Date.parse(job.postedAt) >= cutoff)
         .slice(0, MAX_JOBS_PER_SOURCE)

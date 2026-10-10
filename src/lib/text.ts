@@ -144,40 +144,6 @@ export function relevanceScore(job: MatchableJob, keywords: string[]): number {
   return score;
 }
 
-const LOCATION_ALIASES: Record<string, string[]> = {
-  uk: ["united kingdom", "england", "scotland", "wales", "northern ireland", "great britain", "gb", "britain"],
-  "united kingdom": ["uk", "england", "scotland", "wales", "northern ireland", "great britain", "gb", "britain"],
-  england: ["uk", "united kingdom"],
-  us: ["united states", "usa", "u s", "america"],
-  usa: ["united states", "us", "u s", "america"],
-  "united states": ["us", "usa", "america"],
-  uae: ["united arab emirates", "dubai", "abu dhabi"],
-  eu: ["europe", "emea"],
-  europe: ["eu", "emea"],
-};
-
-const ANYWHERE = /\b(worldwide|anywhere|global|remote)\b/;
-
-/**
- * Lenient location match. `includeRemoteAnywhere` keeps remote jobs whose
- * stated region doesn't mention the searched location.
- */
-export function locationMatches(
-  jobLocation: string,
-  remote: boolean,
-  query: string | undefined,
-  includeRemoteAnywhere: boolean,
-): boolean {
-  const wanted = normalizeForMatch(query ?? "");
-  if (!wanted) return true;
-  const location = normalizeForMatch(jobLocation);
-  if (remote && includeRemoteAnywhere) return true;
-  const candidates = [wanted, ...(LOCATION_ALIASES[wanted] ?? [])];
-  if (candidates.some((candidate) => containsPhrase(location, candidate))) return true;
-  // A worldwide remote role is open to the searched location too.
-  return remote && ANYWHERE.test(location) && !/\bonly\b/.test(location);
-}
-
 /** Parse Google-style relative dates ("3 days ago", "1 hour ago") into ISO. */
 export function parseRelativeDate(text: string | undefined, now = new Date()): string | undefined {
   if (!text) return undefined;
