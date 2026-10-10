@@ -3,10 +3,23 @@ import {
   htmlToText,
   isExcluded,
   matchesKeyword,
+  removeComments,
+  removeElements,
   parseRelativeDate,
   relevanceScore,
   toIsoDate,
 } from "@/lib/text";
+
+describe("removeElements and removeComments", () => {
+  it("removes whole elements and comments, leaving unclosed tags alone", () => {
+    expect(removeElements("a<nav class=x>menu</nav>b<NAV>more</NAV>c<nav>open", ["nav"])).toBe("a b c<nav>open");
+    expect(removeComments("a<!-- x -->b<!-- never closed")).toBe("a b ");
+  });
+
+  it("keeps positions right after characters that change length when lower-cased", () => {
+    expect(removeElements("İİ<nav>menu</nav>ok", ["nav"])).toBe("İİ ok");
+  });
+});
 
 describe("htmlToText", () => {
   it("keeps paragraphs and bullets", () => {

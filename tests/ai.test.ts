@@ -168,7 +168,17 @@ describe("streamDocument", () => {
     expect(materials.text.indexOf("<online_profile>")).toBeLessThan(materials.text.indexOf("<job_posting>"));
     expect(instruction.text).toContain('"Projects" section');
     expect(instruction.text).toContain("website and GitHub links from candidate_links");
+    expect(instruction.text).toContain("Embed every web address as a Markdown link");
+    expect(instruction.text).toContain("never guess or construct one");
     expect(body.system).toContain("never as paid work experience");
+  });
+
+  it("gives Claude full addresses to link to", async () => {
+    fetchMock.mockResolvedValueOnce(streamOf(["ok"]));
+    const profile = { website: "jane.dev", github: "@janedoe", evidence: "" };
+    await collect(streamDocument("cv", { cv: CV, job: JOB, profile }, OPTIONS, ENV));
+    const [materials] = lastRequest().body.messages[0].content;
+    expect(materials.text).toContain("Website: https://jane.dev\nGitHub: https://github.com/janedoe\n");
   });
 
   it("leaves profile sections out when there is no profile", async () => {

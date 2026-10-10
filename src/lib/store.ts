@@ -43,6 +43,8 @@ export interface StoredProfile {
   /** Whether to send these to Claude when tailoring and matching. */
   enabled: boolean;
   fetchedAt?: string;
+  /** The links `evidence` was read from, to spot when they've been changed since. */
+  fetchedFor?: { website: string; github: string };
 }
 
 export interface Settings {

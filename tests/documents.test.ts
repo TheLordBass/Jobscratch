@@ -50,6 +50,11 @@ describe("parseMarkdown", () => {
       { text: "italic", italic: true },
       { text: " and snake_case_name" },
     ]);
+    expect(parseInline("**[Sales dashboard](https://x.dev)** and [*Blog*](https://b.dev)")).toEqual([
+      { text: "Sales dashboard", bold: true, href: "https://x.dev" },
+      { text: " and " },
+      { text: "Blog", italic: true, href: "https://b.dev" },
+    ]);
     const html = blocksToHtml(parseMarkdown(CV));
     expect(html).toContain('<a href="https://jane.example">my site</a>');
     expect(html).not.toContain("javascript:");

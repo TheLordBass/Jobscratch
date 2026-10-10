@@ -1,27 +1,18 @@
-import { tidyText, truncate } from "@/lib/text";
+import { readCapped } from "@/lib/safe-fetch";
+import { removeComments, tidyText, truncate } from "@/lib/text";
 import { ProfileError } from "./errors";
+import { parseGithubUsername } from "./links";
+
+export { parseGithubUsername } from "./links";
 
 const API = "https://api.github.com";
-const USERNAME = /^[a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38}$/i;
 const MAX_REPOS_LISTED = 12;
 const MAX_READMES = 4;
 const README_EXCERPT = 900;
-
-/** Accepts "octocat", "@octocat", "github.com/octocat" or "https://github.com/octocat/repo". */
-export function parseGithubUsername(input: string): string | undefined {
-  let value = input.trim().replace(/^@/, "");
-  if (!value) return undefined;
-  if (/github\.com/i.test(value)) {
-    try {
-      const url = new URL(/^https?:\/\//i.test(value) ? value : `https://${value}`);
-      if (!/(^|\.)github\.com$/i.test(url.hostname)) return undefined;
-      value = url.pathname.split("/").filter(Boolean)[0] ?? "";
-    } catch {
-      return undefined;
-    }
-  }
-  return USERNAME.test(value) ? value : undefined;
-}
+/** Only the start of a README is used, so don't read (or process) more than this. */
+const README_BYTES = 100_000;
+/** GitHub lists 100 repositories per page. */
+const MAX_REPO_PAGES = 5;
 
 interface GithubUser {
   login: string;
@@ -89,16 +80,40 @@ async function githubFetch(path: string, options: Options, accept?: string): Pro
 
 /** Turn a README into a short plain-text excerpt: no code, images, badges or HTML. */
 export function readmeExcerpt(markdown: string): string {
-  const text = markdown
-    .replace(/```[\s\S]*?```/g, " ")
-    .replace(/<!--[\s\S]*?-->/g, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/^\s*#+\s*/gm, "")
-    .replace(/^\s*[-*+]\s+/gm, "• ")
-    .replace(/[*_`>]/g, "");
+  // Bounded patterns throughout, so a hostile README can't make this slow.
+  const text = removeComments(removeCodeBlocks(markdown))
+    // Only real tags: the "< 50ms … >" in "latency < 50ms, Python >= 3.10" isn't one.
+    .replace(/<\/?[a-z][^<>]{0,2000}>/gi, " ")
+    .replace(/!\[[^\]\n]{0,500}\]\([^)\n]{0,2000}\)/g, " ")
+    .replace(/\[([^\]\n]{0,500})\]\([^)\n]{0,2000}\)/g, "$1")
+    .replace(/^[ \t]*#+[ \t]*/gm, "")
+    .replace(/^[ \t]*>[ \t]?/gm, "")
+    .replace(/^[ \t]*[-*+][ \t]+/gm, "• ")
+    // Inline code is kept as written; emphasis markers go everywhere else.
+    .split(/(`[^`\n]{0,500}`)/)
+    .map((part, i) => (i % 2 ? part.slice(1, -1) : removeEmphasis(part)))
+    .join("");
   return truncate(tidyText(text).replace(/\n{2,}/g, "\n"), README_EXCERPT);
+}
+
+/** Drop fenced code blocks (an unclosed fence runs to the end). */
+function removeCodeBlocks(markdown: string): string {
+  let inFence = false;
+  return markdown
+    .split("\n")
+    .filter((line) => {
+      if (/^[ \t]*(```|~~~)/.test(line)) {
+        inFence = !inFence;
+        return false;
+      }
+      return !inFence;
+    })
+    .join("\n");
+}
+
+/** Remove **bold** / _italic_ markers, but not the underscores in names like great_expectations. */
+function removeEmphasis(text: string): string {
+  return text.replace(/(?<![\w*])(\*{1,3}|_{1,3})(?=\S)|(?<=\S)(\*{1,3}|_{1,3})(?![\w*])/g, "").replace(/`/g, "");
 }
 
 function rankRepos(repos: GithubRepo[]): GithubRepo[] {
@@ -131,16 +146,26 @@ export async function fetchGithubProfile(input: string, options: Options = {}): 
   if (!userResponse.ok) throw new ProfileError(`GitHub returned HTTP ${userResponse.status}.`);
   const user = (await userResponse.json()) as GithubUser;
 
-  const reposResponse = await githubFetch(`/users/${user.login}/repos?per_page=100&sort=pushed&type=owner`, options);
-  if (!reposResponse.ok) throw new ProfileError(`GitHub returned HTTP ${reposResponse.status} for the repository list.`);
-  const own = rankRepos((await reposResponse.json()) as GithubRepo[]);
+  const pageCount = Math.min(MAX_REPO_PAGES, Math.max(1, Math.ceil((user.public_repos ?? 0) / 100)));
+  const repoPages = await Promise.all(
+    Array.from({ length: pageCount }, async (_, i) => {
+      const response = await githubFetch(
+        `/users/${user.login}/repos?per_page=100&sort=pushed&type=owner&page=${i + 1}`,
+        options,
+      );
+      if (!response.ok) throw new ProfileError(`GitHub returned HTTP ${response.status} for the repository list.`);
+      return (await response.json()) as GithubRepo[];
+    }),
+  );
+  const own = rankRepos(repoPages.flat());
+  const checkedAll = (user.public_repos ?? 0) <= pageCount * 100;
   const listed = own.slice(0, MAX_REPOS_LISTED);
 
   const readmes = await Promise.all(
     listed.slice(0, MAX_READMES).map(async (repo) => {
       try {
         const response = await githubFetch(`/repos/${repo.full_name}/readme`, options, "application/vnd.github.raw+json");
-        return response.ok ? readmeExcerpt(await response.text()) : "";
+        return response.ok ? readmeExcerpt(await readCapped(response, README_BYTES)) : "";
       } catch {
         return "";
       }
@@ -156,7 +181,7 @@ export async function fetchGithubProfile(input: string, options: Options = {}): 
       user.location && `Location: ${user.location}`,
       user.blog && `Website: ${user.blog}`,
     ].filter(Boolean),
-    `Own public repositories: ${own.length}`,
+    `Own public repositories: ${own.length}${checkedAll ? "" : ` (among the ${pageCount * 100} most recently updated)`}`,
   ];
   const languages = languageSummary(own);
   if (languages) lines.push(`Main languages: ${languages}`);

@@ -1,12 +1,13 @@
 import { z } from "zod";
 import { buildProfile } from "@/lib/profile";
+import { MAX_GITHUB_LENGTH, MAX_WEBSITE_LENGTH } from "@/lib/profile/links";
 
 export const maxDuration = 60;
 
 const Body = z
   .object({
-    website: z.string().max(500).optional(),
-    github: z.string().max(200).optional(),
+    website: z.string().max(MAX_WEBSITE_LENGTH, "That website link is too long").optional(),
+    github: z.string().max(MAX_GITHUB_LENGTH, "That GitHub link is too long").optional(),
   })
   .refine((body) => Boolean(body.website?.trim() || body.github?.trim()), "Add a website or a GitHub profile");
 

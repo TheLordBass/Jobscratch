@@ -8,6 +8,7 @@ import { MarkdownView } from "@/components/MarkdownView";
 import { useSources } from "@/components/useSources";
 import type { MatchAnalysis, TailorOptions } from "@/lib/ai/prompts";
 import { markdownToDocx } from "@/lib/export-docx";
+import { MAX_EVIDENCE_CHARS, MAX_GITHUB_LENGTH, MAX_WEBSITE_LENGTH, linksChanged } from "@/lib/profile/links";
 import { downloadBlob, slugify } from "@/lib/format";
 import { inlinesToText, parseMarkdown, printableHtml } from "@/lib/markdown";
 import { useCv, useHydrated, useProfile, useSavedJobs, useSettings, useTailored, type TailoredDocs } from "@/lib/store";
@@ -318,10 +319,13 @@ function TailorWorkspace({ job }: { job: Job }) {
   const profileSources =
     [profile.website.trim() && "website", profile.github.trim() && "GitHub"].filter(Boolean).join(" and ") ||
     "website and GitHub details";
-  const payloadProfile =
-    hasLinks && profile.enabled
-      ? { website: profile.website.trim(), github: profile.github.trim(), evidence: profile.evidence.slice(0, 24_000) }
-      : undefined;
+  // A link too long for the API is left out rather than failing every request.
+  const website = profile.website.trim().length <= MAX_WEBSITE_LENGTH ? profile.website.trim() : "";
+  const github = profile.github.trim().length <= MAX_GITHUB_LENGTH ? profile.github.trim() : "";
+  // Details fetched for links that have since changed would describe the wrong site or account.
+  const staleDetails = Boolean(profile.evidence.trim()) && linksChanged(profile, profile.fetchedFor);
+  const evidence = staleDetails ? "" : profile.evidence.trim().slice(0, MAX_EVIDENCE_CHARS);
+  const payloadProfile = profile.enabled && (website || github || evidence) ? { website, github, evidence } : undefined;
 
   const payloadJob = {
     title: job.title,
@@ -464,7 +468,10 @@ function TailorWorkspace({ job }: { job: Job }) {
                   {payloadProfile ? (
                     <>
                       Also using your {profileSources}
-                      {!profile.evidence.trim() && " links (details not fetched yet)"}.
+                      {staleDetails
+                        ? " links. Their details are out of date, so fetch them again on My CV"
+                        : !payloadProfile.evidence && " links (details not fetched yet)"}
+                      .
                     </>
                   ) : hasLinks ? (
                     "Your website and GitHub are turned off for tailoring."

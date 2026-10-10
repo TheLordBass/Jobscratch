@@ -25,12 +25,13 @@ export function parseInline(text: string): Inline[] {
   let last = 0;
   for (const match of text.matchAll(INLINE)) {
     if (match.index > last) out.push({ text: text.slice(last, match.index) });
-    if (match[2] !== undefined) out.push({ text: match[2], bold: true });
-    else if (match[3] !== undefined) out.push({ text: match[3], italic: true });
-    else if (match[4] !== undefined) out.push({ text: match[4], italic: true });
+    // Bold, italic and link text can contain each other: **[Project](https://…)**.
+    if (match[2] !== undefined) out.push(...parseInline(match[2]).map((inline) => ({ ...inline, bold: true })));
+    else if (match[3] !== undefined) out.push(...parseInline(match[3]).map((inline) => ({ ...inline, italic: true })));
+    else if (match[4] !== undefined) out.push(...parseInline(match[4]).map((inline) => ({ ...inline, italic: true })));
     else if (match[5] !== undefined) {
       const href = /^(https?:|mailto:)/i.test(match[6]) ? match[6] : undefined;
-      out.push({ text: match[5], href });
+      out.push(...parseInline(match[5]).map((inline) => ({ ...inline, href })));
     } else if (match[7] !== undefined) out.push({ text: match[7] });
     last = match.index + match[0].length;
   }
