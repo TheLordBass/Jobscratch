@@ -48,3 +48,4 @@ next-env.d.ts
 # JobSpy results (scripts/jobspy/search.py)
 jobspy-results*.json
 scripts/jobspy/.venv/
+__pycache__/
