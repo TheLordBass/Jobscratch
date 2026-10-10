@@ -2,8 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POST } from "@/app/api/profile/route";
 import { buildProfile } from "@/lib/profile";
 import { fetchGithubProfile, parseGithubUsername, readmeExcerpt } from "@/lib/profile/github";
+import { evidenceSections, linksChanged, mergeEvidence } from "@/lib/profile/links";
 import { fetchWebsiteProfile, pageText, usefulLinks } from "@/lib/profile/website";
-import type { FetchedPage } from "@/lib/safe-fetch";
+import { ImportError, type FetchedPage } from "@/lib/safe-fetch";
 
 const USER = {
   login: "janedoe",
@@ -136,6 +137,27 @@ describe("fetchGithubProfile", () => {
   it("strips markdown noise from README excerpts", () => {
     expect(readmeExcerpt("## Hi\n<img src=x>\nSee [docs](https://x.y) _now_")).toBe("Hi\nSee docs now");
   });
+
+  it("keeps comparisons, underscores and inline code intact", () => {
+    expect(
+      readmeExcerpt("Latency < 50ms on Python >= 3.10, built on great_expectations. Start in `__init__.py`.\n> **Note:** beta"),
+    ).toBe("Latency < 50ms on Python >= 3.10, built on great_expectations. Start in __init__.py.\nNote: beta");
+  });
+
+  it("reads past the first 100 repositories", async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/users/janedoe")) return Response.json({ ...USER, public_repos: 150 });
+      if (url.includes("/users/janedoe/repos")) {
+        const page = Number(new URL(url).searchParams.get("page"));
+        return Response.json(Array.from({ length: page === 1 ? 100 : 50 }, (_, i) => repo(`p${page}-r${i}`, {})));
+      }
+      return githubRoutes(url);
+    });
+    const profile = await fetchGithubProfile("janedoe");
+    expect(profile.repoCount).toBe(150);
+    expect(profile.text).toContain("Own public repositories: 150\n");
+  });
 });
 
 const SITE: Record<string, string> = {
@@ -180,6 +202,43 @@ describe("fetchWebsiteProfile", () => {
     expect(links).toEqual(["https://www.jane.dev/about", "https://www.jane.dev/projects"]);
   });
 
+  it("reads unquoted links and links with #, once each", () => {
+    const html = `<a href=/about>About</a> <a href=/about/>About me</a> <a href="/projects#top">Projects</a> <a href="#about">Skip</a>`;
+    expect(usefulLinks(html, new URL("https://jane.dev/"))).toEqual(["https://jane.dev/about", "https://jane.dev/projects"]);
+  });
+
+  it("stays inside the person's own pages on shared sites", () => {
+    const html = `<a href="/@jane/about-me">About</a> <a href="/@someone-else/projects">Projects</a> <a href="/about">About Medium</a>`;
+    expect(usefulLinks(html, new URL("https://medium.com/@jane"))).toEqual(["https://medium.com/@jane/about-me"]);
+  });
+
+  it("reads descriptions with apostrophes", async () => {
+    const profile = await fetchWebsiteProfile("https://jane.dev", async (url) => ({
+      url,
+      html: `<title>Jane</title><meta content="I'm a data analyst" name=description><main><p>Hi</p></main>`,
+    }));
+    expect(profile.text).toContain("Jane — I'm a data analyst");
+  });
+
+  it("explains when a site turns the request away, without suggesting the bookmarklet", async () => {
+    const refusing = async (): Promise<FetchedPage> => {
+      throw new ImportError("Use the bookmarklet", 502, undefined, 403);
+    };
+    await expect(fetchWebsiteProfile("https://jane.dev", refusing)).rejects.toThrow(
+      "turned JobScratch away (HTTP 403)",
+    );
+  });
+
+  it("stays quick on pages and READMEs full of unclosed tags", () => {
+    const html = "<nav <main <title <head <a href=/about <li <p ".repeat(30_000);
+    const readme = "<a [x]( ![y]( **_ `` ".repeat(30_000);
+    const started = performance.now();
+    pageText(html);
+    usefulLinks(html, new URL("https://jane.dev/"));
+    readmeExcerpt(readme);
+    expect(performance.now() - started).toBeLessThan(3000);
+  });
+
   it("prefers <main> and drops navigation and footers", () => {
     expect(pageText(SITE["https://jane.dev/"])).toBe("Jane Doe\n\nI build data tools for retail teams.");
   });
@@ -212,6 +271,7 @@ describe("buildProfile and /api/profile", () => {
     expect(result.evidence).toMatch(/^## Website \(https:\/\/1\.1\.1\.1\/\)\nPage: /);
     expect(result.evidence).toContain("Portfolio of Jane Doe");
     expect(result.evidence).toContain("## GitHub (https://github.com/janedoe)");
+    expect(result.evidence).toBe(`${result.sections.website}\n\n${result.sections.github}`);
   });
 
   it("keeps one source when the other fails", async () => {
@@ -228,5 +288,35 @@ describe("buildProfile and /api/profile", () => {
     );
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: "Add a website or a GitHub profile" });
+  });
+});
+
+describe("fetched details and the links they came from", () => {
+  const fetchedFor = { website: "jane.dev", github: "https://github.com/janedoe" };
+  const evidence = "## Website (https://jane.dev/)\nOld site\n\n## GitHub (https://github.com/janedoe)\nOld repos";
+
+  it("notices when the links have changed, ignoring how they're written", () => {
+    expect(linksChanged({ website: "https://www.jane.dev/", github: "@JaneDoe" }, fetchedFor)).toBe(false);
+    expect(linksChanged({ website: "jane.dev", github: "someone-else" }, fetchedFor)).toBe(true);
+    expect(linksChanged({ website: "", github: "janedoe" }, fetchedFor)).toBe(true);
+    expect(linksChanged({ website: "jane.dev", github: "" }, undefined)).toBe(false);
+  });
+
+  it("splits evidence into its sources", () => {
+    expect(evidenceSections(evidence)).toEqual({
+      website: "## Website (https://jane.dev/)\nOld site",
+      github: "## GitHub (https://github.com/janedoe)\nOld repos",
+    });
+  });
+
+  it("keeps a failed source's earlier text only while its link is the same", () => {
+    const newSite = "## Website (https://jane.dev/)\nNew site";
+    expect(mergeEvidence({ evidence, fetchedFor }, { website: "jane.dev", github: "janedoe" }, { website: newSite })).toBe(
+      `${newSite}\n\n## GitHub (https://github.com/janedoe)\nOld repos`,
+    );
+    expect(mergeEvidence({ evidence, fetchedFor }, { website: "jane.dev", github: "someone-else" }, { website: newSite })).toBe(
+      newSite,
+    );
+    expect(mergeEvidence({ evidence }, { website: "jane.dev", github: "janedoe" }, {})).toBe("");
   });
 });

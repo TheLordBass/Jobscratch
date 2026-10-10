@@ -16,6 +16,8 @@ export class ImportError extends Error {
     message: string,
     readonly status = 400,
     readonly blockedSite?: string,
+    /** The HTTP status when the site turned the request away (403 or 429). */
+    readonly refusedStatus?: number,
   ) {
     super(message);
     this.name = "ImportError";
@@ -138,11 +140,14 @@ export async function fetchPublicHtml(
       continue;
     }
     if (!response.ok) {
+      const refused = response.status === 403 || response.status === 429;
       throw new ImportError(
-        response.status === 403 || response.status === 429
+        refused
           ? `The site refused the request (HTTP ${response.status}). Use the bookmarklet or paste the job instead.`
           : `The site returned HTTP ${response.status}.`,
         502,
+        undefined,
+        refused ? response.status : undefined,
       );
     }
     const type = response.headers.get("content-type") ?? "";
@@ -152,7 +157,8 @@ export async function fetchPublicHtml(
   throw new ImportError("Too many redirects.", 502);
 }
 
-async function readCapped(response: Response, maxBytes: number): Promise<string> {
+/** A response body as text, stopping after `maxBytes`. */
+export async function readCapped(response: Response, maxBytes: number): Promise<string> {
   if (!response.body) return "";
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];

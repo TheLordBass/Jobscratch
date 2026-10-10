@@ -36,6 +36,60 @@ export function decodeEntities(input: string): string {
   });
 }
 
+/*
+ * The HTML helpers below avoid lazy patterns like /<nav[\s\S]*?<\/nav>/, which
+ * rescan to the end of the text for every tag that's never closed. A hostile
+ * page full of unclosed tags would otherwise tie up the server.
+ */
+
+/** Lower-case A–Z only, so positions still line up with the original ("İ".toLowerCase() is 2 characters). */
+export function asciiLower(text: string): string {
+  return text.replace(/[A-Z]+/g, (letters) => letters.toLowerCase());
+}
+
+/** Remove every `<tag …>…</tag>` for the given tag names. */
+export function removeElements(html: string, tags: string[], replacement = " "): string {
+  const lower = asciiLower(html);
+  const unclosed = new Set<string>();
+  let out = "";
+  let last = 0;
+  for (const match of lower.matchAll(new RegExp(`<(${tags.join("|")})[\\s>/]`, "g"))) {
+    const tag = match[1];
+    if (match.index < last || unclosed.has(tag)) continue;
+    const close = lower.indexOf(`</${tag}>`, match.index);
+    if (close === -1) {
+      unclosed.add(tag);
+      continue;
+    }
+    out += html.slice(last, match.index) + replacement;
+    last = close + tag.length + 3;
+  }
+  return out + html.slice(last);
+}
+
+/** The first `<tag …>…</tag>` element, if it's closed. */
+export function firstElement(html: string, tag: string): string | undefined {
+  const lower = asciiLower(html);
+  const start = lower.search(new RegExp(`<${tag}[\\s>]`));
+  if (start === -1) return undefined;
+  const close = lower.indexOf(`</${tag}>`, start);
+  return close === -1 ? undefined : html.slice(start, close + tag.length + 3);
+}
+
+/** Remove HTML comments; an unclosed one runs to the end, as in a browser. */
+export function removeComments(html: string): string {
+  let out = "";
+  let last = 0;
+  while (true) {
+    const start = html.indexOf("<!--", last);
+    if (start === -1) return out + html.slice(last);
+    out += `${html.slice(last, start)} `;
+    const end = html.indexOf("-->", start + 4);
+    if (end === -1) return out;
+    last = end + 3;
+  }
+}
+
 /**
  * Convert an HTML fragment to readable plain text, keeping paragraph breaks
  * and turning list items into bullets. Handles entity-escaped HTML
@@ -44,21 +98,19 @@ export function decodeEntities(input: string): string {
 export function htmlToText(input: string | null | undefined): string {
   if (!input) return "";
   let html = input;
-  if (/&lt;\/?[a-z]/i.test(html) && !/<\/?[a-z][^>]*>/i.test(html)) {
+  if (/&lt;\/?[a-z]/i.test(html) && !/<\/?[a-z][^<>]*>/i.test(html)) {
     html = decodeEntities(html);
   }
-  if (!/<[a-z!/][^>]*>/i.test(html)) {
+  if (!/<[a-z!/][^<>]*>/i.test(html)) {
     return tidyText(decodeEntities(html));
   }
-  const text = html
-    .replace(/<(script|style|noscript)[\s\S]*?<\/\1>/gi, "")
-    .replace(/<!--[\s\S]*?-->/g, "")
+  const text = removeComments(removeElements(html, ["script", "style", "noscript"], ""))
     .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<li[^>]*>/gi, "\n• ")
+    .replace(/<li\b[^<>]*>/gi, "\n• ")
     .replace(/<\/li>/gi, "")
     .replace(/<\/(p|div|section|article|h[1-6]|ul|ol|tr|table|blockquote|header|footer)>/gi, "\n\n")
-    .replace(/<(p|div|section|h[1-6]|ul|ol|table|blockquote)[^>]*>/gi, "\n\n")
-    .replace(/<[^>]+>/g, "");
+    .replace(/<(p|div|section|h[1-6]|ul|ol|table|blockquote)[^<>]*>/gi, "\n\n")
+    .replace(/<[^<>]+>/g, "");
   return tidyText(decodeEntities(text));
 }
 

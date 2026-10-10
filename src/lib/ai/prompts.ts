@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_EVIDENCE_CHARS, MAX_GITHUB_LENGTH, MAX_WEBSITE_LENGTH } from "@/lib/profile/links";
 
 export const CvStyleSchema = z.enum(["uk-cv", "us-resume"]);
 export const ToneSchema = z.enum(["professional", "confident", "warm", "concise"]);
@@ -25,9 +26,9 @@ export type TailorJob = z.infer<typeof TailorJobSchema>;
 
 /** The candidate's own website / GitHub, plus the text gathered from them (reviewed by the user). */
 export const CandidateProfileSchema = z.object({
-  website: z.string().max(500).default(""),
-  github: z.string().max(200).default(""),
-  evidence: z.string().max(24_000).default(""),
+  website: z.string().max(MAX_WEBSITE_LENGTH).default(""),
+  github: z.string().max(MAX_GITHUB_LENGTH).default(""),
+  evidence: z.string().max(MAX_EVIDENCE_CHARS).default(""),
 });
 
 export type CandidateProfile = z.infer<typeof CandidateProfileSchema>;
@@ -44,12 +45,12 @@ export function hasProfile(profile: CandidateProfile | undefined): profile is Ca
 }
 
 export const MatchAnalysisSchema = z.object({
-  matchScore: z.number().describe("0-100: how well the CV, as written, evidences the job's requirements"),
+  matchScore: z.number().describe("0-100: how well the candidate's materials, as written, evidence the job's requirements"),
   verdict: z.string().describe("One or two sentences summarising the fit"),
-  strengths: z.array(z.string()).describe("Strongest matches, each citing evidence from the CV"),
-  gaps: z.array(z.string()).describe("Requirements the CV doesn't evidence, most important first"),
-  keywordsPresent: z.array(z.string()).describe("Important job keywords that already appear in the CV"),
-  keywordsMissing: z.array(z.string()).describe("Important job keywords missing from the CV"),
+  strengths: z.array(z.string()).describe("Strongest matches, each citing its evidence"),
+  gaps: z.array(z.string()).describe("Requirements the candidate's materials don't evidence, most important first"),
+  keywordsPresent: z.array(z.string()).describe("Important job keywords that already appear in the CV text"),
+  keywordsMissing: z.array(z.string()).describe("Important job keywords missing from the CV text"),
   suggestions: z.array(z.string()).describe("Specific, truthful edits the candidate could make"),
 });
 
