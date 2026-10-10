@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState, type ChangeEvent, type DragEvent } from "react";
+import { PROFILE_TABS, SectionTabs } from "@/components/Nav";
 import { ProfileLinks } from "@/components/ProfileLinks";
 import { useCv, useHydrated } from "@/lib/store";
 
@@ -58,8 +59,9 @@ export function CvView() {
 
   return (
     <div className="space-y-4">
+      <SectionTabs tabs={PROFILE_TABS} />
       <div>
-        <h1 className="text-xl font-semibold">My CV</h1>
+        <h1 className="text-xl font-semibold">Your CV</h1>
         <p className="muted text-sm">
           Your master CV. JobScratch rewrites a tailored copy for each job, and this one stays as it is. It’s stored only
           in this browser.
@@ -123,8 +125,8 @@ export function CvView() {
           )}
           {cv && !dirty && (
             <>
-              <Link href="/tailor" className="btn btn-secondary">
-                ✨ Tailor it to a job
+              <Link href="/saved" className="btn btn-secondary">
+                Tailor it to a job
               </Link>
               <button
                 type="button"

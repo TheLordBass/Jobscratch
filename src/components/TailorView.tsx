@@ -3,15 +3,27 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { ApplyButton } from "@/components/JobCard";
+import { ApplyButton, OtherApplyLinks } from "@/components/JobCard";
 import { MarkdownView } from "@/components/MarkdownView";
+import { STATUS_LABEL, STATUS_STYLE, SavedView } from "@/components/SavedView";
 import { useSources } from "@/components/useSources";
 import type { MatchAnalysis, TailorOptions } from "@/lib/ai/prompts";
 import { markdownToDocx } from "@/lib/export-docx";
 import { MAX_EVIDENCE_CHARS, MAX_GITHUB_LENGTH, MAX_WEBSITE_LENGTH, linksChanged } from "@/lib/profile/links";
 import { downloadBlob, slugify } from "@/lib/format";
 import { inlinesToText, parseMarkdown, printableHtml } from "@/lib/markdown";
-import { useCv, useHydrated, useProfile, useSavedJobs, useSettings, useTailored, type TailoredDocs } from "@/lib/store";
+import {
+  APPLICATION_STATUSES,
+  useCv,
+  useHydrated,
+  useProfile,
+  useSavedJobs,
+  useSettings,
+  useTailored,
+  type ApplicationStatus,
+  type SavedJob,
+  type TailoredDocs,
+} from "@/lib/store";
 import type { Job } from "@/lib/types";
 
 type DocKind = "cv" | "coverLetter";
@@ -28,37 +40,6 @@ interface Generation {
 
 const IDLE: Generation = { status: "idle", text: "", thinking: "" };
 const SNIPPET_LENGTH = 600;
-
-function JobPicker() {
-  const { saved } = useSavedJobs();
-  const hydrated = useHydrated();
-  const jobs = Object.values(saved).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-xl font-semibold">Tailor your CV</h1>
-        <p className="muted text-sm">Pick a saved job. Claude rewrites your CV and cover letter for it, using only what’s in your CV.</p>
-      </div>
-      {hydrated && jobs.length === 0 && (
-        <div className="card muted p-8 text-center text-sm">
-          No saved jobs yet. <Link href="/" className="link">Search</Link>,{" "}
-          <Link href="/import" className="link">import from LinkedIn</Link>, or{" "}
-          <Link href="/import#paste" className="link">paste a job description</Link>.
-        </div>
-      )}
-      <ul className="space-y-2">
-        {jobs.map(({ job }) => (
-          <li key={job.id}>
-            <Link href={`/tailor?job=${encodeURIComponent(job.id)}`} className="card block p-3 hover:border-indigo-300 dark:hover:border-indigo-700">
-              <span className="font-medium">{job.title}</span>
-              <span className="muted text-sm"> · {job.company}</span>
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
 
 function ScoreBadge({ score }: { score: number }) {
   const [text, bar] =
@@ -275,7 +256,9 @@ function DocumentPanel({
   );
 }
 
-function TailorWorkspace({ job }: { job: Job }) {
+function TailorWorkspace({ entry }: { entry: SavedJob }) {
+  const job = entry.job;
+  const { updateJob } = useSavedJobs();
   const [cv] = useCv();
   const [profile] = useProfile();
   const [settings, setSettings] = useSettings();
@@ -283,7 +266,11 @@ function TailorWorkspace({ job }: { job: Job }) {
   const sources = useSources();
   const docs: TailoredDocs | undefined = tailored[job.id];
 
-  const [tab, setTab] = useState<Tab>(docs?.cv ? "cv" : "analysis");
+  const [tab, setTab] = useState<Tab>(docs?.cv || docs?.analysis ? "cv" : "analysis");
+  // Open for editing when there is only a snippet, which is worth replacing with the full text.
+  const [editingDescription, setEditingDescription] = useState(
+    () => (docs?.jobDescription ?? job.description).length < SNIPPET_LENGTH,
+  );
   const [analysisState, setAnalysisState] = useState<{ status: "idle" | "loading" | "error"; error?: string }>({
     status: "idle",
   });
@@ -300,7 +287,7 @@ function TailorWorkspace({ job }: { job: Job }) {
   const cvText = cv?.text ?? "";
   const blocker =
     cvText.trim().length < 50
-      ? "Add your CV first, on the My CV page."
+      ? "Add your CV first, under Profile."
       : !description.trim()
         ? "Paste the job description first."
         : undefined;
@@ -426,20 +413,35 @@ function TailorWorkspace({ job }: { job: Job }) {
 
   return (
     <div className="space-y-4">
-      <div className="card flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
+      <Link href="/saved" className="link text-sm">
+        ← My jobs
+      </Link>
+
+      <div className="card flex flex-col gap-3 p-4 sm:flex-row sm:items-start">
         <div className="min-w-0 flex-1">
-          <p className="muted text-xs">Tailoring for</p>
           <h1 className="text-lg font-semibold">{job.title}</h1>
           <p className="text-sm">
             {job.company}
             {job.location && <span className="muted"> · {job.location}</span>}
           </p>
+          <div className="mt-1">
+            <OtherApplyLinks job={job} />
+          </div>
         </div>
-        <div className="flex gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <select
+            className={`input w-auto py-1.5 text-xs font-medium ${STATUS_STYLE[entry.status]}`}
+            value={entry.status}
+            onChange={(e) => updateJob(job.id, { status: e.target.value as ApplicationStatus })}
+            aria-label="Application status"
+          >
+            {APPLICATION_STATUSES.map((s) => (
+              <option key={s} value={s}>
+                {STATUS_LABEL[s]}
+              </option>
+            ))}
+          </select>
           <ApplyButton job={job} />
-          <Link href="/tailor" className="btn btn-ghost btn-sm">
-            Change job
-          </Link>
         </div>
       </div>
 
@@ -450,160 +452,16 @@ function TailorWorkspace({ job }: { job: Job }) {
         </p>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-[380px_1fr]">
-        <div className="space-y-4">
-          <div className="card space-y-2 p-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold">Your CV</h2>
-              <Link href="/cv" className="link text-xs">
-                {cv ? "Edit" : "Add CV"}
-              </Link>
-            </div>
-            {cv ? (
-              <>
-                <p className="muted text-xs">
-                  {cv.fileName ?? "Pasted CV"} · {cvText.trim().split(/\s+/).length} words
-                </p>
-                <p className="muted text-xs">
-                  {payloadProfile ? (
-                    <>
-                      Also using your {profileSources}
-                      {staleDetails
-                        ? " links. Their details are out of date, so fetch them again on My CV"
-                        : !payloadProfile.evidence && " links (details not fetched yet)"}
-                      .
-                    </>
-                  ) : hasLinks ? (
-                    "Your website and GitHub are turned off for tailoring."
-                  ) : (
-                    <Link href="/cv" className="link">
-                      Add your website or GitHub
-                    </Link>
-                  )}
-                </p>
-              </>
-            ) : (
-              <p className="text-sm text-amber-700 dark:text-amber-300">
-                Add your CV first. <Link href="/cv" className="link">Upload or paste it</Link>.
-              </p>
-            )}
-          </div>
-
-          <div className="card space-y-2 p-4">
-            <div className="flex items-center justify-between">
-              <label htmlFor="jd" className="text-sm font-semibold">
-                Job description
-              </label>
-              {docs?.jobDescription !== undefined && (
-                <button type="button" className="link text-xs" onClick={() => updateDocs({ jobDescription: undefined })}>
-                  Reset
-                </button>
-              )}
-            </div>
-            {description.length < SNIPPET_LENGTH && (
-              <p className="rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-200">
-                This looks like a snippet. For a better result, open the listing and paste the full description here.
-              </p>
-            )}
-            <textarea
-              id="jd"
-              className="input min-h-48 text-xs leading-relaxed"
-              value={description}
-              onChange={(e) => updateDocs({ jobDescription: e.target.value })}
-              placeholder="Paste the full job description"
-            />
-          </div>
-
-          <div className="card space-y-3 p-4">
-            <h2 className="text-sm font-semibold">Options</h2>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label htmlFor="style" className="label">
-                  Format
-                </label>
-                <select
-                  id="style"
-                  className="input py-1.5"
-                  value={options.style}
-                  onChange={(e) => setOptions({ style: e.target.value as TailorOptions["style"] })}
-                >
-                  <option value="uk-cv">UK / EU CV</option>
-                  <option value="us-resume">US resume</option>
-                </select>
-              </div>
-              <div>
-                <label htmlFor="length" className="label">
-                  Length
-                </label>
-                <select
-                  id="length"
-                  className="input py-1.5"
-                  value={options.length}
-                  onChange={(e) => setOptions({ length: e.target.value as TailorOptions["length"] })}
-                >
-                  <option value="one-page">1 page</option>
-                  <option value="two-pages">Up to 2 pages</option>
-                </select>
-              </div>
-              <div className="col-span-2">
-                <label htmlFor="tone" className="label">
-                  Tone
-                </label>
-                <select
-                  id="tone"
-                  className="input py-1.5"
-                  value={options.tone}
-                  onChange={(e) => setOptions({ tone: e.target.value as TailorOptions["tone"] })}
-                >
-                  <option value="professional">Professional</option>
-                  <option value="confident">Confident</option>
-                  <option value="warm">Warm</option>
-                  <option value="concise">Concise</option>
-                </select>
-              </div>
-            </div>
-            <div>
-              <label htmlFor="extra" className="label">
-                Anything else? (optional)
-              </label>
-              <textarea
-                id="extra"
-                className="input min-h-16 text-xs"
-                placeholder="e.g. Emphasise my stakeholder management. I'm relocating to Leeds in May."
-                value={options.extraInstructions}
-                onChange={(e) => setOptions({ extraInstructions: e.target.value })}
-              />
-            </div>
-            <div className="grid gap-2">
-              <button type="button" className="btn btn-primary" disabled={!ready || busy} onClick={() => void generate("cv")}>
-                ✨ Tailor my CV
-              </button>
-              <div className="grid grid-cols-2 gap-2">
-                <button type="button" className="btn btn-secondary" disabled={!ready || busy} onClick={() => void analyse()}>
-                  Analyse match
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  disabled={!ready || busy}
-                  onClick={() => void generate("coverLetter")}
-                >
-                  Cover letter
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="card min-w-0 p-4">
+      <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
+        <div className="card min-w-0 p-4 lg:self-start">
           <div className="mb-4 flex gap-1 border-b border-zinc-100 pb-2 dark:border-zinc-800" role="tablist">
             {(
               [
-                ["analysis", `Match${docs?.analysis ? ` ${docs.analysis.matchScore}%` : ""}`],
-                ["cv", "Tailored CV"],
-                ["coverLetter", "Cover letter"],
+                ["analysis", docs?.analysis ? `Match ${docs.analysis.matchScore}%` : "Match", Boolean(docs?.analysis)],
+                ["cv", "Tailored CV", Boolean(docs?.cv)],
+                ["coverLetter", "Cover letter", Boolean(docs?.coverLetter)],
               ] as const
-            ).map(([id, label]) => (
+            ).map(([id, label, done]) => (
               <button
                 key={id}
                 type="button"
@@ -613,6 +471,7 @@ function TailorWorkspace({ job }: { job: Job }) {
                 className={`btn btn-sm ${tab === id ? "bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-white" : "btn-ghost"}`}
               >
                 {label}
+                {id !== "analysis" && done && <span className="text-emerald-600 dark:text-emerald-400" aria-label="(written)">✓</span>}
                 {id !== "analysis" && generations[id].status === "streaming" && (
                   <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-indigo-500" />
                 )}
@@ -631,14 +490,37 @@ function TailorWorkspace({ job }: { job: Job }) {
                   </p>
                 )}
                 {docs?.analysis ? (
-                  <AnalysisPanel analysis={docs.analysis} />
+                  <>
+                    <AnalysisPanel analysis={docs.analysis} />
+                    <div className="mt-6 flex flex-wrap items-center gap-2 border-t border-zinc-100 pt-4 dark:border-zinc-800">
+                      {!docs.cv && (
+                        <button
+                          type="button"
+                          className="btn btn-primary"
+                          disabled={!ready || busy}
+                          onClick={() => void generate("cv")}
+                        >
+                          ✨ Next: tailor my CV
+                        </button>
+                      )}
+                      <button type="button" className="btn btn-ghost btn-sm" disabled={!ready || busy} onClick={() => void analyse()}>
+                        ↻ Analyse again
+                      </button>
+                    </div>
+                  </>
                 ) : (
-                  <div className="muted py-10 text-center text-sm">
-                    <p className="mb-3">See how well your CV fits this job, and what’s missing.</p>
-                    <button type="button" className="btn btn-primary" disabled={!ready || busy} onClick={() => void analyse()}>
-                      Analyse match
-                    </button>
-                    {blocker && <p className="mt-2 text-xs">{blocker}</p>}
+                  <div className="py-10 text-center text-sm">
+                    <p className="mb-1 font-medium">How well do you fit this job?</p>
+                    <p className="muted mb-4">Get a match score, your strengths, the gaps and the keywords you’re missing.</p>
+                    <div className="flex flex-wrap justify-center gap-2">
+                      <button type="button" className="btn btn-primary" disabled={!ready || busy} onClick={() => void analyse()}>
+                        Analyse match
+                      </button>
+                      <button type="button" className="btn btn-secondary" disabled={!ready || busy} onClick={() => void generate("cv")}>
+                        ✨ Skip to tailored CV
+                      </button>
+                    </div>
+                    {blocker && <p className="muted mt-3 text-xs">{blocker}</p>}
                   </div>
                 )}
               </>
@@ -659,6 +541,157 @@ function TailorWorkspace({ job }: { job: Job }) {
             />
           )}
         </div>
+
+        <aside className="space-y-4">
+          <section className="card space-y-1 p-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold">Your CV</h2>
+              <Link href="/cv" className="link text-xs">
+                {cv ? "Edit" : "Add CV"}
+              </Link>
+            </div>
+            {cv ? (
+              <>
+                <p className="muted text-xs">
+                  {cv.fileName ?? "Pasted CV"} · {cvText.trim().split(/\s+/).length} words
+                </p>
+                <p className="muted text-xs">
+                  {payloadProfile ? (
+                    <>
+                      Also using your {profileSources}
+                      {staleDetails
+                        ? " links. Their details are out of date, so fetch them again on your Profile"
+                        : !payloadProfile.evidence && " links (details not fetched yet)"}
+                      .
+                    </>
+                  ) : hasLinks ? (
+                    "Your website and GitHub are turned off for tailoring."
+                  ) : (
+                    <Link href="/cv" className="link">
+                      Add your website or GitHub
+                    </Link>
+                  )}
+                </p>
+              </>
+            ) : (
+              <p className="text-sm text-amber-700 dark:text-amber-300">
+                Add your CV first. <Link href="/cv" className="link">Upload or paste it</Link>.
+              </p>
+            )}
+          </section>
+
+          <section className="card space-y-2 p-4">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold">Job description</h2>
+              <span className="flex gap-2">
+                {docs?.jobDescription !== undefined && (
+                  <button type="button" className="link text-xs" onClick={() => updateDocs({ jobDescription: undefined })}>
+                    Reset
+                  </button>
+                )}
+                <button type="button" className="link text-xs" onClick={() => setEditingDescription(!editingDescription)}>
+                  {editingDescription ? "Done" : "Edit"}
+                </button>
+              </span>
+            </div>
+            {description.length < SNIPPET_LENGTH && (
+              <p className="rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+                This looks like a snippet. For a better result, open the listing and paste the full description here.
+              </p>
+            )}
+            {editingDescription ? (
+              <textarea
+                className="input min-h-64 text-xs leading-relaxed"
+                value={description}
+                onChange={(e) => updateDocs({ jobDescription: e.target.value })}
+                placeholder="Paste the full job description"
+                aria-label="Job description"
+              />
+            ) : (
+              <p className="muted line-clamp-6 text-xs leading-relaxed whitespace-pre-line">
+                {description || "No description yet. Click Edit to paste it."}
+              </p>
+            )}
+          </section>
+
+          <details className="card p-4">
+            <summary className="cursor-pointer text-sm font-semibold">Writing options</summary>
+            <div className="mt-3 space-y-3">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label htmlFor="style" className="label">
+                    Format
+                  </label>
+                  <select
+                    id="style"
+                    className="input py-1.5"
+                    value={options.style}
+                    onChange={(e) => setOptions({ style: e.target.value as TailorOptions["style"] })}
+                  >
+                    <option value="uk-cv">UK / EU CV</option>
+                    <option value="us-resume">US resume</option>
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="length" className="label">
+                    Length
+                  </label>
+                  <select
+                    id="length"
+                    className="input py-1.5"
+                    value={options.length}
+                    onChange={(e) => setOptions({ length: e.target.value as TailorOptions["length"] })}
+                  >
+                    <option value="one-page">1 page</option>
+                    <option value="two-pages">Up to 2 pages</option>
+                  </select>
+                </div>
+                <div className="col-span-2">
+                  <label htmlFor="tone" className="label">
+                    Tone
+                  </label>
+                  <select
+                    id="tone"
+                    className="input py-1.5"
+                    value={options.tone}
+                    onChange={(e) => setOptions({ tone: e.target.value as TailorOptions["tone"] })}
+                  >
+                    <option value="professional">Professional</option>
+                    <option value="confident">Confident</option>
+                    <option value="warm">Warm</option>
+                    <option value="concise">Concise</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label htmlFor="extra" className="label">
+                  Anything else? (optional)
+                </label>
+                <textarea
+                  id="extra"
+                  className="input min-h-16 text-xs"
+                  placeholder="e.g. Emphasise my stakeholder management. I'm relocating to Leeds in May."
+                  value={options.extraInstructions}
+                  onChange={(e) => setOptions({ extraInstructions: e.target.value })}
+                />
+              </div>
+              <p className="muted text-xs">These apply to every job. Regenerate to use new options.</p>
+            </div>
+          </details>
+
+          <section className="card space-y-2 p-4">
+            <label htmlFor="notes" className="text-sm font-semibold">
+              Notes
+            </label>
+            <textarea
+              id="notes"
+              className="input min-h-24 text-sm"
+              placeholder="Contacts, interview dates, salary discussed…"
+              value={entry.notes}
+              onChange={(e) => updateJob(job.id, { notes: e.target.value })}
+            />
+          </section>
+        </aside>
       </div>
     </div>
   );
@@ -669,15 +702,16 @@ export function TailorView() {
   const hydrated = useHydrated();
   const { saved } = useSavedJobs();
   const jobId = params.get("job");
-  if (!jobId) return <JobPicker />;
+  // The old "pick a job" screen is the My jobs list now.
+  if (!jobId) return <SavedView />;
   if (!hydrated) return <div className="card muted p-8 text-center text-sm">Loading…</div>;
   const entry = saved[jobId];
   if (!entry) {
     return (
       <div className="card muted p-8 text-center text-sm">
-        That job isn’t in your saved list any more. <Link href="/tailor" className="link">Pick another</Link>.
+        That job isn’t in your list any more. <Link href="/saved" className="link">Back to My jobs</Link>.
       </div>
     );
   }
-  return <TailorWorkspace key={jobId} job={entry.job} />;
+  return <TailorWorkspace key={jobId} entry={entry} />;
 }

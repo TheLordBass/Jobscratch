@@ -4,14 +4,16 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useHydrated, useSavedJobs } from "@/lib/store";
 
-const LINKS = [
-  { href: "/", label: "Search" },
-  { href: "/saved", label: "Saved" },
-  { href: "/cv", label: "My CV" },
-  { href: "/tailor", label: "Tailor" },
-  { href: "/import", label: "Import" },
-  { href: "/settings", label: "Settings" },
+/** Three sections; each covers the pages listed in `paths`. */
+const SECTIONS = [
+  { href: "/", label: "Find jobs", paths: ["/", "/import"] },
+  { href: "/saved", label: "My jobs", paths: ["/saved", "/tailor"] },
+  { href: "/cv", label: "Profile", paths: ["/cv", "/settings"] },
 ] as const;
+
+export function inSection(pathname: string, paths: readonly string[]): boolean {
+  return paths.some((path) => (path === "/" ? pathname === "/" : pathname.startsWith(path)));
+}
 
 export function Nav() {
   const pathname = usePathname();
@@ -27,14 +29,14 @@ export function Nav() {
           <span className="hidden sm:inline">JobScratch</span>
         </Link>
         <nav className="-mx-1 flex flex-1 gap-1 overflow-x-auto" aria-label="Main">
-          {LINKS.map(({ href, label }) => {
-            const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
+          {SECTIONS.map(({ href, label, paths }) => {
+            const active = inSection(pathname, paths);
             return (
               <Link
                 key={href}
                 href={href}
                 aria-current={active ? "page" : undefined}
-                className={`btn btn-sm ${active ? "bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-white" : "btn-ghost"}`}
+                className={`btn ${active ? "bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-white" : "btn-ghost"}`}
               >
                 {label}
                 {href === "/saved" && hydrated && savedCount > 0 && (
@@ -48,3 +50,35 @@ export function Nav() {
     </header>
   );
 }
+
+/** Switches between the pages inside one section, e.g. Search / Add a job. */
+export function SectionTabs({ tabs }: { tabs: ReadonlyArray<{ href: string; label: string }> }) {
+  const pathname = usePathname();
+  return (
+    <nav className="inline-flex rounded-lg bg-zinc-100 p-1 dark:bg-zinc-800/70" aria-label="Section">
+      {tabs.map(({ href, label }) => {
+        const active = pathname === href;
+        return (
+          <Link
+            key={href}
+            href={href}
+            aria-current={active ? "page" : undefined}
+            className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${active ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-900 dark:text-white" : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white"}`}
+          >
+            {label}
+          </Link>
+        );
+      })}
+    </nav>
+  );
+}
+
+export const FIND_TABS = [
+  { href: "/", label: "Search" },
+  { href: "/import", label: "Add a job" },
+] as const;
+
+export const PROFILE_TABS = [
+  { href: "/cv", label: "CV & links" },
+  { href: "/settings", label: "Settings" },
+] as const;

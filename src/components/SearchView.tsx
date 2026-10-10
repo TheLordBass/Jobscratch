@@ -3,8 +3,10 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, type FormEvent } from "react";
+import { GettingStarted } from "@/components/GettingStarted";
 import { JobCard } from "@/components/JobCard";
 import { KeywordInput, addTerms } from "@/components/KeywordInput";
+import { FIND_TABS, SectionTabs } from "@/components/Nav";
 import { COUNTRIES } from "@/lib/format";
 import { newId, useGroups, useHydrated, useSavedJobs, useSettings, type SearchGroup } from "@/lib/store";
 import { SOURCE_IDS, type Job, type SearchRequest, type SearchResponse, type SourceResult } from "@/lib/types";
@@ -109,6 +111,7 @@ export function SearchView() {
   const [showMore, setShowMore] = useState(false);
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
   const [groupName, setGroupName] = useState("");
+  const [naming, setNaming] = useState(false);
 
   const [search, setSearch] = useState<SearchState>({ status: "idle" });
   const [sort, setSort] = useState<"relevance" | "newest">("relevance");
@@ -194,6 +197,13 @@ export function SearchView() {
     setGroups([...groups, group]);
     setActiveGroupId(group.id);
     setGroupName("");
+    setNaming(false);
+  }
+
+  function deleteGroup(group: SearchGroup) {
+    if (!window.confirm(`Delete the saved search “${group.name}”?`)) return;
+    setGroups(groups.filter((g) => g.id !== group.id));
+    if (activeGroupId === group.id) setActiveGroupId(null);
   }
 
   function tailor(job: Job) {
@@ -214,223 +224,211 @@ export function SearchView() {
       : jobs;
   }, [search, filter, sort]);
 
+  const hasQuery = keywords.length > 0 || Boolean(keywordDraft.trim());
+
   return (
-    <div className="grid gap-6 lg:grid-cols-[260px_1fr]">
-      <aside className="order-2 space-y-3 lg:order-1">
-        <div className="card p-4">
-          <div className="mb-2 flex items-center justify-between">
-            <h2 className="text-sm font-semibold">Keyword groups</h2>
-            {activeGroup && (
-              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setActiveGroupId(null)}>
-                Clear
-              </button>
-            )}
+    <div className="space-y-4">
+      <SectionTabs tabs={FIND_TABS} />
+      <GettingStarted />
+
+      <form onSubmit={onSubmit} className="card space-y-3 p-4">
+        <div className="grid gap-3 md:grid-cols-[1fr_220px_auto] md:items-end">
+          <KeywordInput
+            label="Job titles or keywords (any of)"
+            values={keywords}
+            onChange={setKeywords}
+            draft={keywordDraft}
+            onDraftChange={setKeywordDraft}
+            placeholder="e.g. data analyst, power bi — press Enter to add"
+          />
+          <div>
+            <label htmlFor="location" className="label">
+              Location
+            </label>
+            <input
+              id="location"
+              className="input"
+              placeholder="City or region (optional)"
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+            />
           </div>
-          {hydrated && groups.length === 0 && (
-            <div className="muted space-y-2 text-xs">
-              <p>
-                Group related job titles, e.g. <em>Data roles</em> = data analyst, BI analyst, analytics engineer. Then
-                search them all with one click.
-              </p>
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={() => setGroups(EXAMPLE_GROUPS.map((g) => ({ ...g, id: newId() })))}
-              >
-                Add example groups
-              </button>
-            </div>
-          )}
-          <ul className="space-y-1">
-            {groups.map((group) => (
-              <li
+          <button type="submit" className="btn btn-primary px-5 py-2.5" disabled={search.status === "loading"}>
+            {search.status === "loading" ? "Searching…" : "Search"}
+          </button>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+          <label className="flex items-center gap-2">
+            <span className="muted text-xs">Country</span>
+            <select
+              className="input w-auto py-1 text-sm"
+              value={settings.country}
+              onChange={(e) => setSettings({ ...settings, country: e.target.value })}
+            >
+              {COUNTRIES.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex items-center gap-2">
+            <span className="muted text-xs">Posted</span>
+            <select
+              className="input w-auto py-1 text-sm"
+              value={postedWithinDays}
+              onChange={(e) => setPostedWithinDays(Number(e.target.value))}
+            >
+              <option value={0}>Any time</option>
+              <option value={1}>Last 24 hours</option>
+              <option value={3}>Last 3 days</option>
+              <option value={7}>Last week</option>
+              <option value={14}>Last 2 weeks</option>
+              <option value={30}>Last month</option>
+            </select>
+          </label>
+          <label className="flex items-center gap-2">
+            <input type="checkbox" checked={remoteOnly} onChange={(e) => setRemoteOnly(e.target.checked)} />
+            Remote only
+          </label>
+          <button type="button" className="link cursor-pointer text-sm" onClick={() => setShowMore(!showMore)}>
+            {showMore ? "Hide excluded words" : "Exclude words"}
+          </button>
+        </div>
+        {showMore && (
+          <KeywordInput
+            label="Leave out jobs whose title contains"
+            values={exclude}
+            onChange={setExclude}
+            draft={excludeDraft}
+            onDraftChange={setExcludeDraft}
+            placeholder="e.g. senior, unpaid, internship"
+            tone="exclude"
+          />
+        )}
+
+        <div className="flex flex-wrap items-center gap-1.5 border-t border-zinc-100 pt-3 dark:border-zinc-800">
+          <span className="muted mr-1 text-xs">Saved searches</span>
+          {groups.map((group) => {
+            const active = group.id === activeGroupId;
+            return (
+              <span
                 key={group.id}
-                className={`group rounded-lg border px-2.5 py-2 ${group.id === activeGroupId ? "border-indigo-300 bg-indigo-50/60 dark:border-indigo-800 dark:bg-indigo-950/40" : "border-transparent hover:bg-zinc-50 dark:hover:bg-zinc-800/50"}`}
+                className={`inline-flex items-center rounded-full border text-xs ${active ? "border-indigo-300 bg-indigo-50 text-indigo-800 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-200" : "border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-900"}`}
               >
-                <button type="button" className="w-full cursor-pointer text-left" onClick={() => loadGroup(group, true)}>
-                  <span className="block text-sm font-medium">{group.name}</span>
-                  <span className="muted line-clamp-2 block text-xs">{group.keywords.join(", ")}</span>
-                </button>
-                <div className="mt-1 flex gap-1">
-                  <button type="button" className="btn btn-ghost btn-sm px-1.5 py-0.5" onClick={() => loadGroup(group, false)}>
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-danger btn-sm px-1.5 py-0.5"
-                    onClick={() => {
-                      if (window.confirm(`Delete the group “${group.name}”?`)) {
-                        setGroups(groups.filter((g) => g.id !== group.id));
-                        if (activeGroupId === group.id) setActiveGroupId(null);
-                      }
-                    }}
-                  >
-                    Delete
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-          <div className="mt-3 border-t border-zinc-100 pt-3 dark:border-zinc-800">
-            {activeGroup ? (
-              <button type="button" className="btn btn-secondary btn-sm w-full" onClick={saveGroup}>
-                Update “{activeGroup.name}”
-              </button>
-            ) : (
-              <div className="flex gap-1.5">
-                <input
-                  className="input py-1.5 text-xs"
-                  placeholder="Group name"
-                  value={groupName}
-                  onChange={(e) => setGroupName(e.target.value)}
-                  aria-label="New group name"
-                />
                 <button
                   type="button"
-                  className="btn btn-secondary btn-sm"
-                  onClick={saveGroup}
-                  disabled={keywords.length === 0 && !keywordDraft.trim()}
-                  title="Save the current keywords and filters as a group"
+                  className="cursor-pointer py-1 pr-1 pl-2.5 font-medium"
+                  onClick={() => loadGroup(group, true)}
+                  title={`Search for ${group.keywords.join(", ")}`}
                 >
+                  {group.name}
+                </button>
+                <button
+                  type="button"
+                  className="cursor-pointer rounded-full px-1.5 py-1 text-zinc-400 hover:text-red-600"
+                  onClick={() => deleteGroup(group)}
+                  aria-label={`Delete the saved search ${group.name}`}
+                >
+                  ×
+                </button>
+              </span>
+            );
+          })}
+          {hydrated && groups.length === 0 && !naming && (
+            <button
+              type="button"
+              className="link cursor-pointer text-xs"
+              onClick={() => setGroups(EXAMPLE_GROUPS.map((g) => ({ ...g, id: newId() })))}
+            >
+              Add examples
+            </button>
+          )}
+          <span className="ml-auto flex items-center gap-1.5">
+            {activeGroup ? (
+              <>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={saveGroup} disabled={!hasQuery}>
+                  Update “{activeGroup.name}”
+                </button>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => setActiveGroupId(null)}>
+                  Deselect
+                </button>
+              </>
+            ) : naming ? (
+              <>
+                <input
+                  className="input w-40 py-1 text-xs"
+                  placeholder="Name, e.g. Data roles"
+                  value={groupName}
+                  onChange={(e) => setGroupName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      saveGroup();
+                    }
+                  }}
+                  aria-label="Name for this search"
+                  autoFocus
+                />
+                <button type="button" className="btn btn-secondary btn-sm" onClick={saveGroup}>
                   Save
                 </button>
-              </div>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => setNaming(false)}>
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => setNaming(true)}
+                disabled={!hasQuery}
+                title="Save these keywords and filters to run again with one click"
+              >
+                + Save this search
+              </button>
             )}
-          </div>
+          </span>
         </div>
-      </aside>
+      </form>
 
-      <section className="order-1 min-w-0 space-y-4 lg:order-2">
-        <form onSubmit={onSubmit} className="card space-y-3 p-4">
-          <div className="grid gap-3 md:grid-cols-[1fr_200px]">
-            <KeywordInput
-              label="Job titles or keywords (any of)"
-              values={keywords}
-              onChange={setKeywords}
-              draft={keywordDraft}
-              onDraftChange={setKeywordDraft}
-              placeholder="e.g. data analyst, power bi — press Enter to add"
-            />
-            <div>
-              <label htmlFor="location" className="label">
-                Location
-              </label>
-              <input
-                id="location"
-                className="input"
-                placeholder="City, region or blank"
-                value={location}
-                onChange={(e) => setLocation(e.target.value)}
-              />
-            </div>
-          </div>
-          <div className="flex flex-wrap items-end gap-3">
-            <div>
-              <label htmlFor="country" className="label">
-                Country
-              </label>
-              <select
-                id="country"
-                className="input py-1.5"
-                value={settings.country}
-                onChange={(e) => setSettings({ ...settings, country: e.target.value })}
-              >
-                {COUNTRIES.map((c) => (
-                  <option key={c.code} value={c.code}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label htmlFor="posted" className="label">
-                Posted
-              </label>
-              <select
-                id="posted"
-                className="input py-1.5"
-                value={postedWithinDays}
-                onChange={(e) => setPostedWithinDays(Number(e.target.value))}
-              >
-                <option value={0}>Any time</option>
-                <option value={1}>Last 24 hours</option>
-                <option value={3}>Last 3 days</option>
-                <option value={7}>Last week</option>
-                <option value={14}>Last 2 weeks</option>
-                <option value={30}>Last month</option>
-              </select>
-            </div>
-            <label className="flex items-center gap-2 pb-2 text-sm">
-              <input type="checkbox" checked={remoteOnly} onChange={(e) => setRemoteOnly(e.target.checked)} />
-              Remote only
-            </label>
-            <button type="button" className="btn btn-ghost btn-sm mb-1" onClick={() => setShowMore(!showMore)}>
-              {showMore ? "Fewer options" : "Exclude words…"}
-            </button>
-            <button type="submit" className="btn btn-primary ml-auto" disabled={search.status === "loading"}>
-              {search.status === "loading" ? "Searching…" : "Search jobs"}
-            </button>
-          </div>
-          {showMore && (
-            <KeywordInput
-              label="Exclude jobs whose title contains"
-              values={exclude}
-              onChange={setExclude}
-              draft={excludeDraft}
-              onDraftChange={setExcludeDraft}
-              placeholder="e.g. senior, unpaid, internship"
-              tone="exclude"
-            />
-          )}
-        </form>
-
-        {search.status === "idle" && (
-          <div className="card muted p-8 text-center text-sm">
-            <p className="text-base font-medium text-zinc-700 dark:text-zinc-300">Search jobs from many portals at once</p>
-            <p className="mt-1">
-              Add a few job titles above, or pick a keyword group. Found a job on LinkedIn?{" "}
-              <Link href="/import" className="link">
-                Import it
-              </Link>
-              .
-            </p>
-          </div>
-        )}
-        {search.status === "loading" && (
-          <div className="card muted animate-pulse p-8 text-center text-sm">
-            Searching for “{search.label}” across job portals…
-          </div>
-        )}
-        {search.status === "error" && (
-          <div className="card border-red-200 p-4 text-sm text-red-700 dark:border-red-900 dark:text-red-300">
-            {search.message}
-          </div>
-        )}
-        {search.status === "done" && (
-          <>
-            <div className="card space-y-3 p-4">
-              <p className="text-sm">
-                <strong>{search.response.total}</strong> jobs for “{search.label}”
-                {search.response.total > search.response.jobs.length && (
-                  <span className="muted"> (showing the top {search.response.jobs.length})</span>
-                )}
-              </p>
-              <SourceSummary sources={search.response.sources} />
-              {search.response.sources.some((s) => s.status === "skipped" && s.message?.startsWith("Needs")) && (
-                <p className="muted text-xs">
-                  Want more jobs in your country? Add free API keys, such as Adzuna, in your hosting settings.{" "}
-                  <Link href="/settings" className="link">
-                    Settings
-                  </Link>{" "}
-                  shows which ones are missing.
-                </p>
+      {search.status === "idle" && (
+        <div className="card muted p-8 text-center text-sm">
+          <p className="text-base font-medium text-zinc-700 dark:text-zinc-300">Search many job sites at once</p>
+          <p className="mt-1">
+            Type a few job titles above. Found a job on LinkedIn?{" "}
+            <Link href="/import" className="link">
+              Add it here
+            </Link>
+            .
+          </p>
+        </div>
+      )}
+      {search.status === "loading" && (
+        <div className="card muted animate-pulse p-8 text-center text-sm">
+          Searching for “{search.label}” across job sites…
+        </div>
+      )}
+      {search.status === "error" && (
+        <div className="card border-red-200 p-4 text-sm text-red-700 dark:border-red-900 dark:text-red-300">
+          {search.message}
+        </div>
+      )}
+      {search.status === "done" && (
+        <>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm">
+              <strong>{search.response.total}</strong> jobs for “{search.label}”
+              {search.response.total > search.response.jobs.length && (
+                <span className="muted"> (showing the top {search.response.jobs.length})</span>
               )}
-            </div>
+            </p>
             {search.response.jobs.length > 0 && (
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="ml-auto flex flex-wrap items-center gap-2">
                 <input
-                  className="input max-w-xs py-1.5"
-                  placeholder="Filter these results…"
+                  className="input w-48 py-1.5"
+                  placeholder="Filter these results"
                   value={filter}
                   onChange={(e) => {
                     setFilter(e.target.value);
@@ -447,43 +445,57 @@ export function SearchView() {
                   <option value="relevance">Best match</option>
                   <option value="newest">Newest</option>
                 </select>
-                <span className="muted text-xs">{results.length} shown</span>
               </div>
             )}
-            {results.length === 0 && (
-              <div className="card muted p-6 text-center text-sm">
-                No jobs matched. Try broader keywords, a different location, or turn off “Remote only”.
-              </div>
-            )}
-            <div className="space-y-3">
-              {results.slice(0, visible).map((job) => (
-                <JobCard
-                  key={job.id}
-                  job={job}
-                  status={saved[job.id]?.status}
-                  expanded={expanded === job.id}
-                  onToggle={() => setExpanded(expanded === job.id ? null : job.id)}
-                  onSave={() => {
-                    const entry = saved[job.id];
-                    if (!entry) saveJob(job);
-                    else if (entry.status === "saved" || window.confirm(`Remove this job? It's marked “${entry.status}”.`)) {
-                      removeJob(job.id);
-                    }
-                  }}
-                  onTailor={() => tailor(job)}
-                />
-              ))}
+          </div>
+          <details className="text-xs">
+            <summary className="muted cursor-pointer">Where these came from</summary>
+            <div className="mt-2 space-y-2">
+              <SourceSummary sources={search.response.sources} />
+              {search.response.sources.some((s) => s.status === "skipped" && s.message?.startsWith("Needs")) && (
+                <p className="muted">
+                  Want more jobs in your country? Add free API keys, such as Adzuna, in your hosting settings.{" "}
+                  <Link href="/settings" className="link">
+                    Settings
+                  </Link>{" "}
+                  shows which ones are missing.
+                </p>
+              )}
             </div>
-            {results.length > visible && (
-              <div className="text-center">
-                <button type="button" className="btn btn-secondary" onClick={() => setVisible(visible + PAGE_SIZE)}>
-                  Show more ({results.length - visible} left)
-                </button>
-              </div>
-            )}
-          </>
-        )}
-      </section>
+          </details>
+          {results.length === 0 && (
+            <div className="card muted p-6 text-center text-sm">
+              No jobs matched. Try broader keywords, a different location, or turn off “Remote only”.
+            </div>
+          )}
+          <div className="space-y-3">
+            {results.slice(0, visible).map((job) => (
+              <JobCard
+                key={job.id}
+                job={job}
+                status={saved[job.id]?.status}
+                expanded={expanded === job.id}
+                onToggle={() => setExpanded(expanded === job.id ? null : job.id)}
+                onSave={() => {
+                  const entry = saved[job.id];
+                  if (!entry) saveJob(job);
+                  else if (entry.status === "saved" || window.confirm(`Remove this job? It's marked “${entry.status}”.`)) {
+                    removeJob(job.id);
+                  }
+                }}
+                onTailor={() => tailor(job)}
+              />
+            ))}
+          </div>
+          {results.length > visible && (
+            <div className="text-center">
+              <button type="button" className="btn btn-secondary" onClick={() => setVisible(visible + PAGE_SIZE)}>
+                Show more ({results.length - visible} left)
+              </button>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
