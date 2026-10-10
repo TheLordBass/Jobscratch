@@ -9,7 +9,10 @@ export async function markdownToDocx(markdown: string, title: string): Promise<B
     inlines.map((inline) => {
       const run = new TextRun({ text: inline.text, bold: inline.bold, italics: inline.italic });
       return inline.href
-        ? new ExternalHyperlink({ link: inline.href, children: [new TextRun({ text: inline.text, style: "Hyperlink" })] })
+        ? new ExternalHyperlink({
+            link: inline.href,
+            children: [new TextRun({ text: inline.text, style: "Hyperlink", bold: inline.bold, italics: inline.italic })],
+          })
         : run;
     });
 
