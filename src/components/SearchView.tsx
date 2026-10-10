@@ -416,6 +416,15 @@ export function SearchView() {
                 )}
               </p>
               <SourceSummary sources={search.response.sources} />
+              {search.response.sources.some((s) => s.status === "skipped" && s.message?.startsWith("Needs")) && (
+                <p className="muted text-xs">
+                  Want more jobs in your country? Add free API keys, such as Adzuna, in your hosting settings.{" "}
+                  <Link href="/settings" className="link">
+                    Settings
+                  </Link>{" "}
+                  shows which ones are missing.
+                </p>
+              )}
             </div>
             {search.response.jobs.length > 0 && (
               <div className="flex flex-wrap items-center gap-2">

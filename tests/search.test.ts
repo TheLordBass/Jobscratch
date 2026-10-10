@@ -170,6 +170,19 @@ describe("runSearch", () => {
     expect(response.jobs.some((j) => j.source === "himalayas")).toBe(false);
   });
 
+  it("only keeps feed jobs that are open to the selected country", async () => {
+    const sources: Array<"jobicy" | "remotive" | "greenhouse"> = ["jobicy", "remotive", "greenhouse"];
+    const uk = await runSearch(
+      { keywords: ["python"], country: "gb", sources, companyBoards: BOARDS },
+      { env: {}, now: NOW },
+    );
+    // Jobicy's job is "Remote (USA)"; Remotive's is open to Europe; Greenhouse's is in London.
+    expect(uk.jobs.map((j) => j.id).sort()).toEqual(["greenhouse:acme:4001", "remotive:101"]);
+
+    const us = await runSearch({ keywords: ["python"], country: "us", sources, companyBoards: BOARDS }, { env: {}, now: NOW });
+    expect(us.jobs.map((j) => j.id)).toEqual(["jobicy:303"]);
+  });
+
   it("reports a failing source without failing the whole search", async () => {
     fetchMock.mockImplementationOnce(async () => new Response("boom", { status: 500 }));
     const response = await runSearch({ keywords: ["python"], sources: ["remoteok"] }, { env: {}, now: NOW });

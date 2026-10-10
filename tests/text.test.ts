@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   htmlToText,
   isExcluded,
-  locationMatches,
   matchesKeyword,
   parseRelativeDate,
   relevanceScore,
@@ -62,21 +61,6 @@ describe("keyword matching", () => {
   it("excludes by whole word in the title", () => {
     expect(isExcluded("Senior Data Analyst", ["senior"])).toBe(true);
     expect(isExcluded("Seniority Analyst", ["senior"])).toBe(false);
-  });
-});
-
-describe("locationMatches", () => {
-  it("matches substrings and country aliases", () => {
-    expect(locationMatches("London, England", false, "london", false)).toBe(true);
-    expect(locationMatches("Manchester, England", false, "UK", false)).toBe(true);
-    expect(locationMatches("Austin, TX, United States", false, "usa", false)).toBe(true);
-    expect(locationMatches("Berlin", false, "London", false)).toBe(false);
-  });
-
-  it("keeps worldwide remote jobs", () => {
-    expect(locationMatches("Remote (worldwide)", true, "London", false)).toBe(true);
-    expect(locationMatches("Remote - US only", true, "London", false)).toBe(false);
-    expect(locationMatches("Remote - US only", true, "London", true)).toBe(true);
   });
 });
 

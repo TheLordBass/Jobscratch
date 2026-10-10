@@ -135,7 +135,7 @@ export function SettingsView() {
               checked={settings.includeRemoteAnywhere}
               onChange={(e) => setSettings({ ...settings, includeRemoteAnywhere: e.target.checked })}
             />
-            Include remote jobs even when their region doesn’t match my location
+            Include remote jobs open to my country even when they don’t mention my city
           </label>
         </div>
       </section>
