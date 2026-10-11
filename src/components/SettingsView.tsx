@@ -1,5 +1,6 @@
 "use client";
 
+import { ArrowUpRight } from "lucide-react";
 import { useState, type ChangeEvent } from "react";
 import { PROFILE_TABS, SectionTabs } from "@/components/Nav";
 import { useSources } from "@/components/useSources";
@@ -107,8 +108,8 @@ export function SettingsView() {
     <div className="space-y-6">
       <SectionTabs tabs={PROFILE_TABS} />
       <div>
-        <h1 className="text-xl font-semibold">Settings</h1>
-        <p className="muted text-sm">Choose where to search. API keys go in the server’s <code>.env.local</code> (see README).</p>
+        <h1 className="page-title">Settings</h1>
+        <p className="page-subtitle">Choose where to search. API keys go in the server’s <code>.env.local</code> (see README).</p>
       </div>
 
       <section className="card space-y-3 p-4">
@@ -194,7 +195,7 @@ export function SettingsView() {
                             </span>
                             {source.signupUrl && (
                               <a href={source.signupUrl} target="_blank" rel="noopener noreferrer" className="link block">
-                                Get a key ↗
+                                Get a key <ArrowUpRight size={12} className="inline" aria-hidden />
                               </a>
                             )}
                           </span>

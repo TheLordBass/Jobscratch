@@ -1,9 +1,10 @@
 "use client";
 
+import { ArrowLeft, Check, RotateCcw, Sparkles, X } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { ApplyButton, OtherApplyLinks } from "@/components/JobCard";
+import { ApplyButton, CompanyMark, OtherApplyLinks } from "@/components/JobCard";
 import { MarkdownView } from "@/components/MarkdownView";
 import { STATUS_LABEL, STATUS_STYLE, SavedView } from "@/components/SavedView";
 import { useSources } from "@/components/useSources";
@@ -86,12 +87,12 @@ function AnalysisPanel({ analysis }: { analysis: MatchAnalysis }) {
         <div className="flex flex-wrap gap-1">
           {analysis.keywordsPresent.map((k) => (
             <span key={k} className="chip bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
-              ✓ {k}
+              <Check size={12} aria-hidden /> {k}
             </span>
           ))}
           {analysis.keywordsMissing.map((k) => (
             <span key={k} className="chip bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-200">
-              ✗ {k}
+              <X size={12} aria-hidden /> {k}
             </span>
           ))}
         </div>
@@ -161,7 +162,7 @@ function DocumentPanel({
           <p className="mb-3">No {label} yet.</p>
         )}
         <button type="button" className="btn btn-primary" disabled={Boolean(blocker)} onClick={onGenerate}>
-          ✨ Write my {label}
+          <Sparkles size={15} aria-hidden /> Write my {label}
         </button>
         {blocker && <p className="mt-2 text-xs">{blocker}</p>}
       </div>
@@ -230,7 +231,7 @@ function DocumentPanel({
               if (!markdown || window.confirm(`Replace this ${label} with a new version?`)) onGenerate();
             }}
           >
-            ↻ Regenerate
+            <RotateCcw size={13} aria-hidden /> Regenerate
           </button>
         </div>
       )}
@@ -413,13 +414,14 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
 
   return (
     <div className="space-y-4">
-      <Link href="/saved" className="link text-sm">
-        ← My jobs
+      <Link href="/saved" className="link inline-flex items-center gap-1 text-sm">
+        <ArrowLeft size={14} aria-hidden /> My jobs
       </Link>
 
-      <div className="card flex flex-col gap-3 p-4 sm:flex-row sm:items-start">
+      <div className="card flex flex-col gap-4 p-5 sm:flex-row sm:items-start">
+        <CompanyMark job={job} size="lg" />
         <div className="min-w-0 flex-1">
-          <h1 className="text-lg font-semibold">{job.title}</h1>
+          <h1 className="text-xl font-bold tracking-tight">{job.title}</h1>
           <p className="text-sm">
             {job.company}
             {job.location && <span className="muted"> · {job.location}</span>}
@@ -471,7 +473,7 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
                 className={`btn btn-sm ${tab === id ? "bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-white" : "btn-ghost"}`}
               >
                 {label}
-                {id !== "analysis" && done && <span className="text-emerald-600 dark:text-emerald-400" aria-label="(written)">✓</span>}
+                {id !== "analysis" && done && <Check size={13} className="text-emerald-600 dark:text-emerald-400" aria-label="(written)" />}
                 {id !== "analysis" && generations[id].status === "streaming" && (
                   <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-indigo-500" />
                 )}
@@ -500,11 +502,11 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
                           disabled={!ready || busy}
                           onClick={() => void generate("cv")}
                         >
-                          ✨ Next: tailor my CV
+                          <Sparkles size={15} aria-hidden /> Next: tailor my CV
                         </button>
                       )}
                       <button type="button" className="btn btn-ghost btn-sm" disabled={!ready || busy} onClick={() => void analyse()}>
-                        ↻ Analyse again
+                        <RotateCcw size={13} aria-hidden /> Analyse again
                       </button>
                     </div>
                   </>
@@ -517,7 +519,7 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
                         Analyse match
                       </button>
                       <button type="button" className="btn btn-secondary" disabled={!ready || busy} onClick={() => void generate("cv")}>
-                        ✨ Skip to tailored CV
+                        <Sparkles size={15} aria-hidden /> Skip to tailored CV
                       </button>
                     </div>
                     {blocker && <p className="muted mt-3 text-xs">{blocker}</p>}

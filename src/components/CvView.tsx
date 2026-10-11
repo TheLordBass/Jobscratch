@@ -1,5 +1,6 @@
 "use client";
 
+import { Upload } from "lucide-react";
 import Link from "next/link";
 import { useState, type ChangeEvent, type DragEvent } from "react";
 import { PROFILE_TABS, SectionTabs } from "@/components/Nav";
@@ -61,8 +62,8 @@ export function CvView() {
     <div className="space-y-4">
       <SectionTabs tabs={PROFILE_TABS} />
       <div>
-        <h1 className="text-xl font-semibold">Your CV</h1>
-        <p className="muted text-sm">
+        <h1 className="page-title">Your CV</h1>
+        <p className="page-subtitle">
           Your master CV. JobScratch rewrites a tailored copy for each job, and this one stays as it is. It’s stored only
           in this browser.
         </p>
@@ -77,7 +78,10 @@ export function CvView() {
         onDrop={onDrop}
         className={`card flex flex-col items-center gap-2 border-2 border-dashed p-6 text-center ${dragging ? "border-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/30" : ""}`}
       >
-        <p className="text-sm font-medium">Drop your CV here, or</p>
+        <span className="avatar h-11 w-11">
+          <Upload size={20} aria-hidden />
+        </span>
+        <p className="text-sm font-semibold">Drop your CV here, or</p>
         <label className="btn btn-primary btn-sm">
           {uploading ? "Reading…" : "Choose a file"}
           <input

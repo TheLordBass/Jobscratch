@@ -1,5 +1,6 @@
 "use client";
 
+import { Plus } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
@@ -58,7 +59,7 @@ function Bookmarklet() {
       }}
       title="Drag me to your bookmarks bar"
     >
-      ➕ Send to JobScratch
+      <Plus size={15} aria-hidden /> Send to JobScratch
     </a>
   );
 }
@@ -220,8 +221,8 @@ export function ImportView() {
     <div className="space-y-4">
       <SectionTabs tabs={FIND_TABS} />
       <div>
-        <h1 className="text-xl font-semibold">Add a job</h1>
-        <p className="muted text-sm">
+        <h1 className="page-title">Add a job</h1>
+        <p className="page-subtitle">
           Found a job somewhere else? Bring it in to track it and tailor your CV for it.
         </p>
       </div>
