@@ -61,11 +61,17 @@ const RecordSchema = z.object({
   company_logo: text,
 });
 
+/** One search term or location, or (from multi-searches) a list of them. */
+const terms = z
+  .union([z.string(), z.array(z.string())])
+  .optional()
+  .transform((value) => (Array.isArray(value) ? value : value ? [value] : []).map((v) => v.trim()).filter(Boolean));
+
 const FileSchema = z.object({
   format: z.literal(JOBSPY_FORMAT),
   version: z.literal(1),
   createdAt: z.string().optional(),
-  query: z.object({ search: z.string().optional(), location: z.string().optional() }).optional(),
+  query: z.object({ search: terms, location: terms }).optional(),
   jobs: z.array(z.unknown()).max(5000),
 });
 
@@ -140,10 +146,10 @@ export function parseJobspyFile(raw: string): JobspyImport {
     else if (!byId.has(job.id)) byId.set(job.id, job);
   }
 
-  const { search, location } = file.data.query ?? {};
+  const { search = [], location = [] } = file.data.query ?? {};
   return {
     jobs: [...byId.values()],
-    query: search ? `${search}${location ? ` in ${location}` : ""}` : undefined,
+    query: search.length ? `${search.join(", ")}${location.length ? ` in ${location.join(", ")}` : ""}` : undefined,
     createdAt: file.data.createdAt,
     skipped,
   };

@@ -66,7 +66,15 @@ python scripts/jobspy/search.py "data analyst" --location London
 
 Then, in JobScratch, go to **Find jobs → Add a job → From JobSpy** and choose the `jobspy-results.json` file it wrote. Save the jobs you want, or tailor your CV to one straight away.
 
-Options: `--sites indeed linkedin glassdoor google zip_recruiter` (default: Indeed and LinkedIn; Google often returns nothing, and the app already has Google Jobs through SerpApi), `--results 25` per site, `--hours 72` for recent jobs only, `--remote`, `--country usa` for Indeed and Glassdoor outside the UK, and `--linkedin-descriptions` for full LinkedIn descriptions (slower). Run `python scripts/jobspy/search.py --help` for the full list.
+To search several job titles and places at once, list them. Every combination is searched, and the results are merged into one file without duplicates:
+
+```bash
+python scripts/jobspy/search.py "junior data analyst" "data analyst" "senior data analyst" --location Manchester London "United Kingdom"
+```
+
+Put each one in quotes if it has a space. That example is 9 searches, so it takes a few minutes; the script waits 3 seconds between searches (`--pause`) to make blocking less likely, and skips any search that fails rather than stopping.
+
+Options: `--distance 10` to stay within 10 miles of each location (default 50), `--sites indeed linkedin glassdoor google zip_recruiter` (default: Indeed and LinkedIn; Google often returns nothing, and the app already has Google Jobs through SerpApi), `--results 25` per site for each search, `--hours 72` for recent jobs only, `--remote`, `--country usa` for Indeed and Glassdoor outside the UK, and `--linkedin-descriptions` for full LinkedIn descriptions (slower). Run `python scripts/jobspy/search.py --help` for the full list.
 
 Expect sites to block it from time to time, LinkedIn especially, after a page or two. Running it from a home connection works best. You'll need Python 3.10 or newer.
 
