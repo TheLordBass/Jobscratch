@@ -471,14 +471,14 @@ export function SearchView() {
                   onChange={(e) => setSort(e.target.value as "relevance" | "newest" | "match")}
                   aria-label="Sort results"
                 >
-                  <option value="relevance">Best match</option>
+                  <option value="relevance">Most relevant</option>
                   <option value="newest">Newest</option>
-                  <option value="match">Match score</option>
+                  <option value="match">Best match to my CV</option>
                 </select>
               </div>
             )}
           </div>
-          {results.length > 0 && <MatchAllButton jobs={results.slice(0, visible)} />}
+          {results.length > 0 && <MatchAllButton jobs={results.slice(0, visible)} onMatched={() => setSort("match")} />}
           <details className="text-xs">
             <summary className="muted cursor-pointer">Where these came from</summary>
             <div className="mt-2 space-y-2">

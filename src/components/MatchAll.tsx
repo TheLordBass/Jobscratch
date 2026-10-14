@@ -30,7 +30,13 @@ export function useCurrentMatches(): { matchFor: (job: Job) => StoredMatch | und
 
 
 /** Scores every job in `jobs` against the CV, one Claude request each. */
-export function MatchAllButton({ jobs }: { jobs: Job[] }) {
+interface MatchAllProps {
+  jobs: Job[];
+  /** Called after a run that scored at least one job, e.g. to sort by match. */
+  onMatched?: () => void;
+}
+
+export function MatchAllButton({ jobs, onMatched }: MatchAllProps) {
   const sources = useSources();
   const [, setMatches] = useMatches();
   const { matchFor, candidate } = useCurrentMatches();
@@ -118,6 +124,7 @@ export function MatchAllButton({ jobs }: { jobs: Job[] }) {
     await Promise.all(Array.from({ length: Math.min(PARALLEL, queue.length) }, worker));
     if (controller.current === abort) controller.current = null;
     setRunning(false);
+    if (done > failed) onMatched?.();
   }
 
   const disabledReason = noCv

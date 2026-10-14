@@ -7,6 +7,7 @@ import { CompanyMark, MatchBadge } from "@/components/JobCard";
 import { MatchAllButton, useCurrentMatches } from "@/components/MatchAll";
 import { downloadBlob, formatPosted, formatSalary } from "@/lib/format";
 import { APPLICATION_STATUSES, useHydrated, useSavedJobs, useTailored, type ApplicationStatus } from "@/lib/store";
+import type { Job } from "@/lib/types";
 
 export const STATUS_LABEL: Record<ApplicationStatus, string> = {
   saved: "Saved",
@@ -62,6 +63,7 @@ export function SavedView() {
   const [tailored, setTailored] = useTailored();
   const [statusFilter, setStatusFilter] = useState<ApplicationStatus | "all">("all");
   const { matchFor } = useCurrentMatches();
+  const [order, setOrder] = useState<"saved" | "match">("saved");
 
   // Newest saved first. Not by last update, or a job would jump to the top as soon as you change its status or notes.
   const entries = useMemo(
@@ -74,6 +76,13 @@ export function SavedView() {
     return result;
   }, [entries]);
   const shown = statusFilter === "all" ? entries : entries.filter((e) => e.status === statusFilter);
+  // The full analysis from the job page counts over a quick score; unscored jobs go last.
+  const scoreOf = (job: Job) => tailored[job.id]?.analysis?.matchScore ?? matchFor(job)?.score;
+  const anyScored = entries.some((entry) => scoreOf(entry.job) !== undefined);
+  const ordered =
+    order === "match" && anyScored
+      ? [...shown].sort((a, b) => (scoreOf(b.job) ?? -1) - (scoreOf(a.job) ?? -1))
+      : shown;
   const clearable = shown.filter((entry) => CLEARABLE[statusFilter].includes(entry.status));
 
   function exportCsv() {
@@ -179,33 +188,48 @@ export function SavedView() {
         </div>
       ) : (
         <>
-          <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Filter by status">
-            {(["all", ...APPLICATION_STATUSES] as const).map((status) => {
-              const active = statusFilter === status;
-              return (
-                <button
-                  key={status}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  onClick={() => setStatusFilter(status)}
-                  className={`btn btn-sm rounded-full ${active ? "bg-zinc-900 text-white dark:bg-white dark:text-zinc-900" : "btn-secondary"}`}
-                >
-                  {status === "all" ? "All" : STATUS_LABEL[status]}
-                  <span className={active ? "opacity-70" : "muted"}>{counts[status] ?? 0}</span>
-                </button>
-              );
-            })}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Filter by status">
+              {(["all", ...APPLICATION_STATUSES] as const).map((status) => {
+                const active = statusFilter === status;
+                return (
+                  <button
+                    key={status}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => setStatusFilter(status)}
+                    className={`btn btn-sm rounded-full ${active ? "bg-zinc-900 text-white dark:bg-white dark:text-zinc-900" : "btn-secondary"}`}
+                  >
+                    {status === "all" ? "All" : STATUS_LABEL[status]}
+                    <span className={active ? "opacity-70" : "muted"}>{counts[status] ?? 0}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {anyScored && (
+              <select
+                className="input ml-auto w-auto py-1.5 text-xs"
+                value={order}
+                onChange={(e) => setOrder(e.target.value as "saved" | "match")}
+                aria-label="Order"
+              >
+                <option value="saved">Newest saved first</option>
+                <option value="match">Best match to my CV</option>
+              </select>
+            )}
           </div>
 
-          {shown.length > 0 && <MatchAllButton jobs={shown.map((entry) => entry.job)} />}
+          {shown.length > 0 && (
+            <MatchAllButton jobs={shown.map((entry) => entry.job)} onMatched={() => setOrder("match")} />
+          )}
           {shown.length === 0 && (
             <p className="card muted p-6 text-center text-sm">
               No jobs are marked “{STATUS_LABEL[statusFilter as ApplicationStatus]}”.
             </p>
           )}
           <ul className="space-y-2.5">
-            {shown.map(({ job, status, notes, savedAt }) => {
+            {ordered.map(({ job, status, notes, savedAt }) => {
               const docs = tailored[job.id];
               // The full analysis from the job page wins over a quick score.
               const quick = docs?.analysis ? undefined : matchFor(job);
