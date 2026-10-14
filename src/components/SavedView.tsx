@@ -3,7 +3,8 @@
 import { ArrowRight, BriefcaseBusiness, Download, FileText, Mail, StickyNote, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { CompanyMark } from "@/components/JobCard";
+import { CompanyMark, MatchBadge } from "@/components/JobCard";
+import { MatchAllButton, useCurrentMatches } from "@/components/MatchAll";
 import { downloadBlob, formatPosted, formatSalary } from "@/lib/format";
 import { APPLICATION_STATUSES, useHydrated, useSavedJobs, useTailored, type ApplicationStatus } from "@/lib/store";
 
@@ -60,6 +61,7 @@ export function SavedView() {
   const { saved, updateJob, removeJob, removeJobs } = useSavedJobs();
   const [tailored, setTailored] = useTailored();
   const [statusFilter, setStatusFilter] = useState<ApplicationStatus | "all">("all");
+  const { matchFor } = useCurrentMatches();
 
   // Newest saved first. Not by last update, or a job would jump to the top as soon as you change its status or notes.
   const entries = useMemo(
@@ -196,6 +198,7 @@ export function SavedView() {
             })}
           </div>
 
+          {shown.length > 0 && <MatchAllButton jobs={shown.map((entry) => entry.job)} />}
           {shown.length === 0 && (
             <p className="card muted p-6 text-center text-sm">
               No jobs are marked “{STATUS_LABEL[statusFilter as ApplicationStatus]}”.
@@ -204,6 +207,8 @@ export function SavedView() {
           <ul className="space-y-2.5">
             {shown.map(({ job, status, notes, savedAt }) => {
               const docs = tailored[job.id];
+              // The full analysis from the job page wins over a quick score.
+              const quick = docs?.analysis ? undefined : matchFor(job);
               const salary = formatSalary(job.salary);
               const href = `/tailor?job=${encodeURIComponent(job.id)}`;
               return (
@@ -215,9 +220,12 @@ export function SavedView() {
                   <div className="flex min-w-0 flex-1 gap-3.5">
                     <CompanyMark job={job} />
                     <div className="min-w-0 flex-1">
-                      <Link href={href} className="font-bold hover:text-indigo-600 dark:hover:text-indigo-400">
-                        {job.title}
-                      </Link>
+                      <div className="flex items-start gap-2">
+                        <Link href={href} className="font-bold hover:text-indigo-600 dark:hover:text-indigo-400">
+                          {job.title}
+                        </Link>
+                        {quick && <MatchBadge score={quick.score} />}
+                      </div>
                       <p className="text-sm text-zinc-700 dark:text-zinc-300">
                         {job.company}
                         {job.location && <span className="muted"> · {job.location}</span>}

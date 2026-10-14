@@ -103,17 +103,43 @@ ${profile.evidence.trim()}
   return block;
 }
 
-export function materialsBlock({ cv, job, profile }: TailorMaterials): string {
+/** The candidate's CV and online profile: the same for every job. */
+export function candidateBlock({ cv, profile }: Pick<TailorMaterials, "cv" | "profile">): string {
   return `<candidate_cv>
 ${cv.trim()}
 </candidate_cv>
 
-${profileBlock(profile)}<job_posting>
+${profileBlock(profile)}`;
+}
+
+export function jobBlock(job: TailorJob): string {
+  return `<job_posting>
 Title: ${job.title}
 Company: ${job.company}
 ${job.location ? `Location: ${job.location}\n` : ""}${job.url ? `Link: ${job.url}\n` : ""}
 ${job.description.trim()}
 </job_posting>`;
+}
+
+export function materialsBlock(materials: TailorMaterials): string {
+  return `${candidateBlock(materials)}${jobBlock(materials.job)}`;
+}
+
+/** A quick screening score, for scoring many jobs at once ("Match all"). */
+export const QuickMatchSchema = z.object({
+  matchScore: z.number().describe("0-100: how well the candidate's materials evidence the job's key requirements"),
+  verdict: z.string().describe("One short sentence on the fit"),
+  missing: z.array(z.string()).describe("Up to three of the job's most important requirements the materials don't show"),
+});
+
+export type QuickMatch = z.infer<typeof QuickMatchSchema>;
+
+export function quickMatchInstruction(withProfile = false): string {
+  return `Give a quick screening score for how well the candidate fits this job, the way a recruiter skimming many applications would${withProfile ? ", using their CV and their online profile (website and GitHub)" : ""}.
+
+- matchScore: an integer from 0 to 100 for how well the candidate's materials evidence the job's key requirements. Weigh professional experience above personal projects.
+- verdict: one short sentence, under 25 words, on the fit. If the posting gives only a title or a few lines, score from what's there and start the verdict with "Short posting:".
+- missing: up to three of the job's most important requirements that the materials don't show, as short phrases. Leave it empty if nothing important is missing.`;
 }
 
 const STYLE_GUIDE: Record<TailorOptions["style"], string> = {

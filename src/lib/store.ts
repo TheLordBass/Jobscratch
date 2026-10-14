@@ -2,6 +2,7 @@
 
 import { useCallback, useSyncExternalStore } from "react";
 import type { MatchAnalysis, TailorOptions } from "@/lib/ai/prompts";
+import { mergeJobs } from "@/lib/import";
 import type { CompanyBoards, Job, SearchSourceId } from "@/lib/types";
 
 /*
@@ -74,12 +75,24 @@ export const DEFAULT_SETTINGS: Settings = {
 
 export const EMPTY_PROFILE: StoredProfile = { website: "", github: "", evidence: "", enabled: true };
 
+/** A quick match score for one job (from "Match all"). */
+export interface StoredMatch {
+  score: number;
+  verdict: string;
+  missing: string[];
+  /** Which CV and description it was scored against (see matchKey), to spot when it's out of date. */
+  key: string;
+  at: string;
+}
+
+const EMPTY_MATCHES: Record<string, StoredMatch> = {};
+
 const EMPTY_GROUPS: SearchGroup[] = [];
 const EMPTY_SAVED: Record<string, SavedJob> = {};
 const EMPTY_TAILORED: Record<string, TailoredDocs> = {};
 
 const PREFIX = "jobscratch:";
-type Key = "groups" | "saved" | "cv" | "profile" | "settings" | "tailored";
+type Key = "groups" | "saved" | "cv" | "profile" | "settings" | "tailored" | "matches";
 
 const listeners = new Set<() => void>();
 const parsed = new Map<string, { raw: string | null; value: unknown }>();
@@ -172,6 +185,10 @@ export function useProfile() {
   return useStored("profile", EMPTY_PROFILE);
 }
 
+export function useMatches() {
+  return useStored("matches", EMPTY_MATCHES);
+}
+
 export function useTailored() {
   return useStored("tailored", EMPTY_TAILORED);
 }
@@ -259,7 +276,22 @@ export function useSavedJobs() {
     [setSaved],
   );
 
-  return { saved, saveJob, updateJob, removeJob, removeJobs };
+  /** Fill in a saved job from another copy of it (see mergeJobs), keeping its status and notes. */
+  const mergeJob = useCallback(
+    (id: string, incoming: Job) => {
+      setSaved((previous) => {
+        const existing = previous[id];
+        if (!existing) return previous;
+        return {
+          ...previous,
+          [id]: { ...existing, job: mergeJobs(existing.job, incoming), updatedAt: new Date().toISOString() },
+        };
+      });
+    },
+    [setSaved],
+  );
+
+  return { saved, saveJob, updateJob, removeJob, removeJobs, mergeJob };
 }
 
 export function newId(): string {

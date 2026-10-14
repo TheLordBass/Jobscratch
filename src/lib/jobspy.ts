@@ -67,6 +67,8 @@ const terms = z
   .optional()
   .transform((value) => (Array.isArray(value) ? value : value ? [value] : []).map((v) => v.trim()).filter(Boolean));
 
+const BLANK_ROW = Object.fromEntries(Object.keys(RecordSchema.shape).map((field) => [field, null]));
+
 const FileSchema = z.object({
   format: z.literal(JOBSPY_FORMAT),
   version: z.literal(1),
@@ -140,7 +142,8 @@ export function parseJobspyFile(raw: string): JobspyImport {
   const byId = new Map<string, Job>();
   let skipped = 0;
   for (const value of file.data.jobs) {
-    const row = RecordSchema.safeParse(value);
+    // A missing field is read as empty, like pandas' null.
+    const row = RecordSchema.safeParse(value && typeof value === "object" ? { ...BLANK_ROW, ...value } : value);
     const job = row.success ? toJob(row.data) : undefined;
     if (!job) skipped++;
     else if (!byId.has(job.id)) byId.set(job.id, job);

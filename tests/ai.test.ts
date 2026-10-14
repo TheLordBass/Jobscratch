@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { analyzeMatch, isAiConfigured, streamDocument, type StreamEvent } from "@/lib/ai/claude";
+import { analyzeMatch, isAiConfigured, quickMatch, streamDocument, type StreamEvent } from "@/lib/ai/claude";
 import type { TailorJob, TailorOptions } from "@/lib/ai/prompts";
 
 const ENV = { ANTHROPIC_API_KEY: "sk-ant-test" };
@@ -210,6 +210,47 @@ describe("streamDocument", () => {
     expect(body.model).toBe("claude-sonnet-5-5");
     expect(body.fallbacks).toBeUndefined();
     expect(headers.get("anthropic-beta") ?? "").not.toContain("server-side-fallback");
+  });
+});
+
+describe("quickMatch", () => {
+  const reply = (match: object, model = "claude-opus-5-5") =>
+    Response.json({
+      id: "msg_q",
+      type: "message",
+      role: "assistant",
+      model,
+      content: [{ type: "text", text: JSON.stringify(match) }],
+      stop_reason: "end_turn",
+      stop_sequence: null,
+      usage: { input_tokens: 10, output_tokens: 10 },
+    });
+
+  it("scores quickly, with the CV as a cached prefix and the job after it", async () => {
+    fetchMock.mockResolvedValueOnce(
+      reply({ matchScore: 77.6, verdict: " Good fit. ", missing: ["dbt", "A/B testing", "Looker", "Airflow"] }),
+    );
+    const match = await quickMatch({ cv: CV, job: JOB }, ENV);
+    expect(match).toEqual({ matchScore: 78, verdict: "Good fit.", missing: ["dbt", "A/B testing", "Looker"] });
+
+    const { body } = lastRequest();
+    expect(body.model).toBe("claude-opus-5-5");
+    expect(body.output_config.effort).toBe("low");
+    expect(Object.keys(body.output_config.format.schema.properties)).toEqual(["matchScore", "verdict", "missing"]);
+    const [candidate, job] = body.messages[0].content;
+    expect(candidate.cache_control).toEqual({ type: "ephemeral" });
+    expect(candidate.text).toContain("<candidate_cv>");
+    expect(candidate.text).not.toContain("<job_posting>");
+    expect(job.text).toContain("<job_posting>\nTitle: Senior Data Analyst");
+    expect(job.text).toContain("quick screening score");
+  });
+
+  it("can use a separate, cheaper model for quick matches", async () => {
+    fetchMock.mockResolvedValueOnce(reply({ matchScore: 40, verdict: "Weak fit.", missing: [] }, "claude-haiku-5-5"));
+    await quickMatch({ cv: CV, job: JOB }, { ...ENV, ANTHROPIC_QUICK_MODEL: "claude-haiku-5-5" });
+    const { body } = lastRequest();
+    expect(body.model).toBe("claude-haiku-5-5");
+    expect(body.fallbacks).toBeUndefined();
   });
 });
 

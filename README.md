@@ -64,7 +64,9 @@ pip install -r scripts/jobspy/requirements.txt
 python scripts/jobspy/search.py "data analyst" --location London
 ```
 
-Then, in JobScratch, go to **Find jobs → Add a job → From JobSpy** and choose the `jobspy-results.json` file it wrote. Save the jobs you want, or tailor your CV to one straight away.
+Then, in JobScratch, go to **Find jobs → Add a job → From JobSpy** and choose the `jobspy-results.json` file it wrote. Save the jobs you want, or tailor your CV to one straight away. **Match all to my CV** scores them all against your CV.
+
+LinkedIn jobs from JobSpy usually come without a description. Save them, then open each one on LinkedIn and click your **Send to JobScratch** bookmark: JobScratch recognises it as the same job (by its LinkedIn job number) and offers to **merge** the full description into the saved job, keeping its status and notes. The same works for Indeed and Glassdoor jobs.
 
 To search several job titles and places at once, list them. Every combination is searched, and the results are merged into one file without duplicates:
 
@@ -89,6 +91,8 @@ Upload your CV once (**My CV**: PDF, Word .docx, Markdown or text). Then choose 
 **Your website and GitHub (optional):** on **My CV**, add your portfolio site and GitHub, then click **Fetch details**. JobScratch reads your site's main pages (plus About and Projects pages) and your public repositories: descriptions, languages, topics and short README excerpts. It shows you exactly what Claude will see, and you can edit or remove anything. When tailoring, Claude can add your links to the CV, include a "Projects" section for relevant work, and count your projects in the match analysis. A project is described as a project, never as paid experience. Reading GitHub without a token allows 60 requests an hour; add a `GITHUB_TOKEN` (no permissions needed) if you hit the limit.
 
 **It's told never to invent anything.** Employers, titles, dates, qualifications and numbers must come from your CV. Anything the job wants that your CV doesn't show goes in the gap analysis, not in the CV. Still, read every line before you send it.
+
+**Match all:** on a JobSpy results list, your search results or My jobs, click **Match all to my CV** to score every job at once: a 0–100 match, a one-line verdict and up to three things the job wants that your CV doesn't show. Jobs are sorted best match first, and a score is redone only when your CV or the job's description changes. It's one Claude request per job (it asks first above 20), and jobs without a description are skipped. To make these quick scores cheaper, set `ANTHROPIC_QUICK_MODEL` (e.g. `claude-haiku-5-5`); tailoring keeps using the main model.
 
 Results stream in as they're written. You can edit them and download as **Word (.docx)**, **PDF** (via Print), or **Markdown**. They're saved with the job, so you can come back to them.
 

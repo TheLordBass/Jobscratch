@@ -10,7 +10,8 @@ import { STATUS_LABEL, STATUS_STYLE, SavedView } from "@/components/SavedView";
 import { useSources } from "@/components/useSources";
 import type { MatchAnalysis, TailorOptions } from "@/lib/ai/prompts";
 import { markdownToDocx } from "@/lib/export-docx";
-import { MAX_EVIDENCE_CHARS, MAX_GITHUB_LENGTH, MAX_WEBSITE_LENGTH, linksChanged } from "@/lib/profile/links";
+import { candidateFor } from "@/lib/candidate";
+import { jobKeys } from "@/lib/import";
 import { downloadBlob, slugify } from "@/lib/format";
 import { inlinesToText, parseMarkdown, printableHtml } from "@/lib/markdown";
 import {
@@ -307,13 +308,7 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
   const profileSources =
     [profile.website.trim() && "website", profile.github.trim() && "GitHub"].filter(Boolean).join(" and ") ||
     "website and GitHub details";
-  // A link too long for the API is left out rather than failing every request.
-  const website = profile.website.trim().length <= MAX_WEBSITE_LENGTH ? profile.website.trim() : "";
-  const github = profile.github.trim().length <= MAX_GITHUB_LENGTH ? profile.github.trim() : "";
-  // Details fetched for links that have since changed would describe the wrong site or account.
-  const staleDetails = Boolean(profile.evidence.trim()) && linksChanged(profile, profile.fetchedFor);
-  const evidence = staleDetails ? "" : profile.evidence.trim().slice(0, MAX_EVIDENCE_CHARS);
-  const payloadProfile = profile.enabled && (website || github || evidence) ? { website, github, evidence } : undefined;
+  const { profile: payloadProfile, staleDetails } = candidateFor(cv, profile);
 
   const payloadJob = {
     title: job.title,
@@ -598,7 +593,14 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
             </div>
             {description.length < SNIPPET_LENGTH && (
               <p className="rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-200">
-                This looks like a snippet. For a better result, open the listing and paste the full description here.
+                {jobKeys(job).some((key) => key.startsWith("linkedin:")) ? (
+                  <>
+                    LinkedIn didn’t share the full description. Open the job on LinkedIn and click your{" "}
+                    <strong>Send to JobScratch</strong> bookmark, then choose <strong>Merge</strong>: it’s added here.
+                  </>
+                ) : (
+                  "This looks like a snippet. For a better result, open the listing and paste the full description here."
+                )}
               </p>
             )}
             {editingDescription ? (

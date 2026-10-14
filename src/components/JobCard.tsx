@@ -2,7 +2,7 @@
 
 import { ArrowUpRight, Banknote, Bookmark, BookmarkCheck, Clock, MapPin, Sparkles, Wifi } from "lucide-react";
 import { formatPosted, formatSalary } from "@/lib/format";
-import type { ApplicationStatus } from "@/lib/store";
+import type { ApplicationStatus, StoredMatch } from "@/lib/store";
 import type { Job } from "@/lib/types";
 
 interface Props {
@@ -12,6 +12,8 @@ interface Props {
   onToggle: () => void;
   onSave: () => void;
   onTailor: () => void;
+  /** Quick match score from "Match all", if there is one. */
+  match?: StoredMatch;
 }
 
 const SNIPPET_LENGTH = 600;
@@ -75,7 +77,7 @@ export function CompanyMark({ job, size = "md" }: { job: Job; size?: "md" | "lg"
   );
 }
 
-export function JobCard({ job, status, expanded, onToggle, onSave, onTailor }: Props) {
+export function JobCard({ job, status, expanded, onToggle, onSave, onTailor, match }: Props) {
   const salary = formatSalary(job.salary);
   const posted = formatPosted(job.postedAt);
   const isSnippet = job.description.length > 0 && job.description.length < SNIPPET_LENGTH;
@@ -86,14 +88,17 @@ export function JobCard({ job, status, expanded, onToggle, onSave, onTailor }: P
         <div className="flex min-w-0 flex-1 gap-3.5">
           <CompanyMark job={job} />
           <div className="min-w-0 flex-1">
-            <button
-              type="button"
-              onClick={onToggle}
-              aria-expanded={expanded}
-              className="cursor-pointer text-left text-base leading-snug font-bold hover:text-indigo-600 dark:hover:text-indigo-400"
-            >
-              {job.title}
-            </button>
+            <div className="flex items-start gap-2">
+              <button
+                type="button"
+                onClick={onToggle}
+                aria-expanded={expanded}
+                className="cursor-pointer text-left text-base leading-snug font-bold hover:text-indigo-600 dark:hover:text-indigo-400"
+              >
+                {job.title}
+              </button>
+              {match && <MatchBadge score={match.score} />}
+            </div>
             <p className="mt-0.5 text-sm font-medium text-zinc-700 dark:text-zinc-300">{job.company}</p>
             <div className="muted mt-2 flex flex-wrap items-center gap-x-3.5 gap-y-1 text-xs">
               {job.location && (
@@ -119,6 +124,7 @@ export function JobCard({ job, status, expanded, onToggle, onSave, onTailor }: P
               {job.employmentType && <span className="capitalize">{job.employmentType}</span>}
               <span>via {job.sourceName}</span>
             </div>
+            {match && <p className="mt-2 text-xs leading-relaxed text-zinc-600 dark:text-zinc-300">{match.verdict}</p>}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1.5 sm:flex-col sm:items-end">
@@ -144,6 +150,16 @@ export function JobCard({ job, status, expanded, onToggle, onSave, onTailor }: P
       {expanded && (
         <div className="mt-4 border-t border-zinc-100 pt-4 dark:border-zinc-800">
           <OtherApplyLinks job={job} />
+          {match && match.missing.length > 0 && (
+            <div className="mt-2 flex flex-wrap items-center gap-1 text-xs">
+              <span className="muted">Not shown on your CV:</span>
+              {match.missing.map((item) => (
+                <span key={item} className="chip bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+                  {item}
+                </span>
+              ))}
+            </div>
+          )}
           {isSnippet && (
             <p className="mt-2 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-200">
               {job.sourceName} only shares a snippet. Open the listing for the full description, and paste it in when
@@ -165,5 +181,23 @@ export function JobCard({ job, status, expanded, onToggle, onSave, onTailor }: P
         </div>
       )}
     </article>
+  );
+}
+
+/** A quick match score, coloured by how good it is. */
+export function MatchBadge({ score }: { score: number }) {
+  const tone =
+    score >= 75
+      ? "bg-emerald-50 text-emerald-700 ring-emerald-600/20 dark:bg-emerald-950 dark:text-emerald-300"
+      : score >= 50
+        ? "bg-amber-50 text-amber-700 ring-amber-600/20 dark:bg-amber-950 dark:text-amber-300"
+        : "bg-red-50 text-red-700 ring-red-600/20 dark:bg-red-950 dark:text-red-300";
+  return (
+    <span
+      className={`mt-0.5 inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-xs font-bold tabular-nums ring-1 ${tone}`}
+      title="Quick match with your CV"
+    >
+      {score}%<span className="sr-only"> match</span>
+    </span>
   );
 }

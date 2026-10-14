@@ -7,6 +7,7 @@ import { useMemo, useState, type FormEvent } from "react";
 import { GettingStarted } from "@/components/GettingStarted";
 import { JobCard } from "@/components/JobCard";
 import { KeywordInput, addTerms } from "@/components/KeywordInput";
+import { MatchAllButton, useCurrentMatches } from "@/components/MatchAll";
 import { FIND_TABS, SectionTabs } from "@/components/Nav";
 import { COUNTRIES } from "@/lib/format";
 import { newId, useGroups, useHydrated, useSavedJobs, useSettings, type SearchGroup } from "@/lib/store";
@@ -118,7 +119,8 @@ export function SearchView() {
   const [naming, setNaming] = useState(false);
 
   const [search, setSearch] = useState<SearchState>({ status: "idle" });
-  const [sort, setSort] = useState<"relevance" | "newest">("relevance");
+  const [sort, setSort] = useState<"relevance" | "newest" | "match">("relevance");
+  const { matchFor } = useCurrentMatches();
   const [filter, setFilter] = useState("");
   const [visible, setVisible] = useState(PAGE_SIZE);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -223,10 +225,11 @@ export function SearchView() {
           `${job.title} ${job.company} ${job.location} ${job.sourceName}`.toLowerCase().includes(needle),
         )
       : search.response.jobs;
-    return sort === "newest"
-      ? [...jobs].sort((a, b) => (b.postedAt ?? "").localeCompare(a.postedAt ?? ""))
-      : jobs;
-  }, [search, filter, sort]);
+    if (sort === "newest") return [...jobs].sort((a, b) => (b.postedAt ?? "").localeCompare(a.postedAt ?? ""));
+    // Unscored jobs keep their order after the scored ones.
+    if (sort === "match") return [...jobs].sort((a, b) => (matchFor(b)?.score ?? -1) - (matchFor(a)?.score ?? -1));
+    return jobs;
+  }, [search, filter, sort, matchFor]);
 
   const hasQuery = keywords.length > 0 || Boolean(keywordDraft.trim());
 
@@ -465,15 +468,17 @@ export function SearchView() {
                 <select
                   className="input w-auto py-1.5"
                   value={sort}
-                  onChange={(e) => setSort(e.target.value as "relevance" | "newest")}
+                  onChange={(e) => setSort(e.target.value as "relevance" | "newest" | "match")}
                   aria-label="Sort results"
                 >
                   <option value="relevance">Best match</option>
                   <option value="newest">Newest</option>
+                  <option value="match">Match score</option>
                 </select>
               </div>
             )}
           </div>
+          {results.length > 0 && <MatchAllButton jobs={results.slice(0, visible)} />}
           <details className="text-xs">
             <summary className="muted cursor-pointer">Where these came from</summary>
             <div className="mt-2 space-y-2">
@@ -500,6 +505,7 @@ export function SearchView() {
                 key={job.id}
                 job={job}
                 status={saved[job.id]?.status}
+                match={matchFor(job)}
                 expanded={expanded === job.id}
                 onToggle={() => setExpanded(expanded === job.id ? null : job.id)}
                 onSave={() => {
