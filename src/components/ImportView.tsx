@@ -146,7 +146,7 @@ function JobspyImporter() {
               )}
             </div>
           </div>
-          <MatchAllButton jobs={jobs} />
+          <MatchAllButton jobs={jobs} onMatched={() => setOrder("match")} />
           {shown.map((job) => (
             <JobCard
               key={job.id}
