@@ -1,5 +1,6 @@
 "use client";
 
+import { Plus, Search, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, type FormEvent } from "react";
@@ -12,6 +13,9 @@ import { newId, useGroups, useHydrated, useSavedJobs, useSettings, type SearchGr
 import { SOURCE_IDS, type Job, type SearchRequest, type SearchResponse, type SourceResult } from "@/lib/types";
 
 const PAGE_SIZE = 30;
+
+/** One-click searches for an empty page. */
+const SUGGESTIONS = ["Data analyst", "Software engineer", "Product manager", "Marketing manager", "Project manager"];
 
 const EXAMPLE_GROUPS: Array<Omit<SearchGroup, "id">> = [
   {
@@ -254,7 +258,7 @@ export function SearchView() {
             />
           </div>
           <button type="submit" className="btn btn-primary px-5 py-2.5" disabled={search.status === "loading"}>
-            {search.status === "loading" ? "Searching…" : "Search"}
+            <Search size={16} aria-hidden /> {search.status === "loading" ? "Searching…" : "Search"}
           </button>
         </div>
 
@@ -331,7 +335,7 @@ export function SearchView() {
                   onClick={() => deleteGroup(group)}
                   aria-label={`Delete the saved search ${group.name}`}
                 >
-                  ×
+                  <X size={12} aria-hidden />
                 </button>
               </span>
             );
@@ -386,7 +390,7 @@ export function SearchView() {
                 disabled={!hasQuery}
                 title="Save these keywords and filters to run again with one click"
               >
-                + Save this search
+                <Plus size={14} aria-hidden /> Save this search
               </button>
             )}
           </span>
@@ -394,15 +398,37 @@ export function SearchView() {
       </form>
 
       {search.status === "idle" && (
-        <div className="card muted p-8 text-center text-sm">
-          <p className="text-base font-medium text-zinc-700 dark:text-zinc-300">Search many job sites at once</p>
-          <p className="mt-1">
-            Type a few job titles above. Found a job on LinkedIn?{" "}
-            <Link href="/import" className="link">
-              Add it here
-            </Link>
-            .
-          </p>
+        <div className="card flex flex-col items-center gap-3 px-6 py-12 text-center">
+          <span className="avatar h-14 w-14">
+            <Search size={24} aria-hidden />
+          </span>
+          <div>
+            <p className="text-base font-bold">Search many job sites at once</p>
+            <p className="muted mt-1 text-sm">
+              Type a few job titles above, or try one of these. Found a job on LinkedIn?{" "}
+              <Link href="/import" className="link">
+                Add it here
+              </Link>
+              .
+            </p>
+          </div>
+          <div className="flex flex-wrap justify-center gap-1.5">
+            {SUGGESTIONS.map((suggestion) => (
+              <button
+                key={suggestion}
+                type="button"
+                className="btn btn-secondary btn-sm rounded-full"
+                onClick={() => {
+                  const query = { ...currentQuery(), keywords: [suggestion] };
+                  setKeywords([suggestion]);
+                  setKeywordDraft("");
+                  void run(query, suggestion);
+                }}
+              >
+                {suggestion}
+              </button>
+            ))}
+          </div>
         </div>
       )}
       {search.status === "loading" && (
