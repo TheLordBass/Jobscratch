@@ -61,11 +61,19 @@ const RecordSchema = z.object({
   company_logo: text,
 });
 
+/** One search term or location, or (from multi-searches) a list of them. */
+const terms = z
+  .union([z.string(), z.array(z.string())])
+  .optional()
+  .transform((value) => (Array.isArray(value) ? value : value ? [value] : []).map((v) => v.trim()).filter(Boolean));
+
+const BLANK_ROW = Object.fromEntries(Object.keys(RecordSchema.shape).map((field) => [field, null]));
+
 const FileSchema = z.object({
   format: z.literal(JOBSPY_FORMAT),
   version: z.literal(1),
   createdAt: z.string().optional(),
-  query: z.object({ search: z.string().optional(), location: z.string().optional() }).optional(),
+  query: z.object({ search: terms, location: terms }).optional(),
   jobs: z.array(z.unknown()).max(5000),
 });
 
@@ -134,16 +142,17 @@ export function parseJobspyFile(raw: string): JobspyImport {
   const byId = new Map<string, Job>();
   let skipped = 0;
   for (const value of file.data.jobs) {
-    const row = RecordSchema.safeParse(value);
+    // A missing field is read as empty, like pandas' null.
+    const row = RecordSchema.safeParse(value && typeof value === "object" ? { ...BLANK_ROW, ...value } : value);
     const job = row.success ? toJob(row.data) : undefined;
     if (!job) skipped++;
     else if (!byId.has(job.id)) byId.set(job.id, job);
   }
 
-  const { search, location } = file.data.query ?? {};
+  const { search = [], location = [] } = file.data.query ?? {};
   return {
     jobs: [...byId.values()],
-    query: search ? `${search}${location ? ` in ${location}` : ""}` : undefined,
+    query: search.length ? `${search.join(", ")}${location.length ? ` in ${location.join(", ")}` : ""}` : undefined,
     createdAt: file.data.createdAt,
     skipped,
   };

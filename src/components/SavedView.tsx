@@ -1,7 +1,10 @@
 "use client";
 
+import { ArrowRight, BriefcaseBusiness, Download, FileText, Mail, StickyNote, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { CompanyMark, MatchBadge } from "@/components/JobCard";
+import { MatchAllButton, useCurrentMatches } from "@/components/MatchAll";
 import { downloadBlob, formatPosted, formatSalary } from "@/lib/format";
 import { APPLICATION_STATUSES, useHydrated, useSavedJobs, useTailored, type ApplicationStatus } from "@/lib/store";
 
@@ -21,6 +24,29 @@ export const STATUS_STYLE: Record<ApplicationStatus, string> = {
   rejected: "bg-zinc-100 text-zinc-500 line-through dark:bg-zinc-800 dark:text-zinc-500",
 };
 
+/** The coloured strip down the side of each job. */
+const STATUS_ACCENT: Record<ApplicationStatus, string> = {
+  saved: "bg-zinc-300 dark:bg-zinc-600",
+  applied: "bg-sky-500",
+  interviewing: "bg-amber-500",
+  offer: "bg-emerald-500",
+  rejected: "bg-zinc-200 dark:bg-zinc-700",
+};
+
+/**
+ * Which jobs the Clear button may remove in each view. Jobs you've applied to
+ * (Applied, Interviewing, Offer) are never cleared in bulk; Closed ones only
+ * from their own tab.
+ */
+const CLEARABLE: Record<ApplicationStatus | "all", readonly ApplicationStatus[]> = {
+  all: ["saved"],
+  saved: ["saved"],
+  rejected: ["rejected"],
+  applied: [],
+  interviewing: [],
+  offer: [],
+};
+
 function toCsv(rows: string[][]): string {
   return rows.map((row) => row.map((cell) => `"${csvSafe(cell).replace(/"/g, '""')}"`).join(",")).join("\n");
 }
@@ -35,6 +61,7 @@ export function SavedView() {
   const { saved, updateJob, removeJob, removeJobs } = useSavedJobs();
   const [tailored, setTailored] = useTailored();
   const [statusFilter, setStatusFilter] = useState<ApplicationStatus | "all">("all");
+  const { matchFor } = useCurrentMatches();
 
   // Newest saved first. Not by last update, or a job would jump to the top as soon as you change its status or notes.
   const entries = useMemo(
@@ -47,6 +74,7 @@ export function SavedView() {
     return result;
   }, [entries]);
   const shown = statusFilter === "all" ? entries : entries.filter((e) => e.status === statusFilter);
+  const clearable = shown.filter((entry) => CLEARABLE[statusFilter].includes(entry.status));
 
   function exportCsv() {
     const rows = [
@@ -65,19 +93,28 @@ export function SavedView() {
     downloadBlob(new Blob([toCsv(rows)], { type: "text/csv" }), "jobscratch-applications.csv");
   }
 
-  /** Remove every job in the current view (all of them, or one status), with its tailored documents. */
-  function clearShown() {
-    const ids = shown.map((entry) => entry.job.id);
+  /** Remove the jobs this view may clear, with their tailored documents. */
+  function clearJobs() {
+    const ids = clearable.map((entry) => entry.job.id);
     if (ids.length === 0) return;
     const one = ids.length === 1;
-    const label = statusFilter === "all" ? "" : ` “${STATUS_LABEL[statusFilter]}”`;
-    const which = one ? `this${label} job` : `${statusFilter === "all" ? "all" : "the"} ${ids.length}${label} jobs`;
+    const which =
+      statusFilter === "all"
+        ? one
+          ? "the 1 job you haven’t applied to yet"
+          : `the ${ids.length} jobs you haven’t applied to yet`
+        : one
+          ? `this “${STATUS_LABEL[statusFilter]}” job`
+          : `the ${ids.length} “${STATUS_LABEL[statusFilter]}” jobs`;
+    const kept = statusFilter === "all" && entries.length > ids.length ? " Jobs you’ve applied to are kept." : "";
     const documents = ids.some((id) => tailored[id])
       ? one
         ? " Its tailored CV and cover letter will be deleted too."
         : " Their tailored CVs and cover letters will be deleted too."
       : "";
-    if (!window.confirm(`Remove ${which}?${documents} This can’t be undone, so use Export CSV first if you want a record.`)) return;
+    if (!window.confirm(`Remove ${which}?${kept}${documents} This can’t be undone, so use Export CSV first if you want a record.`)) {
+      return;
+    }
     removeJobs(ids);
     setTailored((previous) => {
       const next = { ...previous };
@@ -89,29 +126,48 @@ export function SavedView() {
 
   if (!hydrated) return <div className="card muted p-8 text-center text-sm">Loading your jobs…</div>;
 
+  const clearLabel = statusFilter === "all" ? "Clear not applied" : `Clear “${STATUS_LABEL[statusFilter]}”`;
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold">My jobs</h1>
-          <p className="muted text-sm">Open a job to check your match, tailor your CV and track your application.</p>
+          <h1 className="page-title">My jobs</h1>
+          <p className="page-subtitle">Open a job to check your match, tailor your CV and track your application.</p>
         </div>
         {entries.length > 0 && (
           <div className="flex gap-1">
             <button type="button" className="btn btn-ghost btn-sm" onClick={exportCsv}>
-              Export CSV
+              <Download size={14} aria-hidden /> Export CSV
             </button>
-            <button type="button" className="btn btn-danger btn-sm" onClick={clearShown} disabled={shown.length === 0}>
-              {statusFilter === "all" ? "Clear all" : `Clear “${STATUS_LABEL[statusFilter]}”`}
-            </button>
+            {CLEARABLE[statusFilter].length > 0 && (
+              <button
+                type="button"
+                className="btn btn-danger btn-sm"
+                onClick={clearJobs}
+                disabled={clearable.length === 0}
+                title={
+                  statusFilter === "all"
+                    ? "Removes jobs still marked Saved. Jobs you’ve applied to are kept."
+                    : `Removes the jobs marked ${STATUS_LABEL[statusFilter]}`
+                }
+              >
+                <Trash2 size={14} aria-hidden /> {clearLabel}
+              </button>
+            )}
           </div>
         )}
       </div>
 
       {entries.length === 0 ? (
-        <div className="card space-y-3 p-8 text-center text-sm">
-          <p className="text-base font-medium">No jobs yet</p>
-          <p className="muted">Save jobs from a search, or add one from LinkedIn or any link.</p>
+        <div className="card flex flex-col items-center gap-3 px-6 py-14 text-center">
+          <span className="avatar h-14 w-14">
+            <BriefcaseBusiness size={24} aria-hidden />
+          </span>
+          <div>
+            <p className="text-base font-bold">No jobs yet</p>
+            <p className="muted mt-1 text-sm">Save jobs from a search, or add one from LinkedIn or any link.</p>
+          </div>
           <div className="flex justify-center gap-2">
             <Link href="/" className="btn btn-primary">
               Search jobs
@@ -124,48 +180,84 @@ export function SavedView() {
       ) : (
         <>
           <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Filter by status">
-            {(["all", ...APPLICATION_STATUSES] as const).map((status) => (
-              <button
-                key={status}
-                type="button"
-                role="tab"
-                aria-selected={statusFilter === status}
-                onClick={() => setStatusFilter(status)}
-                className={`btn btn-sm ${statusFilter === status ? "btn-primary" : "btn-secondary"}`}
-              >
-                {status === "all" ? "All" : STATUS_LABEL[status]} <span className="opacity-70">{counts[status] ?? 0}</span>
-              </button>
-            ))}
+            {(["all", ...APPLICATION_STATUSES] as const).map((status) => {
+              const active = statusFilter === status;
+              return (
+                <button
+                  key={status}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => setStatusFilter(status)}
+                  className={`btn btn-sm rounded-full ${active ? "bg-zinc-900 text-white dark:bg-white dark:text-zinc-900" : "btn-secondary"}`}
+                >
+                  {status === "all" ? "All" : STATUS_LABEL[status]}
+                  <span className={active ? "opacity-70" : "muted"}>{counts[status] ?? 0}</span>
+                </button>
+              );
+            })}
           </div>
 
+          {shown.length > 0 && <MatchAllButton jobs={shown.map((entry) => entry.job)} />}
           {shown.length === 0 && (
-            <p className="card muted p-6 text-center text-sm">No jobs are marked “{STATUS_LABEL[statusFilter as ApplicationStatus]}”.</p>
+            <p className="card muted p-6 text-center text-sm">
+              No jobs are marked “{STATUS_LABEL[statusFilter as ApplicationStatus]}”.
+            </p>
           )}
-          <ul className="space-y-2">
+          <ul className="space-y-2.5">
             {shown.map(({ job, status, notes, savedAt }) => {
               const docs = tailored[job.id];
+              // The full analysis from the job page wins over a quick score.
+              const quick = docs?.analysis ? undefined : matchFor(job);
               const salary = formatSalary(job.salary);
               const href = `/tailor?job=${encodeURIComponent(job.id)}`;
               return (
-                <li key={job.id} className="card flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
-                  <div className="min-w-0 flex-1">
-                    <Link href={href} className="font-semibold hover:text-indigo-600 dark:hover:text-indigo-400">
-                      {job.title}
-                    </Link>
-                    <p className="text-sm text-zinc-700 dark:text-zinc-300">
-                      {job.company}
-                      {job.location && <span className="muted"> · {job.location}</span>}
-                    </p>
-                    <p className="muted mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-                      {docs?.analysis && <span className="chip">{docs.analysis.matchScore}% match</span>}
-                      {docs?.cv && <span className="chip">CV tailored</span>}
-                      {docs?.coverLetter && <span className="chip">Cover letter</span>}
-                      <span>{[salary, `saved ${formatPosted(savedAt)}`, notes.trim() && "has notes"].filter(Boolean).join(" · ")}</span>
-                    </p>
+                <li
+                  key={job.id}
+                  className="card relative flex flex-col gap-3 overflow-hidden p-4 pl-5 transition hover:border-zinc-300 hover:shadow-md sm:flex-row sm:items-center dark:hover:border-zinc-700"
+                >
+                  <span className={`absolute inset-y-0 left-0 w-1 ${STATUS_ACCENT[status]}`} aria-hidden />
+                  <div className="flex min-w-0 flex-1 gap-3.5">
+                    <CompanyMark job={job} />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start gap-2">
+                        <Link href={href} className="font-bold hover:text-indigo-600 dark:hover:text-indigo-400">
+                          {job.title}
+                        </Link>
+                        {quick && <MatchBadge score={quick.score} />}
+                      </div>
+                      <p className="text-sm text-zinc-700 dark:text-zinc-300">
+                        {job.company}
+                        {job.location && <span className="muted"> · {job.location}</span>}
+                      </p>
+                      <p className="muted mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs">
+                        {docs?.analysis && (
+                          <span className="chip bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
+                            {docs.analysis.matchScore}% match
+                          </span>
+                        )}
+                        {docs?.cv && (
+                          <span className="inline-flex items-center gap-1">
+                            <FileText size={12} aria-hidden /> CV tailored
+                          </span>
+                        )}
+                        {docs?.coverLetter && (
+                          <span className="inline-flex items-center gap-1">
+                            <Mail size={12} aria-hidden /> Cover letter
+                          </span>
+                        )}
+                        {notes.trim() && (
+                          <span className="inline-flex items-center gap-1">
+                            <StickyNote size={12} aria-hidden /> Notes
+                          </span>
+                        )}
+                        <span>{[salary, `saved ${formatPosted(savedAt)}`].filter(Boolean).join(" · ")}</span>
+                      </p>
+                    </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5">
                     <select
-                      className={`input w-auto py-1 text-xs font-medium ${STATUS_STYLE[status]}`}
+                      className={`input w-auto rounded-full border-transparent py-1 pr-7 text-xs font-semibold shadow-none ${STATUS_STYLE[status]}`}
                       value={status}
                       onChange={(e) => updateJob(job.id, { status: e.target.value as ApplicationStatus })}
                       aria-label={`Status of ${job.title}`}
@@ -177,18 +269,18 @@ export function SavedView() {
                       ))}
                     </select>
                     <Link href={href} className="btn btn-primary btn-sm">
-                      {docs?.cv ? "Open" : "Tailor CV"}
+                      {docs?.cv ? "Open" : "Tailor CV"} <ArrowRight size={14} aria-hidden />
                     </Link>
                     <button
                       type="button"
-                      className="btn btn-ghost btn-sm"
+                      className="btn btn-ghost btn-sm btn-icon"
                       onClick={() => {
                         if (window.confirm(`Remove “${job.title}” from your jobs?`)) removeJob(job.id);
                       }}
                       aria-label={`Remove ${job.title}`}
                       title="Remove"
                     >
-                      ✕
+                      <X size={15} aria-hidden />
                     </button>
                   </div>
                 </li>

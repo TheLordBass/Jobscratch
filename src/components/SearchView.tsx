@@ -1,17 +1,22 @@
 "use client";
 
+import { Plus, Search, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, type FormEvent } from "react";
 import { GettingStarted } from "@/components/GettingStarted";
 import { JobCard } from "@/components/JobCard";
 import { KeywordInput, addTerms } from "@/components/KeywordInput";
+import { MatchAllButton, useCurrentMatches } from "@/components/MatchAll";
 import { FIND_TABS, SectionTabs } from "@/components/Nav";
 import { COUNTRIES } from "@/lib/format";
 import { newId, useGroups, useHydrated, useSavedJobs, useSettings, type SearchGroup } from "@/lib/store";
 import { SOURCE_IDS, type Job, type SearchRequest, type SearchResponse, type SourceResult } from "@/lib/types";
 
 const PAGE_SIZE = 30;
+
+/** One-click searches for an empty page. */
+const SUGGESTIONS = ["Data analyst", "Software engineer", "Product manager", "Marketing manager", "Project manager"];
 
 const EXAMPLE_GROUPS: Array<Omit<SearchGroup, "id">> = [
   {
@@ -114,7 +119,8 @@ export function SearchView() {
   const [naming, setNaming] = useState(false);
 
   const [search, setSearch] = useState<SearchState>({ status: "idle" });
-  const [sort, setSort] = useState<"relevance" | "newest">("relevance");
+  const [sort, setSort] = useState<"relevance" | "newest" | "match">("relevance");
+  const { matchFor } = useCurrentMatches();
   const [filter, setFilter] = useState("");
   const [visible, setVisible] = useState(PAGE_SIZE);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -219,10 +225,11 @@ export function SearchView() {
           `${job.title} ${job.company} ${job.location} ${job.sourceName}`.toLowerCase().includes(needle),
         )
       : search.response.jobs;
-    return sort === "newest"
-      ? [...jobs].sort((a, b) => (b.postedAt ?? "").localeCompare(a.postedAt ?? ""))
-      : jobs;
-  }, [search, filter, sort]);
+    if (sort === "newest") return [...jobs].sort((a, b) => (b.postedAt ?? "").localeCompare(a.postedAt ?? ""));
+    // Unscored jobs keep their order after the scored ones.
+    if (sort === "match") return [...jobs].sort((a, b) => (matchFor(b)?.score ?? -1) - (matchFor(a)?.score ?? -1));
+    return jobs;
+  }, [search, filter, sort, matchFor]);
 
   const hasQuery = keywords.length > 0 || Boolean(keywordDraft.trim());
 
@@ -254,7 +261,7 @@ export function SearchView() {
             />
           </div>
           <button type="submit" className="btn btn-primary px-5 py-2.5" disabled={search.status === "loading"}>
-            {search.status === "loading" ? "Searching…" : "Search"}
+            <Search size={16} aria-hidden /> {search.status === "loading" ? "Searching…" : "Search"}
           </button>
         </div>
 
@@ -331,7 +338,7 @@ export function SearchView() {
                   onClick={() => deleteGroup(group)}
                   aria-label={`Delete the saved search ${group.name}`}
                 >
-                  ×
+                  <X size={12} aria-hidden />
                 </button>
               </span>
             );
@@ -386,7 +393,7 @@ export function SearchView() {
                 disabled={!hasQuery}
                 title="Save these keywords and filters to run again with one click"
               >
-                + Save this search
+                <Plus size={14} aria-hidden /> Save this search
               </button>
             )}
           </span>
@@ -394,15 +401,37 @@ export function SearchView() {
       </form>
 
       {search.status === "idle" && (
-        <div className="card muted p-8 text-center text-sm">
-          <p className="text-base font-medium text-zinc-700 dark:text-zinc-300">Search many job sites at once</p>
-          <p className="mt-1">
-            Type a few job titles above. Found a job on LinkedIn?{" "}
-            <Link href="/import" className="link">
-              Add it here
-            </Link>
-            .
-          </p>
+        <div className="card flex flex-col items-center gap-3 px-6 py-12 text-center">
+          <span className="avatar h-14 w-14">
+            <Search size={24} aria-hidden />
+          </span>
+          <div>
+            <p className="text-base font-bold">Search many job sites at once</p>
+            <p className="muted mt-1 text-sm">
+              Type a few job titles above, or try one of these. Found a job on LinkedIn?{" "}
+              <Link href="/import" className="link">
+                Add it here
+              </Link>
+              .
+            </p>
+          </div>
+          <div className="flex flex-wrap justify-center gap-1.5">
+            {SUGGESTIONS.map((suggestion) => (
+              <button
+                key={suggestion}
+                type="button"
+                className="btn btn-secondary btn-sm rounded-full"
+                onClick={() => {
+                  const query = { ...currentQuery(), keywords: [suggestion] };
+                  setKeywords([suggestion]);
+                  setKeywordDraft("");
+                  void run(query, suggestion);
+                }}
+              >
+                {suggestion}
+              </button>
+            ))}
+          </div>
         </div>
       )}
       {search.status === "loading" && (
@@ -439,15 +468,17 @@ export function SearchView() {
                 <select
                   className="input w-auto py-1.5"
                   value={sort}
-                  onChange={(e) => setSort(e.target.value as "relevance" | "newest")}
+                  onChange={(e) => setSort(e.target.value as "relevance" | "newest" | "match")}
                   aria-label="Sort results"
                 >
                   <option value="relevance">Best match</option>
                   <option value="newest">Newest</option>
+                  <option value="match">Match score</option>
                 </select>
               </div>
             )}
           </div>
+          {results.length > 0 && <MatchAllButton jobs={results.slice(0, visible)} />}
           <details className="text-xs">
             <summary className="muted cursor-pointer">Where these came from</summary>
             <div className="mt-2 space-y-2">
@@ -474,6 +505,7 @@ export function SearchView() {
                 key={job.id}
                 job={job}
                 status={saved[job.id]?.status}
+                match={matchFor(job)}
                 expanded={expanded === job.id}
                 onToggle={() => setExpanded(expanded === job.id ? null : job.id)}
                 onSave={() => {

@@ -88,6 +88,18 @@ describe("parseJobspyFile", () => {
     expect(result.skipped).toBe(3);
   });
 
+  it("describes searches for several keywords and locations", () => {
+    const multi = JSON.stringify({
+      format: "jobscratch-jobspy",
+      version: 1,
+      query: { search: ["junior data analyst", "data analyst"], location: ["Manchester", "London"] },
+      jobs: [row({})],
+    });
+    expect(parseJobspyFile(multi).query).toBe("junior data analyst, data analyst in Manchester, London");
+    const anywhere = JSON.stringify({ format: "jobscratch-jobspy", version: 1, query: { search: ["data analyst"], location: [] }, jobs: [] });
+    expect(parseJobspyFile(anywhere).query).toBe("data analyst");
+  });
+
   it("explains files it can't read", () => {
     expect(() => parseJobspyFile("{nope")).toThrow("isn't valid JSON");
     expect(() => parseJobspyFile(JSON.stringify({ jobs: [] }))).toThrow("isn't a JobSpy results file");

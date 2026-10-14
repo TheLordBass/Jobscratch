@@ -1,12 +1,14 @@
 "use client";
 
+import { Plus } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { JobCard } from "@/components/JobCard";
+import { MatchAllButton, useCurrentMatches } from "@/components/MatchAll";
 import { FIND_TABS, SectionTabs } from "@/components/Nav";
 import { formatPosted } from "@/lib/format";
-import { buildBookmarklet, payloadToJob, readImportHash, type ImportPayload } from "@/lib/import";
+import { buildBookmarklet, findSavedCopy, payloadToJob, readImportHash, type ImportPayload } from "@/lib/import";
 import { parseJobspyFile, type JobspyImport } from "@/lib/jobspy";
 import { useSavedJobs } from "@/lib/store";
 
@@ -58,7 +60,7 @@ function Bookmarklet() {
       }}
       title="Drag me to your bookmarks bar"
     >
-      ➕ Send to JobScratch
+      <Plus size={15} aria-hidden /> Send to JobScratch
     </a>
   );
 }
@@ -67,9 +69,11 @@ function Bookmarklet() {
 function JobspyImporter() {
   const router = useRouter();
   const { saved, saveJob, removeJob } = useSavedJobs();
+  const { matchFor } = useCurrentMatches();
   const [result, setResult] = useState<JobspyImport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [order, setOrder] = useState<"match" | "file">("match");
 
   async function load(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -84,7 +88,15 @@ function JobspyImporter() {
     }
   }
 
-  const unsaved = result?.jobs.filter((job) => !saved[job.id]) ?? [];
+  // A job you've already saved shows as saved, including anything added since, e.g. a LinkedIn
+  // description sent with the bookmarklet.
+  const jobs = (result?.jobs ?? []).map((job) => findSavedCopy(saved, job)?.job ?? job);
+  const unsaved = jobs.filter((job) => !saved[job.id]);
+  const anyMatched = jobs.some((job) => matchFor(job));
+  const shown =
+    order === "match" && anyMatched
+      ? [...jobs].sort((a, b) => (matchFor(b)?.score ?? -1) - (matchFor(a)?.score ?? -1))
+      : jobs;
 
   return (
     <section className="card space-y-3 p-4" aria-labelledby="jobspy-title">
@@ -115,17 +127,32 @@ function JobspyImporter() {
               {result.createdAt && <span className="muted">, found {formatPosted(result.createdAt)}</span>}
               {result.skipped > 0 && <span className="muted"> ({result.skipped} without a title or link left out)</span>}
             </p>
-            {unsaved.length > 0 && (
-              <button type="button" className="btn btn-secondary btn-sm ml-auto" onClick={() => unsaved.forEach((job) => saveJob(job))}>
-                Save all ({unsaved.length})
-              </button>
-            )}
+            <div className="ml-auto flex items-center gap-2">
+              {anyMatched && (
+                <select
+                  className="input w-auto py-1 text-xs"
+                  value={order}
+                  onChange={(e) => setOrder(e.target.value as "match" | "file")}
+                  aria-label="Order"
+                >
+                  <option value="match">Best match first</option>
+                  <option value="file">As found</option>
+                </select>
+              )}
+              {unsaved.length > 0 && (
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => unsaved.forEach((job) => saveJob(job))}>
+                  Save all ({unsaved.length})
+                </button>
+              )}
+            </div>
           </div>
-          {result.jobs.map((job) => (
+          <MatchAllButton jobs={jobs} />
+          {shown.map((job) => (
             <JobCard
               key={job.id}
               job={job}
               status={saved[job.id]?.status}
+              match={matchFor(job)}
               expanded={expanded === job.id}
               onToggle={() => setExpanded(expanded === job.id ? null : job.id)}
               onSave={() => {
@@ -136,7 +163,7 @@ function JobspyImporter() {
                 }
               }}
               onTailor={() => {
-                saveJob(job);
+                if (!saved[job.id]) saveJob(job);
                 router.push(`/tailor?job=${encodeURIComponent(job.id)}`);
               }}
             />
@@ -149,13 +176,14 @@ function JobspyImporter() {
 
 export function ImportView() {
   const router = useRouter();
-  const { saved, saveJob } = useSavedJobs();
+  const { saved, saveJob, mergeJob } = useSavedJobs();
   const [draft, setDraft] = useState<ImportPayload | null>(null);
   const [origin, setOrigin] = useState<"extension" | "url" | "paste" | null>(null);
   const [url, setUrl] = useState("");
   const [fetching, setFetching] = useState(false);
   const [urlError, setUrlError] = useState<{ message: string; blockedSite?: string } | null>(null);
   const [savedId, setSavedId] = useState<string | null>(null);
+  const [mergedInto, setMergedInto] = useState<string | null>(null);
 
   useEffect(() => {
     const take = () => {
@@ -215,13 +243,32 @@ export function ImportView() {
   const set = (field: keyof ImportPayload) => (value: string) => setDraft({ ...(draft ?? EMPTY), [field]: value });
   const previewJob = draft ? payloadToJob(draft) : null;
   const alreadySaved = previewJob ? Boolean(saved[previewJob.id]) : false;
+  // The same job may already be saved, e.g. from a JobSpy search that couldn't get LinkedIn's description.
+  const savedCopy = previewJob ? findSavedCopy(saved, previewJob) : undefined;
+
+  function merge(andOpen: boolean) {
+    if (!previewJob || !savedCopy) return;
+    const id = savedCopy.job.id;
+    mergeJob(id, previewJob);
+    setMergedInto(id);
+    setSavedId(id);
+    if (andOpen) router.push(`/tailor?job=${encodeURIComponent(id)}`);
+  }
+
+  /** Overwrite the saved copy with this page's details, keeping its id, status and notes. */
+  function replace() {
+    if (!previewJob || !savedCopy) return;
+    saveJob({ ...previewJob, id: savedCopy.job.id });
+    setMergedInto(null);
+    setSavedId(savedCopy.job.id);
+  }
 
   return (
     <div className="space-y-4">
       <SectionTabs tabs={FIND_TABS} />
       <div>
-        <h1 className="text-xl font-semibold">Add a job</h1>
-        <p className="muted text-sm">
+        <h1 className="page-title">Add a job</h1>
+        <p className="page-subtitle">
           Found a job somewhere else? Bring it in to track it and tailor your CV for it.
         </p>
       </div>
@@ -236,6 +283,11 @@ export function ImportView() {
               Discard
             </button>
           </div>
+          {savedCopy && !savedId && (
+            <p className="text-sm font-medium text-indigo-700 dark:text-indigo-300">
+              This job is already in My jobs. Merge it below to add these details to it.
+            </p>
+          )}
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <label className="label" htmlFor="f-title">Job title</label>
@@ -270,9 +322,34 @@ export function ImportView() {
           </div>
           {savedId ? (
             <p className="text-sm text-emerald-700 dark:text-emerald-300">
-              Saved to My jobs. <Link href={`/tailor?job=${encodeURIComponent(savedId)}`} className="link">Open it</Link>{" "}
-              to tailor your CV.
+              {mergedInto === savedId ? "Merged into the job in My jobs." : "Saved to My jobs."}{" "}
+              <Link href={`/tailor?job=${encodeURIComponent(savedId)}`} className="link">
+                Open it
+              </Link>{" "}
+              to {mergedInto === savedId ? "check your match or tailor your CV" : "tailor your CV"}.
             </p>
+          ) : savedCopy && previewJob ? (
+            <div className="space-y-2.5 rounded-xl border border-indigo-200 bg-indigo-50/70 p-3 dark:border-indigo-900 dark:bg-indigo-950/40">
+              <p className="text-sm">
+                <strong>Already in My jobs:</strong> “{savedCopy.job.title}” at {savedCopy.job.company}, from{" "}
+                {savedCopy.job.sourceName}.{" "}
+                {previewJob.description.length > savedCopy.job.description.length
+                  ? "Merging adds the full description from this page."
+                  : "Merging adds anything it’s missing from this page."}{" "}
+                Its status and notes stay as they are.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" className="btn btn-primary" onClick={() => merge(true)}>
+                  Merge &amp; open job
+                </button>
+                <button type="button" className="btn btn-secondary" onClick={() => merge(false)}>
+                  Merge
+                </button>
+                <button type="button" className="btn btn-ghost" disabled={!draft.title.trim()} onClick={replace}>
+                  Replace it with these details
+                </button>
+              </div>
+            </div>
           ) : (
             <div className="flex flex-wrap gap-2">
               <button type="button" className="btn btn-primary" disabled={!draft.title.trim()} onClick={() => save(true)}>
