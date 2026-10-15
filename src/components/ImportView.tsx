@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { BulkTailor } from "@/components/BulkTailor";
 import { JobCard } from "@/components/JobCard";
+import { JobspyHelperPanel } from "@/components/JobspyHelper";
 import { MatchAllButton, useCurrentMatches } from "@/components/MatchAll";
 import { FIND_TABS, SectionTabs } from "@/components/Nav";
 import { formatPosted } from "@/lib/format";
@@ -113,14 +114,27 @@ function JobspyImporter() {
           <span className="chip bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-200">Unofficial</span>
         </h2>
         <p className="muted text-sm">
-          Load the results of the JobSpy script, which searches LinkedIn, Indeed, Glassdoor and Google Jobs from your
-          own computer. Those sites don’t allow scraping, so use it at your own risk. The README explains how to run it.
+          Search LinkedIn, Indeed, Glassdoor and more with JobSpy, which runs on your own computer through a small helper.
+          Those sites don’t allow scraping, so use it at your own risk. The README explains how to set it up.
         </p>
       </div>
-      <label className="btn btn-secondary">
-        Choose results file
-        <input type="file" accept=".json,application/json" className="sr-only" onChange={load} />
-      </label>
+      <JobspyHelperPanel
+        onResult={(file) => {
+          setError(null);
+          try {
+            setResult(parseJobspyFile(JSON.stringify(file)));
+          } catch (err) {
+            setError((err as Error).message);
+          }
+        }}
+      />
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="btn btn-secondary btn-sm">
+          Load a results file
+          <input type="file" accept=".json,application/json" className="sr-only" onChange={load} />
+        </label>
+        <span className="muted text-xs">from search.py, if you ran it in a terminal instead</span>
+      </div>
       {error && (
         <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
           {error}

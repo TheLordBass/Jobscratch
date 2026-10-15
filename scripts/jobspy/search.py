@@ -131,36 +131,44 @@ def search_once(scrape_jobs, args, term, location):
     return [{field: row.get(field) for field in FIELDS} for row in rows]
 
 
-def main():
-    args = parse_args()
-    try:
-        from jobspy import scrape_jobs
-    except ImportError:
-        sys.exit("JobSpy isn't installed. Run: pip install -r scripts/jobspy/requirements.txt")
-
-    terms = [term for term in unique(args.search) if term]
-    if not terms:
-        sys.exit("Give at least one job title or keyword to search for.")
+def plan(search, location):
+    """The keywords, locations and every (keyword, location) search to run."""
+    terms = [term for term in unique(search) if term]
     # An empty location means "anywhere"; keep it only if it's the only one.
-    locations = [location for location in unique(args.location) if location] or [""]
-    searches = [(term, location) for term in terms for location in locations]
-    if len(searches) > MANY_SEARCHES:
-        print(
-            f"{len(searches)} searches ({len(terms)} keywords × {len(locations)} locations) on "
-            f"{len(args.sites)} sites. This may take a while, and sites are more likely to block it.",
-            file=sys.stderr,
-        )
+    locations = [place for place in unique(location) if place] or [""]
+    return terms, locations, [(term, place) for term in terms for place in locations]
 
+
+def log(message):
+    print(message, file=sys.stderr, flush=True)
+
+
+def run_searches(scrape_jobs, args, on_progress=None, should_stop=None):
+    """
+    Run every search in `args` and merge the results into one JobScratch file.
+
+    on_progress(done, total, label, found) is called before each search and at the end;
+    should_stop() is checked between searches. Returns (file contents, failed searches).
+    Used by this script and by helper.py.
+    """
+    terms, locations, searches = plan(args.search, args.location)
     by_url, failed = {}, []
     for index, (term, location) in enumerate(searches):
         if index and args.pause > 0:
-            time.sleep(args.pause)
+            # Wait in short steps, so a stop request isn't held up by the pause.
+            deadline = time.monotonic() + args.pause
+            while time.monotonic() < deadline and not (should_stop and should_stop()):
+                time.sleep(0.2)
+        if should_stop and should_stop():
+            break
         label = f"“{term}”" + (f" in {location}" if location else "")
-        print(f"[{index + 1}/{len(searches)}] Searching {', '.join(args.sites)} for {label}…", file=sys.stderr)
+        if on_progress:
+            on_progress(index, len(searches), label, len(by_url))
+        log(f"[{index + 1}/{len(searches)}] Searching {', '.join(args.sites)} for {label}…")
         try:
             records = search_once(scrape_jobs, args, term, location)
         except Exception as error:  # One failed search shouldn't lose the others.
-            print(f"    Failed: {error}", file=sys.stderr)
+            log(f"    Failed: {error}")
             failed.append(label)
             continue
         new = 0
@@ -169,21 +177,40 @@ def main():
             if key not in by_url:
                 by_url[key] = record
                 new += 1
-        print(f"    {len(records)} found, {new} new", file=sys.stderr)
+        log(f"    {len(records)} found, {new} new")
 
-    records = list(by_url.values())
-    with open(args.out, "w", encoding="utf-8") as file:
-        json.dump(
-            {
-                "format": "jobscratch-jobspy",
-                "version": 1,
-                "createdAt": datetime.now(timezone.utc).isoformat(),
-                "query": {"search": terms, "location": [location for location in locations if location]},
-                "jobs": records,
-            },
-            file,
-            ensure_ascii=False,
+    if on_progress:
+        on_progress(len(searches), len(searches), None, len(by_url))
+    document = {
+        "format": "jobscratch-jobspy",
+        "version": 1,
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "query": {"search": terms, "location": [location for location in locations if location]},
+        "jobs": list(by_url.values()),
+    }
+    return document, failed
+
+
+def main():
+    args = parse_args()
+    try:
+        from jobspy import scrape_jobs
+    except ImportError:
+        sys.exit("JobSpy isn't installed. Run: pip install -r scripts/jobspy/requirements.txt")
+
+    terms, locations, searches = plan(args.search, args.location)
+    if not terms:
+        sys.exit("Give at least one job title or keyword to search for.")
+    if len(searches) > MANY_SEARCHES:
+        log(
+            f"{len(searches)} searches ({len(terms)} keywords × {len(locations)} locations) on "
+            f"{len(args.sites)} sites. This may take a while, and sites are more likely to block it."
         )
+
+    document, failed = run_searches(scrape_jobs, args)
+    records = document["jobs"]
+    with open(args.out, "w", encoding="utf-8") as file:
+        json.dump(document, file, ensure_ascii=False)
 
     counts = Counter(record["site"] for record in records)
     summary = ", ".join(f"{site} {count}" for site, count in counts.most_common()) or "none"

@@ -3,6 +3,7 @@
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import type { MatchAnalysis, TailorOptions } from "@/lib/ai/prompts";
 import { dismissKeys, mergeJobs } from "@/lib/import";
+import type { HelperSearch } from "@/lib/jobspy-helper";
 import { connectStore, queueChange } from "@/lib/sync";
 import type { CompanyBoards, Job, SearchSourceId } from "@/lib/types";
 
@@ -63,6 +64,8 @@ export interface Settings {
   companyBoards: CompanyBoards;
   disabledSources: SearchSourceId[];
   tailor: TailorOptions;
+  /** The last JobSpy search, so the form starts with it. */
+  jobspy: Omit<HelperSearch, "country">;
 }
 
 export interface TailoredDocs {
@@ -80,6 +83,7 @@ export const DEFAULT_SETTINGS: Settings = {
   companyBoards: { greenhouse: [], lever: [], ashby: [] },
   disabledSources: [],
   tailor: { style: "uk-cv", tone: "professional", length: "two-pages", extraInstructions: "" },
+  jobspy: { search: [], location: [], sites: ["indeed", "linkedin"], results: 25, hours: null, remote: false, linkedinDescriptions: false, distance: 50 },
 };
 
 export const EMPTY_PROFILE: StoredProfile = { website: "", github: "", evidence: "", enabled: true };
@@ -299,6 +303,7 @@ function mergeSettings(stored: Settings): Settings {
       ...stored,
       companyBoards: { ...DEFAULT_SETTINGS.companyBoards, ...stored.companyBoards },
       tailor: { ...DEFAULT_SETTINGS.tailor, ...stored.tailor },
+      jobspy: { ...DEFAULT_SETTINGS.jobspy, ...stored.jobspy },
     };
     mergedSettings.set(stored, merged);
   }
