@@ -3,6 +3,7 @@
 import { useCallback, useSyncExternalStore } from "react";
 import type { MatchAnalysis, TailorOptions } from "@/lib/ai/prompts";
 import { mergeJobs } from "@/lib/import";
+import { connectStore, queueChange } from "@/lib/sync";
 import type { CompanyBoards, Job, SearchSourceId } from "@/lib/types";
 
 /*
@@ -137,6 +138,7 @@ function read<T>(key: Key, fallback: T): T {
 
 function write<T>(key: Key, value: T) {
   const storageKey = PREFIX + key;
+  const previous = read<unknown>(key, null);
   const raw = JSON.stringify(value);
   try {
     window.localStorage.setItem(storageKey, raw);
@@ -146,7 +148,33 @@ function write<T>(key: Key, value: T) {
   }
   parsed.set(storageKey, { raw, value });
   notify();
+  queueChange(key, previous, value);
 }
+
+/** A value from server storage: saved here without being sent back. */
+function applyRemote(key: Key, value: unknown) {
+  const storageKey = PREFIX + key;
+  try {
+    if (value === null || value === undefined) window.localStorage.removeItem(storageKey);
+    else window.localStorage.setItem(storageKey, JSON.stringify(value));
+  } catch {
+    return;
+  }
+  parsed.delete(storageKey);
+  notify();
+}
+
+connectStore({
+  // What's actually stored: null when nothing is, rather than a page's default.
+  read: (key) => {
+    try {
+      return window.localStorage.getItem(PREFIX + key) === null ? null : read<unknown>(key, null);
+    } catch {
+      return null;
+    }
+  },
+  apply: applyRemote,
+});
 
 function useStored<T>(key: Key, fallback: T): [T, (update: T | ((previous: T) => T)) => void] {
   const value = useSyncExternalStore(

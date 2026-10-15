@@ -1,9 +1,11 @@
 "use client";
 
-import { BriefcaseBusiness, Search, UserRound } from "lucide-react";
+import { BriefcaseBusiness, Cloud, CloudAlert, CloudUpload, Search, UserRound } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect } from "react";
 import { useHydrated, useSavedJobs } from "@/lib/store";
+import { startSync, useSyncState } from "@/lib/sync";
 
 /** Three sections; each covers the pages listed in `paths`. */
 const SECTIONS = [
@@ -21,6 +23,8 @@ export function Nav() {
   const { saved } = useSavedJobs();
   const hydrated = useHydrated();
   const savedCount = Object.keys(saved).length;
+
+  useEffect(() => startSync(), []);
 
   return (
     <header className="sticky top-0 z-20 border-b border-zinc-200/70 bg-white/75 backdrop-blur-lg dark:border-zinc-800/70 dark:bg-zinc-950/75">
@@ -54,6 +58,7 @@ export function Nav() {
             );
           })}
         </nav>
+        <SyncIndicator />
       </div>
     </header>
   );
@@ -90,3 +95,20 @@ export const PROFILE_TABS = [
   { href: "/cv", label: "CV & links" },
   { href: "/settings", label: "Settings" },
 ] as const;
+
+/** Whether changes are saved to server storage. Hidden when server storage isn't set up. */
+function SyncIndicator() {
+  const sync = useSyncState();
+  if (sync.status === "checking" || sync.status === "off") return null;
+  const [Icon, label, tone] =
+    sync.status === "saving"
+      ? [CloudUpload, "Saving to the server…", "text-indigo-500"]
+      : sync.status === "error"
+        ? [CloudAlert, `Not saved to the server yet (${sync.message}). Retrying; your changes are kept in this browser.`, "text-amber-500"]
+        : [Cloud, "Saved to the server", "text-zinc-400 dark:text-zinc-500"];
+  return (
+    <Link href="/settings" className={`shrink-0 ${tone}`} title={label} aria-label={label}>
+      <Icon size={18} aria-hidden className={sync.status === "saving" ? "animate-pulse" : undefined} />
+    </Link>
+  );
+}

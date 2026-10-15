@@ -7,6 +7,7 @@ import { useSources } from "@/components/useSources";
 import { COUNTRIES, downloadBlob } from "@/lib/format";
 import { parseBoardToken } from "@/lib/sources/boards";
 import { useHydrated, useSettings } from "@/lib/store";
+import { clearServerData, replaceServerData, useSyncState } from "@/lib/sync";
 import type { CompanyBoards, SourceCategory } from "@/lib/types";
 
 const CATEGORY_LABEL: Record<SourceCategory, string> = {
@@ -65,6 +66,8 @@ export function SettingsView() {
   const [settings, setSettings] = useSettings();
   const sources = useSources();
   const hydrated = useHydrated();
+  const sync = useSyncState();
+  const onServer = sync.status === "saved" || sync.status === "saving" || sync.status === "error";
 
   function toggleSource(id: (typeof settings.disabledSources)[number], enabled: boolean) {
     const disabled = new Set(settings.disabledSources);
@@ -93,6 +96,8 @@ export function SettingsView() {
       if (entries.length === 0) throw new Error("No JobScratch data in that file");
       if (!window.confirm("Replace your current CV, saved jobs, groups and settings with this backup?")) return;
       for (const [key, value] of entries) localStorage.setItem(key, JSON.stringify(value));
+      // With server storage on, the server gets exactly the backup too, or it would merge the old data back.
+      await replaceServerData();
       window.location.reload();
     } catch (error) {
       window.alert(`Couldn't restore: ${(error as Error).message}`);
@@ -259,8 +264,19 @@ export function SettingsView() {
         <div>
           <h2 className="font-semibold">Your data</h2>
           <p className="muted text-sm">
-            Everything is stored in this browser only. Back it up to move to another computer or browser.
+            {onServer
+              ? "Your CV, jobs and settings are saved on the server as well as in this browser, so they're the same on every device you sign in from."
+              : sync.status === "off" && sync.reason === "needs-password"
+                ? "Server storage is connected, but it stays off until you set APP_PASSWORD, so your CV isn't open to anyone with the link."
+                : sync.status === "off" && sync.reason === "unreachable"
+                  ? "Couldn't reach server storage, so for now everything is only in this browser."
+                  : "Everything is stored in this browser only. To keep it on the server and use it on any device, add Upstash Redis to this project in Vercel (see the README). Or back it up to move it by hand."}
           </p>
+          {sync.status === "error" && (
+            <p className="mt-1 text-sm text-amber-700 dark:text-amber-300">
+              Some changes aren’t on the server yet ({sync.message}). They’re kept here and retried.
+            </p>
+          )}
         </div>
         <div className="flex flex-wrap gap-2">
           <button type="button" className="btn btn-secondary" onClick={exportData}>
@@ -273,8 +289,15 @@ export function SettingsView() {
           <button
             type="button"
             className="btn btn-danger ml-auto"
-            onClick={() => {
-              if (!window.confirm("Delete your CV, saved jobs, groups and settings from this browser?")) return;
+            onClick={async () => {
+              const where = onServer ? "from this browser and the server" : "from this browser";
+              if (!window.confirm(`Delete your CV, saved jobs, groups and settings ${where}?`)) return;
+              try {
+                await clearServerData();
+              } catch (error) {
+                window.alert((error as Error).message);
+                return;
+              }
               Object.keys(localStorage)
                 .filter((key) => key.startsWith(STORAGE_PREFIX))
                 .forEach((key) => localStorage.removeItem(key));
