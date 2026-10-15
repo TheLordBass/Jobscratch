@@ -4,6 +4,7 @@ import { Plus } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { BulkTailor } from "@/components/BulkTailor";
 import { JobCard } from "@/components/JobCard";
 import { MatchAllButton, useCurrentMatches } from "@/components/MatchAll";
 import { FIND_TABS, SectionTabs } from "@/components/Nav";
@@ -147,6 +148,7 @@ function JobspyImporter() {
             </div>
           </div>
           <MatchAllButton jobs={jobs} onMatched={() => setOrder("match")} />
+          <BulkTailor jobs={jobs} />
           {shown.map((job) => (
             <JobCard
               key={job.id}

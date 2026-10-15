@@ -3,6 +3,7 @@
 import { ArrowRight, BriefcaseBusiness, Download, FileText, Mail, StickyNote, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { BulkTailor } from "@/components/BulkTailor";
 import { CompanyMark, MatchBadge } from "@/components/JobCard";
 import { MatchAllButton, useCurrentMatches } from "@/components/MatchAll";
 import { downloadBlob, formatPosted, formatSalary } from "@/lib/format";
@@ -221,7 +222,10 @@ export function SavedView() {
           </div>
 
           {shown.length > 0 && (
-            <MatchAllButton jobs={shown.map((entry) => entry.job)} onMatched={() => setOrder("match")} />
+            <>
+              <MatchAllButton jobs={shown.map((entry) => entry.job)} onMatched={() => setOrder("match")} />
+              <BulkTailor jobs={shown.map((entry) => entry.job)} />
+            </>
           )}
           {shown.length === 0 && (
             <p className="card muted p-6 text-center text-sm">

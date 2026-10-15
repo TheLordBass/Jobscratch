@@ -94,6 +94,8 @@ Upload your CV once (**My CV**: PDF, Word .docx, Markdown or text). Then choose 
 
 **Match all:** on a JobSpy results list, your search results or My jobs, click **Match all to my CV** to score every job at once: a 0–100 match, a one-line verdict and up to three things the job wants that your CV doesn't show. Jobs are sorted best match first, and a score is redone only when your CV or the job's description changes. It's one Claude request per job (it asks first above 20), and jobs without a description are skipped. To make these quick scores cheaper, set `ANTHROPIC_QUICK_MODEL` (e.g. `claude-haiku-5-5`); tailoring keeps using the main model.
 
+**Tailor CVs for top matches:** once jobs are scored, choose a minimum match (e.g. 80%+) and click **Write for N jobs** to write a tailored CV for each one, and a cover letter too if you tick the box. They're written two at a time (about a minute each), the jobs are saved to My jobs, and jobs that already have a tailored CV are skipped. It stops if requests keep failing (for example, a rate limit).
+
 Results stream in as they're written. You can edit them and download as **Word (.docx)**, **PDF** (via Print), or **Markdown**. They're saved with the job, so you can come back to them.
 
 **Privacy:** your CV, the job description and (if you've added them) the details from your website and GitHub are sent to the Anthropic API only when you click one of the tailoring buttons. Nothing is stored on the JobScratch server.
