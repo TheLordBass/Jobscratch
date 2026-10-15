@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { tidyText, toIsoDate } from "@/lib/text";
+import { normalizeForMatch, tidyText, toIsoDate } from "@/lib/text";
 import type { Job } from "@/lib/types";
 
 /** What public/extractor.js returns (and what the manual import form produces). */
@@ -159,4 +159,16 @@ export function mergeJobs(existing: Job, incoming: Job): Job {
     companyLogo: existing.companyLogo ?? incoming.companyLogo,
     tags: [...new Set([...existing.tags, ...incoming.tags])],
   };
+}
+
+/**
+ * What a "Not interested" job is recognised by: its id, its job number on
+ * LinkedIn/Indeed/Glassdoor, and its title and company, so the same job
+ * posted on another board stays hidden too.
+ */
+export function dismissKeys(job: Job): string[] {
+  const title = normalizeForMatch(job.title);
+  const company = normalizeForMatch(job.company);
+  const known = title && company && company !== "unknown company";
+  return [...new Set([job.id, ...jobKeys(job), ...(known ? [`tc:${title}|${company}`] : [])])];
 }

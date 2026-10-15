@@ -6,7 +6,7 @@ import { PROFILE_TABS, SectionTabs } from "@/components/Nav";
 import { useSources } from "@/components/useSources";
 import { COUNTRIES, downloadBlob } from "@/lib/format";
 import { parseBoardToken } from "@/lib/sources/boards";
-import { useHydrated, useSettings } from "@/lib/store";
+import { useDismissed, useHydrated, useSettings } from "@/lib/store";
 import { clearServerData, replaceServerData, useSyncState } from "@/lib/sync";
 import type { CompanyBoards, SourceCategory } from "@/lib/types";
 
@@ -59,6 +59,52 @@ function BoardEditor({ provider, values, onChange }: { provider: keyof CompanyBo
         </div>
       )}
     </div>
+  );
+}
+
+/** Jobs marked "Not interested", with a way to bring them back. */
+function HiddenJobs() {
+  const { dismissed, restoreEntry, restoreAll, count } = useDismissed();
+  const entries = Object.entries(dismissed).sort(([, a], [, b]) => b.at.localeCompare(a.at));
+  return (
+    <section className="card space-y-3 p-4">
+      <div>
+        <h2 className="font-semibold">Hidden jobs</h2>
+        <p className="muted text-sm">
+          {count === 0
+            ? "Jobs you mark Not interested are hidden from searches and JobSpy results. You haven't hidden any."
+            : `${count} ${count === 1 ? "job is" : "jobs are"} hidden from searches and JobSpy results, along with any copies on other sites.`}
+        </p>
+      </div>
+      {count > 0 && (
+        <>
+          <details>
+            <summary className="link cursor-pointer text-sm">See the list</summary>
+            <ul className="mt-2 max-h-72 divide-y divide-zinc-100 overflow-y-auto rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
+              {entries.map(([id, entry]) => (
+                <li key={id} className="flex items-center gap-3 px-3 py-2 text-sm">
+                  <span className="min-w-0 flex-1 truncate">
+                    {entry.title} <span className="muted">· {entry.company}</span>
+                  </span>
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => restoreEntry(id)}>
+                    Show again
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </details>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => {
+              if (window.confirm(`Show all ${count} hidden ${count === 1 ? "job" : "jobs"} again?`)) restoreAll();
+            }}
+          >
+            Show them all again
+          </button>
+        </>
+      )}
+    </section>
   );
 }
 
@@ -259,6 +305,8 @@ export function SettingsView() {
           Your CV and the job description are sent to the Anthropic API only when you click a tailoring button.
         </p>
       </section>
+
+      <HiddenJobs />
 
       <section className="card space-y-3 p-4">
         <div>

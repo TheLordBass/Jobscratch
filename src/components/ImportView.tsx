@@ -11,7 +11,7 @@ import { FIND_TABS, SectionTabs } from "@/components/Nav";
 import { formatPosted } from "@/lib/format";
 import { buildBookmarklet, findSavedCopy, payloadToJob, readImportHash, type ImportPayload } from "@/lib/import";
 import { parseJobspyFile, type JobspyImport } from "@/lib/jobspy";
-import { useSavedJobs } from "@/lib/store";
+import { useDismissed, useSavedJobs } from "@/lib/store";
 
 type Extract = (doc: Document, href: string) => ImportPayload;
 
@@ -71,6 +71,8 @@ function JobspyImporter() {
   const router = useRouter();
   const { saved, saveJob, removeJob } = useSavedJobs();
   const { matchFor } = useCurrentMatches();
+  const { isDismissed, dismiss, restore } = useDismissed();
+  const [showHidden, setShowHidden] = useState(false);
   const [result, setResult] = useState<JobspyImport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -91,13 +93,17 @@ function JobspyImporter() {
 
   // A job you've already saved shows as saved, including anything added since, e.g. a LinkedIn
   // description sent with the bookmarklet.
-  const jobs = (result?.jobs ?? []).map((job) => findSavedCopy(saved, job)?.job ?? job);
+  const all = (result?.jobs ?? []).map((job) => findSavedCopy(saved, job)?.job ?? job);
+  // Jobs marked "Not interested" are left out of everything here, unless you ask to see them.
+  const jobs = all.filter((job) => !isDismissed(job));
+  const hiddenCount = all.length - jobs.length;
+  const listed = showHidden ? all : jobs;
   const unsaved = jobs.filter((job) => !saved[job.id]);
   const anyMatched = jobs.some((job) => matchFor(job));
   const shown =
     order === "match" && anyMatched
-      ? [...jobs].sort((a, b) => (matchFor(b)?.score ?? -1) - (matchFor(a)?.score ?? -1))
-      : jobs;
+      ? [...listed].sort((a, b) => (matchFor(b)?.score ?? -1) - (matchFor(a)?.score ?? -1))
+      : listed;
 
   return (
     <section className="card space-y-3 p-4" aria-labelledby="jobspy-title">
@@ -149,12 +155,23 @@ function JobspyImporter() {
           </div>
           <MatchAllButton jobs={jobs} onMatched={() => setOrder("match")} />
           <BulkTailor jobs={jobs} />
+          {hiddenCount > 0 && (
+            <p className="muted text-xs">
+              {hiddenCount} {hiddenCount === 1 ? "job" : "jobs"} marked Not interested
+              {showHidden ? ", shown faded. " : " hidden. "}
+              <button type="button" className="link cursor-pointer" onClick={() => setShowHidden(!showHidden)}>
+                {showHidden ? "Hide them" : "Show them"}
+              </button>
+            </p>
+          )}
           {shown.map((job) => (
             <JobCard
               key={job.id}
               job={job}
               status={saved[job.id]?.status}
               match={matchFor(job)}
+              dismissed={isDismissed(job)}
+              onDismiss={() => (isDismissed(job) ? restore(job) : dismiss(job))}
               expanded={expanded === job.id}
               onToggle={() => setExpanded(expanded === job.id ? null : job.id)}
               onSave={() => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUpRight, Banknote, Bookmark, BookmarkCheck, Clock, MapPin, Sparkles, Wifi } from "lucide-react";
+import { ArrowUpRight, Banknote, Bookmark, BookmarkCheck, Clock, Eye, EyeOff, MapPin, Sparkles, Wifi } from "lucide-react";
 import { formatPosted, formatSalary } from "@/lib/format";
 import type { ApplicationStatus, StoredMatch } from "@/lib/store";
 import type { Job } from "@/lib/types";
@@ -14,6 +14,9 @@ interface Props {
   onTailor: () => void;
   /** Quick match score from "Match all", if there is one. */
   match?: StoredMatch;
+  /** "Not interested": hide the job, or show it again when `dismissed`. */
+  onDismiss?: () => void;
+  dismissed?: boolean;
 }
 
 const SNIPPET_LENGTH = 600;
@@ -77,13 +80,15 @@ export function CompanyMark({ job, size = "md" }: { job: Job; size?: "md" | "lg"
   );
 }
 
-export function JobCard({ job, status, expanded, onToggle, onSave, onTailor, match }: Props) {
+export function JobCard({ job, status, expanded, onToggle, onSave, onTailor, match, onDismiss, dismissed }: Props) {
   const salary = formatSalary(job.salary);
   const posted = formatPosted(job.postedAt);
   const isSnippet = job.description.length > 0 && job.description.length < SNIPPET_LENGTH;
 
   return (
-    <article className="card group p-4 transition hover:border-zinc-300 hover:shadow-md dark:hover:border-zinc-700 sm:p-5">
+    <article
+      className={`card group p-4 transition hover:border-zinc-300 hover:shadow-md sm:p-5 dark:hover:border-zinc-700 ${dismissed ? "opacity-60" : ""}`}
+    >
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
         <div className="flex min-w-0 flex-1 gap-3.5">
           <CompanyMark job={job} />
@@ -143,6 +148,17 @@ export function JobCard({ job, status, expanded, onToggle, onSave, onTailor, mat
             >
               {status ? <BookmarkCheck size={15} aria-hidden /> : <Bookmark size={15} aria-hidden />}
             </button>
+            {onDismiss && (
+              <button
+                type="button"
+                onClick={onDismiss}
+                className="btn btn-secondary btn-sm btn-icon"
+                aria-label={dismissed ? "Show this job again" : "Not interested: hide this job"}
+                title={dismissed ? "Show again" : "Not interested"}
+              >
+                {dismissed ? <Eye size={15} aria-hidden /> : <EyeOff size={15} aria-hidden />}
+              </button>
+            )}
           </div>
         </div>
       </div>
