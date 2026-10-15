@@ -102,7 +102,19 @@ Results stream in as they're written. You can edit them and download as **Word (
 
 ## Your data
 
-Everything personal lives in your browser's local storage, not on the server. Use **Settings → Download backup** to move it to another browser or computer, and **Restore backup** to load it.
+By default, everything personal lives in your browser's local storage, not on the server. Use **Settings → Download backup** to move it to another browser or computer, and **Restore backup** to load it.
+
+### Keep it on the server (optional)
+
+To have your CV, saved jobs, tailored documents and settings on every device, and safe if you clear your browser, add a free Upstash Redis database:
+
+1. In Vercel, open your project, then **Storage → Create Database → Upstash for Redis** (free plan) and connect it to the project. Vercel adds its connection settings (`UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`, or `KV_REST_API_URL` and `KV_REST_API_TOKEN`) for you.
+2. Make sure `APP_PASSWORD` is set (see Deploying). Server storage stays off without it, so your CV is never open to anyone with the link.
+3. Redeploy.
+
+The browser keeps its own copy, so the app stays fast and works offline. Changes are saved to the server about a second after you make them, and changes from your other devices are merged in when you open the app or switch back to it. For each job, the most recent change wins, and removed jobs stay removed. The cloud icon in the navigation shows whether everything is saved. The first time you open the app with server storage on, whatever is in that browser is uploaded.
+
+To try it locally without Upstash, set `JOBSCRATCH_DATA_FILE=./.data/jobscratch.json` in `.env.local` (development only).
 
 ## Deploying
 

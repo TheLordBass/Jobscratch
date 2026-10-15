@@ -49,3 +49,6 @@ next-env.d.ts
 jobspy-results*.json
 scripts/jobspy/.venv/
 __pycache__/
+
+# Local server-storage file (JOBSCRATCH_DATA_FILE)
+/.data/
