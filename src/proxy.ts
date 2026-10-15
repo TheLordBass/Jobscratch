@@ -1,38 +1,32 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { SESSION_COOKIE, authEnabled, checkBasicAuth, verifySession } from "@/lib/auth";
 
 /**
- * Optional password gate for deployed copies. When APP_PASSWORD is set, every
- * page and API route asks for it (HTTP Basic Auth), so strangers who find the
- * URL can't spend your Anthropic or job-API credits. Leave it unset locally.
+ * Optional sign-in for deployed copies. When APP_PASSWORD is set, every page
+ * and API route needs you to be signed in (see lib/auth.ts), so strangers who
+ * find the URL can't see your CV or spend your Anthropic or job-API credits.
+ * Leave it unset locally.
  */
 export function proxy(request: NextRequest) {
-  const password = process.env.APP_PASSWORD;
-  if (!password) return NextResponse.next();
+  const env = process.env;
+  if (!authEnabled(env)) return NextResponse.next();
 
-  const username = process.env.APP_USERNAME || "jobscratch";
-  const [scheme, encoded] = (request.headers.get("authorization") ?? "").split(" ");
-  if (scheme === "Basic" && encoded) {
-    try {
-      const decoded = atob(encoded);
-      const split = decoded.indexOf(":");
-      if (split >= 0 && safeEqual(decoded.slice(0, split), username) && safeEqual(decoded.slice(split + 1), password)) {
-        return NextResponse.next();
-      }
-    } catch {
-      // Malformed header: fall through to the challenge.
-    }
+  const { pathname, search } = request.nextUrl;
+  // The sign-in page and the routes it uses.
+  if (pathname === "/login" || pathname.startsWith("/api/auth/")) return NextResponse.next();
+
+  if (verifySession(env, request.cookies.get(SESSION_COOKIE)?.value) || checkBasicAuth(env, request.headers.get("authorization"))) {
+    return NextResponse.next();
   }
-  return new NextResponse("Sign in to use JobScratch.", {
-    status: 401,
-    headers: { "WWW-Authenticate": 'Basic realm="JobScratch", charset="UTF-8"' },
-  });
-}
 
-/** Compare without returning early, so response time doesn't reveal how much matched. */
-function safeEqual(a: string, b: string): boolean {
-  let diff = a.length ^ b.length;
-  for (let i = 0; i < Math.max(a.length, b.length); i++) diff |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
-  return diff === 0;
+  if (pathname.startsWith("/api/")) {
+    return Response.json({ error: "Sign in to use JobScratch." }, { status: 401 });
+  }
+  // The browser keeps any #fragment across the redirect, so a job sent by the
+  // bookmarklet (/import#job=…) survives signing in.
+  const login = new URL("/login", request.url);
+  if (pathname !== "/") login.searchParams.set("next", `${pathname}${search}`);
+  return NextResponse.redirect(login);
 }
 
 export const config = {

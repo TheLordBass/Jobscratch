@@ -1,10 +1,11 @@
 "use client";
 
-import { BriefcaseBusiness, Cloud, CloudAlert, CloudUpload, Search, UserRound } from "lucide-react";
+import { BriefcaseBusiness, Cloud, CloudAlert, CloudUpload, LogOut, Search, UserRound } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useHydrated, useSavedJobs } from "@/lib/store";
+import { signOut, useSession } from "@/components/useSession";
 import { startSync, useSyncState } from "@/lib/sync";
 
 /** Three sections; each covers the pages listed in `paths`. */
@@ -24,7 +25,11 @@ export function Nav() {
   const hydrated = useHydrated();
   const savedCount = Object.keys(saved).length;
 
-  useEffect(() => startSync(), []);
+  // The sign-in page has nothing to sync yet; signing in reloads the page.
+  const onLogin = pathname === "/login";
+  useEffect(() => {
+    if (!onLogin) startSync();
+  }, [onLogin]);
 
   return (
     <header className="sticky top-0 z-20 border-b border-zinc-200/70 bg-white/75 backdrop-blur-lg dark:border-zinc-800/70 dark:bg-zinc-950/75">
@@ -35,30 +40,35 @@ export function Nav() {
           </span>
           <span className="hidden text-lg sm:inline">JobScratch</span>
         </Link>
-        <nav className="-mx-1 flex flex-1 gap-1 overflow-x-auto" aria-label="Main">
-          {SECTIONS.map(({ href, label, icon: Icon, paths }) => {
-            const active = inSection(pathname, paths);
-            return (
-              <Link
-                key={href}
-                href={href}
-                aria-current={active ? "page" : undefined}
-                className={`btn rounded-full ${active ? "bg-zinc-900 text-white shadow-sm hover:bg-zinc-800 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-100" : "btn-ghost"}`}
-              >
-                <Icon size={16} aria-hidden className="hidden sm:block" />
-                {label}
-                {href === "/saved" && hydrated && savedCount > 0 && (
-                  <span
-                    className={`rounded-full px-1.5 text-[10px] leading-4 font-bold ${active ? "bg-white/20 text-white dark:bg-zinc-900/10 dark:text-zinc-900" : "bg-indigo-600 text-white"}`}
+        {onLogin ? null : (
+          <>
+            <nav className="-mx-1 flex flex-1 gap-1 overflow-x-auto" aria-label="Main">
+              {SECTIONS.map(({ href, label, icon: Icon, paths }) => {
+                const active = inSection(pathname, paths);
+                return (
+                  <Link
+                    key={href}
+                    href={href}
+                    aria-current={active ? "page" : undefined}
+                    className={`btn rounded-full ${active ? "bg-zinc-900 text-white shadow-sm hover:bg-zinc-800 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-100" : "btn-ghost"}`}
                   >
-                    {savedCount}
-                  </span>
-                )}
-              </Link>
-            );
-          })}
-        </nav>
-        <SyncIndicator />
+                    <Icon size={16} aria-hidden className="hidden sm:block" />
+                    {label}
+                    {href === "/saved" && hydrated && savedCount > 0 && (
+                      <span
+                        className={`rounded-full px-1.5 text-[10px] leading-4 font-bold ${active ? "bg-white/20 text-white dark:bg-zinc-900/10 dark:text-zinc-900" : "bg-indigo-600 text-white"}`}
+                      >
+                        {savedCount}
+                      </span>
+                    )}
+                  </Link>
+                );
+              })}
+            </nav>
+            <SyncIndicator />
+            <SignOutButton />
+          </>
+        )}
       </div>
     </header>
   );
@@ -110,5 +120,26 @@ function SyncIndicator() {
     <Link href="/settings" className={`shrink-0 ${tone}`} title={label} aria-label={label}>
       <Icon size={18} aria-hidden className={sync.status === "saving" ? "animate-pulse" : undefined} />
     </Link>
+  );
+}
+
+function SignOutButton() {
+  const session = useSession();
+  const [busy, setBusy] = useState(false);
+  if (!session?.signedIn) return null;
+  return (
+    <button
+      type="button"
+      className="btn btn-ghost btn-sm btn-icon shrink-0"
+      onClick={() => {
+        setBusy(true);
+        void signOut();
+      }}
+      disabled={busy}
+      title={`Signed in as ${session.username}. Sign out`}
+      aria-label="Sign out"
+    >
+      <LogOut size={16} aria-hidden />
+    </button>
   );
 }
