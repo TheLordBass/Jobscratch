@@ -122,7 +122,7 @@ To try it locally without Upstash, set `JOBSCRATCH_DATA_FILE=./.data/jobscratch.
 
 It's a standard Next.js app, so it runs anywhere Node.js does (Vercel, Railway, Render, a VPS…). Add the same environment variables to your host.
 
-**Set `APP_PASSWORD` on any copy that's reachable from the internet.** Otherwise anyone who finds the URL can use your Anthropic and job-API credits. The browser will ask for the password once (username `jobscratch`, or set `APP_USERNAME`).
+**Set `APP_PASSWORD` on any copy that's reachable from the internet.** Otherwise anyone who finds the URL can see your data and use your Anthropic and job-API credits. With it set, JobScratch shows a sign-in page: the username is `APP_USERNAME` (default `jobscratch`; your email address works well) and the password is `APP_PASSWORD`. Tick **Remember this device** to stay signed in for 30 days; otherwise you're signed out when the browser closes. **Sign out** is the arrow icon at the top right; with server storage on, it also clears that browser's copy of your data. Changing `APP_PASSWORD` signs out every device, and after 10 wrong passwords an address has to wait 15 minutes. Scripts can still send the username and password with HTTP Basic Auth.
 
 After deploying, open the **Import** page on your deployed site and drag the bookmarklet from there, so it sends jobs to that address. In the extension popup, set the JobScratch address to your deployed URL.
 

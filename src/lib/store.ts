@@ -322,6 +322,17 @@ export function useSavedJobs() {
   return { saved, saveJob, updateJob, removeJob, removeJobs, mergeJob };
 }
 
+/** Removes everything JobScratch keeps in this browser (not on the server). */
+export function clearLocalData() {
+  try {
+    for (const key of Object.keys(window.localStorage)) if (key.startsWith(PREFIX)) window.localStorage.removeItem(key);
+  } catch {
+    return;
+  }
+  parsed.clear();
+  notify();
+}
+
 export function newId(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
