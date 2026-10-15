@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, type FormEvent } from "react";
 import { GettingStarted } from "@/components/GettingStarted";
+import { BulkTailor } from "@/components/BulkTailor";
 import { JobCard } from "@/components/JobCard";
 import { KeywordInput, addTerms } from "@/components/KeywordInput";
 import { MatchAllButton, useCurrentMatches } from "@/components/MatchAll";
@@ -479,6 +480,7 @@ export function SearchView() {
             )}
           </div>
           {results.length > 0 && <MatchAllButton jobs={results.slice(0, visible)} onMatched={() => setSort("match")} />}
+          {results.length > 0 && <BulkTailor jobs={results.slice(0, visible)} />}
           <details className="text-xs">
             <summary className="muted cursor-pointer">Where these came from</summary>
             <div className="mt-2 space-y-2">

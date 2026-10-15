@@ -11,6 +11,7 @@ import { useSources } from "@/components/useSources";
 import type { MatchAnalysis, TailorOptions } from "@/lib/ai/prompts";
 import { markdownToDocx } from "@/lib/export-docx";
 import { candidateFor } from "@/lib/candidate";
+import { streamTailored } from "@/lib/tailor-client";
 import { jobKeys } from "@/lib/import";
 import { downloadBlob, slugify } from "@/lib/format";
 import { inlinesToText, parseMarkdown, printableHtml } from "@/lib/markdown";
@@ -347,53 +348,19 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
 
     let text = "";
     try {
-      const response = await fetch("/api/tailor/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          kind: kind === "cv" ? "cv" : "cover-letter",
-          cv: cvText,
-          job: payloadJob,
-          profile: payloadProfile,
-          options,
-        }),
-        signal: controller.signal,
-      });
-      if (!response.ok || !response.body) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.error ?? `Request failed (HTTP ${response.status})`);
-      }
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let thinking = "";
-      let finished = false;
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          const event = JSON.parse(line);
-          if (event.type === "text") {
-            text += event.text;
-            update({ text });
-          } else if (event.type === "thinking") {
-            thinking += event.text;
-            update({ thinking });
-          } else if (event.type === "notice") {
-            update({ notice: event.text });
-          } else if (event.type === "error") {
-            throw new Error(event.message);
-          } else if (event.type === "done") {
-            finished = true;
-          }
-        }
-      }
-      if (!finished) throw new Error("The connection closed before Claude finished. Try again.");
-      updateDocs({ [kind]: text.trim() });
+      const finished = await streamTailored(
+        { kind: kind === "cv" ? "cv" : "cover-letter", cv: cvText, job: payloadJob, profile: payloadProfile, options },
+        {
+          signal: controller.signal,
+          onText: (current) => {
+            text = current;
+            update({ text: current });
+          },
+          onThinking: (thinking) => update({ thinking }),
+          onNotice: (notice) => update({ notice }),
+        },
+      );
+      updateDocs({ [kind]: finished });
       update({ status: "idle", text: "" });
     } catch (error) {
       if (controller.signal.aborted) {
