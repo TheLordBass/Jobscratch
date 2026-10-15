@@ -57,14 +57,28 @@ You can also paste a link to a job on a company careers page (Greenhouse, Lever,
 
 ### JobSpy (unofficial, on your own computer)
 
-[JobSpy](https://github.com/speedyapply/JobSpy) searches LinkedIn, Indeed, Glassdoor, Google Jobs and ZipRecruiter by scraping them. Those sites' terms forbid that, so the app never runs it. If you choose to, you can run it yourself and load the results:
+[JobSpy](https://github.com/speedyapply/JobSpy) searches LinkedIn, Indeed, Glassdoor, Google Jobs and ZipRecruiter by scraping them. Those sites' terms forbid that, so JobScratch's server never runs it. If you choose to, you can run it on your own computer, either from the app through a small helper or in a terminal.
+
+Set it up once:
 
 ```bash
-pip install -r scripts/jobspy/requirements.txt
-python scripts/jobspy/search.py "data analyst" --location London
+python -m venv scripts/jobspy/.venv
+scripts/jobspy/.venv/Scripts/pip install -r scripts/jobspy/requirements.txt
 ```
 
-Then, in JobScratch, go to **Find jobs → Add a job → From JobSpy** and choose the `jobspy-results.json` file it wrote. Save the jobs you want, or tailor your CV to one straight away. **Match all to my CV** scores them all against your CV.
+(On a Mac or Linux, the second line is `scripts/jobspy/.venv/bin/pip install …`.)
+
+**From the app (the helper).** Turn the helper on by double-clicking `scripts/jobspy/start-helper.bat` (on Windows; make a desktop shortcut to it), or run `python scripts/jobspy/helper.py`. A small window opens; keep it open while you search. Then go to **Find jobs → Add a job → From JobSpy**: it shows the helper as running, with a search form. Type job titles and places separated by commas, pick the sites, and click **Search with JobSpy**. Progress shows as it goes, and the results appear in the list, ready to save, match or hide. **Turn off** in the app (or closing the window) stops the helper, and it stops by itself after 30 minutes without a search (`--idle-minutes`).
+
+The helper only listens on your own computer (127.0.0.1:8765), only answers the JobScratch site (`https://jobscratch.vercel.app` and `http://localhost:3000`; add others with `--origin`), and accepts only JSON requests, so other websites can't use it. The first time, your browser may ask whether the site can connect to devices on your network: allow it, as that's how the page reaches the helper. It only works on the computer the helper runs on, not from your phone.
+
+**From a terminal.** Run the search script, then load the file it writes in **From JobSpy → Load a results file**:
+
+```bash
+scripts/jobspy/.venv/Scripts/python scripts/jobspy/search.py "data analyst" --location London
+```
+
+Either way, save the jobs you want, or tailor your CV to one straight away. **Match all to my CV** scores them all against your CV.
 
 LinkedIn jobs from JobSpy usually come without a description. Save them, then open each one on LinkedIn and click your **Send to JobScratch** bookmark: JobScratch recognises it as the same job (by its LinkedIn job number) and offers to **merge** the full description into the saved job, keeping its status and notes. The same works for Indeed and Glassdoor jobs.
 
@@ -74,9 +88,9 @@ To search several job titles and places at once, list them. Every combination is
 python scripts/jobspy/search.py "junior data analyst" "data analyst" "senior data analyst" --location Manchester London "United Kingdom"
 ```
 
-Put each one in quotes if it has a space. That example is 9 searches, so it takes a few minutes; the script waits 3 seconds between searches (`--pause`) to make blocking less likely, and skips any search that fails rather than stopping.
+Put each one in quotes if it has a space. That example is 9 searches, so it takes a few minutes; the script waits 3 seconds between searches (`--pause`) to make blocking less likely, and skips any search that fails rather than stopping. The helper does the same, up to 30 searches at once.
 
-Options: `--distance 10` to stay within 10 miles of each location (default 50), `--sites indeed linkedin glassdoor google zip_recruiter` (default: Indeed and LinkedIn; Google often returns nothing, and the app already has Google Jobs through SerpApi), `--results 25` per site for each search, `--hours 72` for recent jobs only, `--remote`, `--country usa` for Indeed and Glassdoor outside the UK, and `--linkedin-descriptions` for full LinkedIn descriptions (slower). Run `python scripts/jobspy/search.py --help` for the full list.
+Options for the script (the helper's form has the same ones): `--distance 10` to stay within 10 miles of each location (default 50), `--sites indeed linkedin glassdoor google zip_recruiter` (default: Indeed and LinkedIn; Google often returns nothing, and the app already has Google Jobs through SerpApi), `--results 25` per site for each search, `--hours 72` for recent jobs only, `--remote`, `--country usa` for Indeed and Glassdoor outside the UK, and `--linkedin-descriptions` for full LinkedIn descriptions (slower). Run `python scripts/jobspy/search.py --help` for the full list.
 
 Expect sites to block it from time to time, LinkedIn especially, after a page or two. Running it from a home connection works best. You'll need Python 3.10 or newer.
 
