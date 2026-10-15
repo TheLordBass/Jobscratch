@@ -11,7 +11,7 @@ import { KeywordInput, addTerms } from "@/components/KeywordInput";
 import { MatchAllButton, useCurrentMatches } from "@/components/MatchAll";
 import { FIND_TABS, SectionTabs } from "@/components/Nav";
 import { COUNTRIES } from "@/lib/format";
-import { newId, useGroups, useHydrated, useSavedJobs, useSettings, type SearchGroup } from "@/lib/store";
+import { newId, useDismissed, useGroups, useHydrated, useSavedJobs, useSettings, type SearchGroup } from "@/lib/store";
 import { SOURCE_IDS, type Job, type SearchRequest, type SearchResponse, type SourceResult } from "@/lib/types";
 
 const PAGE_SIZE = 30;
@@ -121,6 +121,8 @@ export function SearchView() {
 
   const [search, setSearch] = useState<SearchState>({ status: "idle" });
   const [sort, setSort] = useState<"relevance" | "newest" | "match">("relevance");
+  const [showHidden, setShowHidden] = useState(false);
+  const { isDismissed, dismiss, restore } = useDismissed();
   const { matchFor } = useCurrentMatches();
   const [filter, setFilter] = useState("");
   const [visible, setVisible] = useState(PAGE_SIZE);
@@ -218,7 +220,7 @@ export function SearchView() {
     router.push(`/tailor?job=${encodeURIComponent(job.id)}`);
   }
 
-  const results = useMemo(() => {
+  const allResults = useMemo(() => {
     if (search.status !== "done") return [];
     const needle = filter.trim().toLowerCase();
     const jobs = needle
@@ -231,6 +233,11 @@ export function SearchView() {
     if (sort === "match") return [...jobs].sort((a, b) => (matchFor(b)?.score ?? -1) - (matchFor(a)?.score ?? -1));
     return jobs;
   }, [search, filter, sort, matchFor]);
+
+  // Jobs marked "Not interested" are left out, unless you ask to see them.
+  const hiddenCount = allResults.filter(isDismissed).length;
+  const results = showHidden ? allResults : allResults.filter((job) => !isDismissed(job));
+  const onScreen = results.slice(0, visible).filter((job) => !isDismissed(job));
 
   const hasQuery = keywords.length > 0 || Boolean(keywordDraft.trim());
 
@@ -479,8 +486,17 @@ export function SearchView() {
               </div>
             )}
           </div>
-          {results.length > 0 && <MatchAllButton jobs={results.slice(0, visible)} onMatched={() => setSort("match")} />}
-          {results.length > 0 && <BulkTailor jobs={results.slice(0, visible)} />}
+          {onScreen.length > 0 && <MatchAllButton jobs={onScreen} onMatched={() => setSort("match")} />}
+          {onScreen.length > 0 && <BulkTailor jobs={onScreen} />}
+          {hiddenCount > 0 && (
+            <p className="muted text-xs">
+              {hiddenCount} {hiddenCount === 1 ? "job" : "jobs"} marked Not interested
+              {showHidden ? ", shown faded. " : " hidden. "}
+              <button type="button" className="link cursor-pointer" onClick={() => setShowHidden(!showHidden)}>
+                {showHidden ? "Hide them" : "Show them"}
+              </button>
+            </p>
+          )}
           <details className="text-xs">
             <summary className="muted cursor-pointer">Where these came from</summary>
             <div className="mt-2 space-y-2">
@@ -508,6 +524,8 @@ export function SearchView() {
                 job={job}
                 status={saved[job.id]?.status}
                 match={matchFor(job)}
+                dismissed={isDismissed(job)}
+                onDismiss={() => (isDismissed(job) ? restore(job) : dismiss(job))}
                 expanded={expanded === job.id}
                 onToggle={() => setExpanded(expanded === job.id ? null : job.id)}
                 onSave={() => {

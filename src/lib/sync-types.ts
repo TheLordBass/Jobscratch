@@ -8,7 +8,7 @@ import { z } from "zod";
 /** Stored as one value each. */
 export const SINGLETON_KEYS = ["cv", "profile", "settings", "groups"] as const;
 /** Stored item by item (keyed by job id), so a change sends only what changed. */
-export const COLLECTION_KEYS = ["saved", "tailored", "matches"] as const;
+export const COLLECTION_KEYS = ["saved", "tailored", "matches", "dismissed"] as const;
 export const SYNC_KEYS = [...SINGLETON_KEYS, ...COLLECTION_KEYS] as const;
 
 export type SingletonKey = (typeof SINGLETON_KEYS)[number];

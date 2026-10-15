@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
 import type { MatchAnalysis, TailorOptions } from "@/lib/ai/prompts";
-import { mergeJobs } from "@/lib/import";
+import { dismissKeys, mergeJobs } from "@/lib/import";
 import { connectStore, queueChange } from "@/lib/sync";
 import type { CompanyBoards, Job, SearchSourceId } from "@/lib/types";
 
@@ -23,12 +23,20 @@ export interface SearchGroup {
 export const APPLICATION_STATUSES = ["saved", "applied", "interviewing", "offer", "rejected"] as const;
 export type ApplicationStatus = (typeof APPLICATION_STATUSES)[number];
 
+/** When a saved job moved to a status (for the Progress page). */
+export interface StatusChange {
+  status: ApplicationStatus;
+  at: string;
+}
+
 export interface SavedJob {
   job: Job;
   status: ApplicationStatus;
   notes: string;
   savedAt: string;
   updatedAt: string;
+  /** Every status the job has had, oldest first. Missing on jobs saved before it was added. */
+  history?: StatusChange[];
 }
 
 export interface StoredCv {
@@ -88,12 +96,23 @@ export interface StoredMatch {
 
 const EMPTY_MATCHES: Record<string, StoredMatch> = {};
 
+/** A job marked "Not interested", hidden from searches and JobSpy results. */
+export interface DismissedJob {
+  title: string;
+  company: string;
+  /** Every key the job can be recognised by (see dismissKeys). */
+  keys: string[];
+  at: string;
+}
+
+const EMPTY_DISMISSED: Record<string, DismissedJob> = {};
+
 const EMPTY_GROUPS: SearchGroup[] = [];
 const EMPTY_SAVED: Record<string, SavedJob> = {};
 const EMPTY_TAILORED: Record<string, TailoredDocs> = {};
 
 const PREFIX = "jobscratch:";
-type Key = "groups" | "saved" | "cv" | "profile" | "settings" | "tailored" | "matches";
+type Key = "groups" | "saved" | "cv" | "profile" | "settings" | "tailored" | "matches" | "dismissed";
 
 const listeners = new Set<() => void>();
 const parsed = new Map<string, { raw: string | null; value: unknown }>();
@@ -213,6 +232,48 @@ export function useProfile() {
   return useStored("profile", EMPTY_PROFILE);
 }
 
+/** Jobs marked "Not interested": hide them, bring them back, or ask whether a job is one. */
+export function useDismissed() {
+  const [dismissed, setDismissed] = useStored("dismissed", EMPTY_DISMISSED);
+  const known = useMemo(() => new Set(Object.values(dismissed).flatMap((entry) => entry.keys)), [dismissed]);
+
+  const isDismissed = useCallback((job: Job) => dismissKeys(job).some((key) => known.has(key)), [known]);
+
+  const dismiss = useCallback(
+    (job: Job) =>
+      setDismissed((previous) => ({
+        ...previous,
+        [job.id]: { title: job.title, company: job.company, keys: dismissKeys(job), at: new Date().toISOString() },
+      })),
+    [setDismissed],
+  );
+
+  /** Removes every entry that hides this job (it may have been hidden as a copy from another site). */
+  const restore = useCallback(
+    (job: Job) =>
+      setDismissed((previous) => {
+        const keys = dismissKeys(job);
+        return Object.fromEntries(Object.entries(previous).filter(([, entry]) => !entry.keys.some((key) => keys.includes(key))));
+      }),
+    [setDismissed],
+  );
+
+  /** Removes one entry by the id it was stored under (for the list in Settings). */
+  const restoreEntry = useCallback(
+    (id: string) =>
+      setDismissed((previous) => {
+        const next = { ...previous };
+        delete next[id];
+        return next;
+      }),
+    [setDismissed],
+  );
+
+  const restoreAll = useCallback(() => setDismissed({}), [setDismissed]);
+
+  return { dismissed, isDismissed, dismiss, restore, restoreEntry, restoreAll, count: Object.keys(dismissed).length };
+}
+
 export function useMatches() {
   return useStored("matches", EMPTY_MATCHES);
 }
@@ -256,7 +317,7 @@ export function useSavedJobs() {
           ...previous,
           [job.id]: existing
             ? { ...existing, job: { ...existing.job, ...job }, updatedAt: now }
-            : { job, status, notes: "", savedAt: now, updatedAt: now },
+            : { job, status, notes: "", savedAt: now, updatedAt: now, history: [{ status, at: now }] },
         };
       });
     },
@@ -268,13 +329,21 @@ export function useSavedJobs() {
       setSaved((previous) => {
         const existing = previous[id];
         if (!existing) return previous;
+        const now = new Date().toISOString();
+        const status = patch.status;
+        const moved = status !== undefined && status !== existing.status;
+        // Jobs saved before history was kept start it with their current status, dated as best we can.
+        const before = existing.history ?? [
+          { status: existing.status, at: existing.status === "saved" ? existing.savedAt : existing.updatedAt },
+        ];
         return {
           ...previous,
           [id]: {
             ...existing,
             ...patch,
             job: { ...existing.job, ...patch.job },
-            updatedAt: new Date().toISOString(),
+            updatedAt: now,
+            ...(moved && { history: [...before, { status, at: now }] }),
           },
         };
       });

@@ -11,7 +11,7 @@ import { startSync, useSyncState } from "@/lib/sync";
 /** Three sections; each covers the pages listed in `paths`. */
 const SECTIONS = [
   { href: "/", label: "Find jobs", icon: Search, paths: ["/", "/import"] },
-  { href: "/saved", label: "My jobs", icon: BriefcaseBusiness, paths: ["/saved", "/tailor"] },
+  { href: "/saved", label: "My jobs", icon: BriefcaseBusiness, paths: ["/saved", "/progress", "/tailor"] },
   { href: "/cv", label: "Profile", icon: UserRound, paths: ["/cv", "/settings"] },
 ] as const;
 
@@ -99,6 +99,11 @@ export function SectionTabs({ tabs }: { tabs: ReadonlyArray<{ href: string; labe
 export const FIND_TABS = [
   { href: "/", label: "Search" },
   { href: "/import", label: "Add a job" },
+] as const;
+
+export const MY_JOBS_TABS = [
+  { href: "/saved", label: "Jobs" },
+  { href: "/progress", label: "Progress" },
 ] as const;
 
 export const PROFILE_TABS = [

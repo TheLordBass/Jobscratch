@@ -108,3 +108,22 @@
 .doc a {
   @apply text-indigo-600 underline dark:text-indigo-400;
 }
+
+/*
+ * Chart colours for the Progress page: one series in blue (checked for contrast and colour-blind
+ * safety on the card in both modes), the rest of a bar in grey, and hairline grid and axis.
+ */
+.viz {
+  --viz-series: #2a78d6;
+  --viz-rest: #d4d4d8;
+  --viz-grid: #e4e4e7;
+  --viz-axis: #d4d4d8;
+}
+@media (prefers-color-scheme: dark) {
+  .viz {
+    --viz-series: #3987e5;
+    --viz-rest: #3f3f46;
+    --viz-grid: #27272a;
+    --viz-axis: #3f3f46;
+  }
+}

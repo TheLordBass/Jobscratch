@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 import { BulkTailor } from "@/components/BulkTailor";
 import { CompanyMark, MatchBadge } from "@/components/JobCard";
 import { MatchAllButton, useCurrentMatches } from "@/components/MatchAll";
+import { MY_JOBS_TABS, SectionTabs } from "@/components/Nav";
 import { downloadBlob, formatPosted, formatSalary } from "@/lib/format";
 import { APPLICATION_STATUSES, useHydrated, useSavedJobs, useTailored, type ApplicationStatus } from "@/lib/store";
 import type { Job } from "@/lib/types";
@@ -134,12 +135,20 @@ export function SavedView() {
     setStatusFilter("all");
   }
 
-  if (!hydrated) return <div className="card muted p-8 text-center text-sm">Loading your jobs…</div>;
+  if (!hydrated) {
+    return (
+      <div className="space-y-5">
+        <SectionTabs tabs={MY_JOBS_TABS} />
+        <div className="card muted p-8 text-center text-sm">Loading your jobs…</div>
+      </div>
+    );
+  }
 
   const clearLabel = statusFilter === "all" ? "Clear not applied" : `Clear “${STATUS_LABEL[statusFilter]}”`;
 
   return (
     <div className="space-y-5">
+      <SectionTabs tabs={MY_JOBS_TABS} />
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="page-title">My jobs</h1>
