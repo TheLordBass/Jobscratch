@@ -17,6 +17,7 @@ applies: these sites' terms forbid scraping, so use it at your own risk.
 
 import argparse
 import json
+import sys
 import threading
 import time
 import uuid
@@ -108,6 +109,8 @@ def search_options(body):
         hours=whole_number(body.get("hours"), "hours", 1, 24 * 60, None),
         remote=bool(body.get("remote")),
         linkedin_descriptions=bool(body.get("linkedinDescriptions")),
+        # Minutes between LinkedIn searches, run after the other sites (see search.run_searches).
+        linkedin_pace=whole_number(body.get("linkedinPace"), "linkedinPace", 0, 30, 0),
         country=country.strip().lower(),
         pause=3,
     )
@@ -115,6 +118,16 @@ def search_options(body):
     if len(searches) > MAX_SEARCHES:
         raise BadRequest(f"That's {len(searches)} searches; at most {MAX_SEARCHES} at once (keywords × locations)")
     return options
+
+
+def keep_awake(on):
+    """While a search runs, ask Windows not to go to sleep, which would pause it. Ends with the search."""
+    if sys.platform != "win32":
+        return
+    import ctypes
+
+    ES_CONTINUOUS, ES_SYSTEM_REQUIRED = 0x80000000, 0x00000001
+    ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS | (ES_SYSTEM_REQUIRED if on else 0))
 
 
 class Helper:
@@ -150,6 +163,10 @@ class Helper:
                 "status": "running",
                 "startedAt": datetime.now(timezone.utc).isoformat(),
                 "finishedAt": None,
+                # Roughly when it'll finish, and any long wait (e.g. between LinkedIn searches).
+                "endsAround": None,
+                "waitingUntil": None,
+                "waitingFor": None,
                 "done": 0,
                 "total": len(search.plan(options.search, options.location)[2]),
                 "current": None,
@@ -168,14 +185,24 @@ class Helper:
             with self.lock:
                 job.update(done=done, total=total, current=label, found=found)
 
+        def report(**fields):
+            with self.lock:
+                job.update(**fields)
+
         def found_so_far(document):
             with self.lock:
                 job.update(partial=document, found=len(document["jobs"]))
 
         def run():
+            keep_awake(True)
             try:
                 document, failed = search.run_searches(
-                    scrape_jobs, options, on_progress=progress, should_stop=lambda: job["cancel"], on_found=found_so_far
+                    scrape_jobs,
+                    options,
+                    on_progress=progress,
+                    should_stop=lambda: job["cancel"],
+                    on_found=found_so_far,
+                    on_status=report,
                 )
                 with self.lock:
                     job.update(result=document, failed=failed, status="cancelled" if job["cancel"] else "done")
@@ -183,9 +210,10 @@ class Helper:
                 with self.lock:
                     job.update(status="failed", error=str(error))
             finally:
+                keep_awake(False)
                 with self.lock:
                     self.last_search = datetime.now(timezone.utc)
-                    job.update(finishedAt=self.last_search.isoformat(), partial=None)
+                    job.update(finishedAt=self.last_search.isoformat(), partial=None, waitingUntil=None, waitingFor=None)
                 search.log(f"Search {job['status']}: {job['found']} jobs. Back in JobScratch, they're ready to look through.")
 
         threading.Thread(target=run, daemon=True).start()

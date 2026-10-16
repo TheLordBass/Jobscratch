@@ -89,7 +89,7 @@ export const DEFAULT_SETTINGS: Settings = {
   saveMatchesFrom: 70,
   saveUndescribed: true,
   tailor: { style: "uk-cv", tone: "professional", length: "two-pages", extraInstructions: "" },
-  jobspy: { search: [], location: [], sites: ["indeed", "linkedin"], results: 25, hours: null, remote: false, linkedinDescriptions: false, distance: 50 },
+  jobspy: { search: [], location: [], sites: ["indeed", "linkedin"], results: 25, hours: null, remote: false, linkedinDescriptions: false, distance: 50, linkedinPace: 2 },
 };
 
 export const EMPTY_PROFILE: StoredProfile = { website: "", github: "", evidence: "", enabled: true };

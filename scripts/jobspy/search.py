@@ -18,10 +18,12 @@ results are merged into one file without duplicates.
 
 import argparse
 import json
+import logging
+import random
 import sys
 import time
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 SITES = ["indeed", "linkedin", "glassdoor", "google", "zip_recruiter"]
 
@@ -95,6 +97,13 @@ def parse_args():
         default=3,
         help="seconds to wait between searches, to make blocking less likely (default: 3)",
     )
+    parser.add_argument(
+        "--linkedin-pace",
+        type=float,
+        default=0,
+        help="search LinkedIn on its own after the other sites, this many minutes apart, so it's less likely "
+        "to block (e.g. 2; default: 0, at the same pace as the others)",
+    )
     parser.add_argument("--out", default="jobspy-results.json", help="file to write (default: jobspy-results.json)")
     return parser.parse_args()
 
@@ -109,26 +118,45 @@ def unique(values):
     return result
 
 
-def search_once(scrape_jobs, args, term, location):
-    """One JobSpy search, as JobScratch records."""
+class LinkedInWatch(logging.Handler):
+    """Notices LinkedIn turning a search away, which JobSpy logs rather than raising."""
+
+    def __init__(self):
+        super().__init__(logging.ERROR)
+        self.blocked = False
+
+    def emit(self, record):
+        message = record.getMessage()
+        if "status code 429" in message or "status code 999" in message or "blocked" in message:
+            self.blocked = True
+
+
+def search_once(scrape_jobs, args, term, location, sites=None):
+    """One JobSpy search, as JobScratch records, and whether LinkedIn turned it away."""
     where = f" near {location}" if location else ""
-    jobs = scrape_jobs(
-        site_name=args.sites,
-        search_term=term,
-        google_search_term=f"{term} jobs{where}",
-        location=location or None,
-        distance=args.distance,
-        results_wanted=args.results,
-        hours_old=args.hours,
-        country_indeed=args.country,
-        is_remote=args.remote,
-        linkedin_fetch_description=args.linkedin_descriptions,
-        description_format="html",
-        verbose=1,
-    )
+    watch = LinkedInWatch()
+    linkedin_log = logging.getLogger("JobSpy:LinkedIn")
+    linkedin_log.addHandler(watch)
+    try:
+        jobs = scrape_jobs(
+            site_name=sites or args.sites,
+            search_term=term,
+            google_search_term=f"{term} jobs{where}",
+            location=location or None,
+            distance=args.distance,
+            results_wanted=args.results,
+            hours_old=args.hours,
+            country_indeed=args.country,
+            is_remote=args.remote,
+            linkedin_fetch_description=args.linkedin_descriptions,
+            description_format="html",
+            verbose=1,
+        )
+    finally:
+        linkedin_log.removeHandler(watch)
     # pandas turns missing values into null and dates into ISO strings here.
     rows = json.loads(jobs.to_json(orient="records", date_format="iso")) if len(jobs) else []
-    return [{field: row.get(field) for field in FIELDS} for row in rows]
+    return [{field: row.get(field) for field in FIELDS} for row in rows], watch.blocked
 
 
 def plan(search, location):
@@ -154,34 +182,106 @@ def results_file(terms, locations, records):
     }
 
 
-def run_searches(scrape_jobs, args, on_progress=None, should_stop=None, on_found=None):
+# When LinkedIn turns a paced search away: minutes to wait before trying it again, longer each time
+# in a row. After this many blocks in a row, the rest of the LinkedIn searches are skipped.
+LINKEDIN_COOLDOWNS = [10, 20, 30]
+LINKEDIN_MAX_BLOCKS = 4
+
+
+def run_searches(scrape_jobs, args, on_progress=None, should_stop=None, on_found=None, on_status=None):
     """
     Run every search in `args` and merge the results into one JobScratch file.
 
+    With args.linkedin_pace (minutes), LinkedIn is searched on its own after the other sites, one
+    search at a time that far apart (give or take a little), and a search LinkedIn turns away is
+    tried again after a rest (LINKEDIN_COOLDOWNS).
+
     on_progress(done, total, label, found) is called before each search and at the end;
-    on_found(file) after each search with the jobs found so far; should_stop() is checked
-    between searches. Returns (file contents, failed searches). Used by this script and by helper.py.
+    on_found(file) after each search with the jobs found so far; on_status(**fields) with
+    waitingUntil/waitingFor during a long wait and endsAround (roughly when it'll finish);
+    should_stop() is checked between searches and during waits. Returns (file contents, failed
+    searches). Used by this script and by helper.py.
     """
     terms, locations, searches = plan(args.search, args.location)
+    pace = max(0.0, float(getattr(args, "linkedin_pace", 0) or 0)) * 60
+    cooldowns = getattr(args, "linkedin_cooldowns", LINKEDIN_COOLDOWNS)
+    paced = pace > 0 and "linkedin" in args.sites
+    others = [site for site in args.sites if not (paced and site == "linkedin")]
+    steps = [(term, place, others) for term, place in searches] if others else []
+    if paced:
+        steps += [(term, place, ["linkedin"]) for term, place in searches]
+    is_slow = lambda step: paced and step[2] == ["linkedin"]  # noqa: E731
+    status = on_status or (lambda **fields: None)
+    stopped = lambda: bool(should_stop and should_stop())  # noqa: E731
+    took = {"fast": [], "slow": []}
+
+    def wait(seconds, waiting_for):
+        """Waits in short steps, so a stop request isn't held up. False if stopped meanwhile."""
+        if seconds >= 20:
+            until = datetime.now(timezone.utc) + timedelta(seconds=seconds)
+            status(waitingUntil=until.isoformat(), waitingFor=waiting_for)
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline and not stopped():
+            time.sleep(0.2)
+        status(waitingUntil=None, waitingFor=None)
+        return not stopped()
+
+    def ends_around(next_step, extra=0):
+        """Roughly when the run will finish, from how long its searches have taken so far (plus `extra` seconds)."""
+        average = lambda times, guess: sum(times) / len(times) if times else guess  # noqa: E731
+        fast = average(took["fast"], 5) + args.pause
+        slow = average(took["slow"], 10) + pace
+        seconds = extra + sum(slow if is_slow(step) else fast for step in steps[next_step:])
+        return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat()
+
     by_url, failed = {}, []
-    for index, (term, location) in enumerate(searches):
-        if index and args.pause > 0:
-            # Wait in short steps, so a stop request isn't held up by the pause.
-            deadline = time.monotonic() + args.pause
-            while time.monotonic() < deadline and not (should_stop and should_stop()):
-                time.sleep(0.2)
-        if should_stop and should_stop():
-            break
-        label = f"“{term}”" + (f" in {location}" if location else "")
-        if on_progress:
-            on_progress(index, len(searches), label, len(by_url))
-        log(f"[{index + 1}/{len(searches)}] Searching {', '.join(args.sites)} for {label}…")
-        try:
-            records = search_once(scrape_jobs, args, term, location)
-        except Exception as error:  # One failed search shouldn't lose the others.
-            log(f"    Failed: {error}")
+    blocks_in_a_row = 0
+    for index, step in enumerate(steps):
+        term, location, sites = step
+        slow = is_slow(step)
+        searched = f"“{term}”" + (f" in {location}" if location else "")
+        label = f"LinkedIn: {searched}" if slow else searched
+        if slow and blocks_in_a_row >= LINKEDIN_MAX_BLOCKS:
             failed.append(label)
             continue
+        if index:
+            between_linkedin = slow and is_slow(steps[index - 1])
+            gap = pace * random.uniform(0.8, 1.2) if between_linkedin else args.pause
+            if gap > 0 and not wait(gap, "the next LinkedIn search" if between_linkedin else "the next search"):
+                break
+        if stopped():
+            break
+        status(endsAround=ends_around(index))
+        if on_progress:
+            on_progress(index, len(steps), label, len(by_url))
+        log(f"[{index + 1}/{len(steps)}] Searching {', '.join(sites)} for {searched}…")
+
+        records, attempt = [], 0
+        while True:
+            attempt += 1
+            started = time.monotonic()
+            try:
+                found, blocked = search_once(scrape_jobs, args, term, location, sites)
+            except Exception as error:  # One failed search shouldn't lose the others.
+                log(f"    Failed: {error}")
+                failed.append(label)
+                break
+            took["slow" if slow else "fast"].append(time.monotonic() - started)
+            records += found
+            if not (slow and blocked):
+                blocks_in_a_row = 0 if slow else blocks_in_a_row
+                break
+            blocks_in_a_row += 1
+            if attempt >= 2 or blocks_in_a_row >= LINKEDIN_MAX_BLOCKS:
+                log("    LinkedIn turned it away again, so it's skipped.")
+                failed.append(label)
+                break
+            minutes = cooldowns[min(blocks_in_a_row - 1, len(cooldowns) - 1)]
+            log(f"    LinkedIn turned this search away. Waiting {minutes:g} minutes, then trying it again.")
+            status(endsAround=ends_around(index, minutes * 60))
+            if not wait(minutes * 60, "LinkedIn to stop blocking"):
+                break
+
         new = 0
         for record in records:
             key = record.get("job_url") or f"{record.get('site')}|{record.get('title')}|{record.get('company')}"
@@ -191,9 +291,12 @@ def run_searches(scrape_jobs, args, on_progress=None, should_stop=None, on_found
         log(f"    {len(records)} found, {new} new")
         if on_found:
             on_found(results_file(terms, locations, list(by_url.values())))
+        if slow and blocks_in_a_row >= LINKEDIN_MAX_BLOCKS:
+            log("LinkedIn keeps turning searches away, so the rest of the LinkedIn searches are skipped.")
 
     if on_progress:
-        on_progress(len(searches), len(searches), None, len(by_url))
+        on_progress(len(steps), len(steps), None, len(by_url))
+    status(waitingUntil=None, waitingFor=None, endsAround=None)
     return results_file(terms, locations, list(by_url.values())), failed
 
 
