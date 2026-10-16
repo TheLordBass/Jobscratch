@@ -6,14 +6,17 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { BulkTailor } from "@/components/BulkTailor";
 import { JobCard } from "@/components/JobCard";
+import { JobFilters } from "@/components/JobFilters";
 import { JobspyHelperPanel } from "@/components/JobspyHelper";
 import { MatchAllButton, useCurrentMatches } from "@/components/MatchAll";
 import { SaveByMatch } from "@/components/SaveByMatch";
 import { FIND_TABS, SectionTabs } from "@/components/Nav";
 import { formatPosted } from "@/lib/format";
 import { buildBookmarklet, findSavedCopy, payloadToJob, readImportHash, type ImportPayload } from "@/lib/import";
+import { ANY_JOB, filterJobs, isFiltering, type JobFilter } from "@/lib/job-filters";
 import { parseJobspyFile, type JobspyImport } from "@/lib/jobspy";
 import { useDismissed, useSavedJobs } from "@/lib/store";
+import type { Job } from "@/lib/types";
 
 type Extract = (doc: Document, href: string) => ImportPayload;
 
@@ -79,6 +82,13 @@ function JobspyImporter() {
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [order, setOrder] = useState<"match" | "file">("match");
+  const [jobFilter, setJobFilter] = useState<JobFilter>(ANY_JOB);
+
+  /** A new list starts unfiltered. */
+  function show(next: JobspyImport) {
+    setResult(next);
+    setJobFilter(ANY_JOB);
+  }
 
   async function load(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -86,7 +96,7 @@ function JobspyImporter() {
     if (!file) return;
     setError(null);
     try {
-      setResult(parseJobspyFile(await file.text()));
+      show(parseJobspyFile(await file.text()));
     } catch (err) {
       setResult(null);
       setError((err as Error).message);
@@ -97,11 +107,14 @@ function JobspyImporter() {
   // description sent with the bookmarklet.
   const all = (result?.jobs ?? []).map((job) => findSavedCopy(saved, job)?.job ?? job);
   // Jobs marked "Not interested" are left out of everything here, unless you ask to see them.
-  const jobs = all.filter((job) => !isDismissed(job));
-  const hiddenCount = all.length - jobs.length;
-  const listed = showHidden ? all : jobs;
+  const notHidden = all.filter((job) => !isDismissed(job));
+  const hiddenCount = all.length - notHidden.length;
+  // The From and Show filters narrow the list, and Save all, Match all and the rest act on what's left.
+  const isMatched = (job: Job) => Boolean(matchFor(job));
+  const jobs = filterJobs(notHidden, (job) => job, jobFilter, isMatched);
+  const listed = showHidden ? filterJobs(all, (job) => job, jobFilter, isMatched) : jobs;
   const unsaved = jobs.filter((job) => !saved[job.id]);
-  const anyMatched = jobs.some((job) => matchFor(job));
+  const anyMatched = notHidden.some((job) => matchFor(job));
   const shown =
     order === "match" && anyMatched
       ? [...listed].sort((a, b) => (matchFor(b)?.score ?? -1) - (matchFor(a)?.score ?? -1))
@@ -123,7 +136,7 @@ function JobspyImporter() {
         onResult={(file) => {
           setError(null);
           try {
-            setResult(parseJobspyFile(JSON.stringify(file)));
+            show(parseJobspyFile(JSON.stringify(file)));
           } catch (err) {
             setError((err as Error).message);
           }
@@ -163,11 +176,19 @@ function JobspyImporter() {
               )}
               {unsaved.length > 0 && (
                 <button type="button" className="btn btn-secondary btn-sm" onClick={() => unsaved.forEach((job) => saveJob(job))}>
-                  Save all ({unsaved.length})
+                  {isFiltering(jobFilter) ? "Save all shown" : "Save all"} ({unsaved.length})
                 </button>
               )}
             </div>
           </div>
+          <JobFilters
+            items={notHidden}
+            jobOf={(job) => job}
+            isMatched={isMatched}
+            filter={jobFilter}
+            onChange={setJobFilter}
+            shown={jobs.length}
+          />
           <MatchAllButton jobs={jobs} onMatched={() => setOrder("match")} />
           <SaveByMatch jobs={jobs} />
           <BulkTailor jobs={jobs} />
@@ -179,6 +200,9 @@ function JobspyImporter() {
                 {showHidden ? "Hide them" : "Show them"}
               </button>
             </p>
+          )}
+          {shown.length === 0 && isFiltering(jobFilter) && (
+            <p className="card muted p-6 text-center text-sm">No jobs match these filters.</p>
           )}
           {shown.map((job) => (
             <JobCard

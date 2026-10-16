@@ -65,6 +65,8 @@ export interface Settings {
   disabledSources: SearchSourceId[];
   /** "Save jobs matching N% or more" on search results and the JobSpy list. */
   saveMatchesFrom: number;
+  /** With it, also save the jobs that have no description to match (often LinkedIn and Glassdoor ones). */
+  saveUndescribed: boolean;
   tailor: TailorOptions;
   /** The last JobSpy search, so the form starts with it. */
   jobspy: Omit<HelperSearch, "country">;
@@ -85,6 +87,7 @@ export const DEFAULT_SETTINGS: Settings = {
   companyBoards: { greenhouse: [], lever: [], ashby: [] },
   disabledSources: [],
   saveMatchesFrom: 70,
+  saveUndescribed: true,
   tailor: { style: "uk-cv", tone: "professional", length: "two-pages", extraInstructions: "" },
   jobspy: { search: [], location: [], sites: ["indeed", "linkedin"], results: 25, hours: null, remote: false, linkedinDescriptions: false, distance: 50 },
 };
