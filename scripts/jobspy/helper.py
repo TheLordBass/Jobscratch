@@ -32,9 +32,10 @@ PORT = 8765
 DEFAULT_ORIGINS = ["https://jobscratch.vercel.app", "http://localhost:3000", "http://127.0.0.1:3000"]
 
 # Limits on one request from the app, so a mistake can't start hundreds of searches.
-MAX_TERMS = 10
+MAX_TERMS = 50
 MAX_LOCATIONS = 10
-MAX_SEARCHES = 30
+# 50 job titles in two places. At about 8 seconds a search, that's under 15 minutes.
+MAX_SEARCHES = 100
 MAX_BODY = 64 * 1024
 
 
@@ -147,6 +148,8 @@ class Helper:
             job = {
                 "id": uuid.uuid4().hex,
                 "status": "running",
+                "startedAt": datetime.now(timezone.utc).isoformat(),
+                "finishedAt": None,
                 "done": 0,
                 "total": len(search.plan(options.search, options.location)[2]),
                 "current": None,
@@ -154,6 +157,8 @@ class Helper:
                 "failed": [],
                 "error": None,
                 "result": None,
+                # The jobs found so far, sent only when the app asks (GET /search/partial).
+                "partial": None,
                 "cancel": False,
             }
             self.job = job
@@ -163,10 +168,14 @@ class Helper:
             with self.lock:
                 job.update(done=done, total=total, current=label, found=found)
 
+        def found_so_far(document):
+            with self.lock:
+                job.update(partial=document, found=len(document["jobs"]))
+
         def run():
             try:
                 document, failed = search.run_searches(
-                    scrape_jobs, options, on_progress=progress, should_stop=lambda: job["cancel"]
+                    scrape_jobs, options, on_progress=progress, should_stop=lambda: job["cancel"], on_found=found_so_far
                 )
                 with self.lock:
                     job.update(result=document, failed=failed, status="cancelled" if job["cancel"] else "done")
@@ -176,6 +185,7 @@ class Helper:
             finally:
                 with self.lock:
                     self.last_search = datetime.now(timezone.utc)
+                    job.update(finishedAt=self.last_search.isoformat(), partial=None)
                 search.log(f"Search {job['status']}: {job['found']} jobs. Back in JobScratch, they're ready to look through.")
 
         threading.Thread(target=run, daemon=True).start()
@@ -186,7 +196,14 @@ class Helper:
             job = self.job
             if not job or (job_id and job["id"] != job_id):
                 return None
-            return {key: value for key, value in job.items() if key != "cancel"}
+            return {key: value for key, value in job.items() if key not in ("cancel", "partial")}
+
+    def partial(self, job_id):
+        with self.lock:
+            job = self.job
+            if not job or job["id"] != job_id:
+                return None
+            return job["partial"] or job["result"]
 
     def cancel(self):
         with self.lock:
@@ -255,6 +272,9 @@ def make_handler(helper, origins, port):
                 return self.send(403, {"error": "Not allowed"})
             if self.path == "/status":
                 return self.send(200, helper.status())
+            if self.path.startswith("/search/partial"):
+                found = helper.partial(self.path.partition("?id=")[2])
+                return self.send(200, found) if found else self.send(404, {"error": "Nothing found yet"})
             if self.path.startswith("/search"):
                 job_id = self.path.partition("?id=")[2]
                 job = helper.view(job_id)

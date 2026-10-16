@@ -143,13 +143,24 @@ def log(message):
     print(message, file=sys.stderr, flush=True)
 
 
-def run_searches(scrape_jobs, args, on_progress=None, should_stop=None):
+def results_file(terms, locations, records):
+    """What JobScratch loads: the jobs found, and what was searched for."""
+    return {
+        "format": "jobscratch-jobspy",
+        "version": 1,
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "query": {"search": terms, "location": [location for location in locations if location]},
+        "jobs": records,
+    }
+
+
+def run_searches(scrape_jobs, args, on_progress=None, should_stop=None, on_found=None):
     """
     Run every search in `args` and merge the results into one JobScratch file.
 
     on_progress(done, total, label, found) is called before each search and at the end;
-    should_stop() is checked between searches. Returns (file contents, failed searches).
-    Used by this script and by helper.py.
+    on_found(file) after each search with the jobs found so far; should_stop() is checked
+    between searches. Returns (file contents, failed searches). Used by this script and by helper.py.
     """
     terms, locations, searches = plan(args.search, args.location)
     by_url, failed = {}, []
@@ -178,17 +189,12 @@ def run_searches(scrape_jobs, args, on_progress=None, should_stop=None):
                 by_url[key] = record
                 new += 1
         log(f"    {len(records)} found, {new} new")
+        if on_found:
+            on_found(results_file(terms, locations, list(by_url.values())))
 
     if on_progress:
         on_progress(len(searches), len(searches), None, len(by_url))
-    document = {
-        "format": "jobscratch-jobspy",
-        "version": 1,
-        "createdAt": datetime.now(timezone.utc).isoformat(),
-        "query": {"search": terms, "location": [location for location in locations if location]},
-        "jobs": list(by_url.values()),
-    }
-    return document, failed
+    return results_file(terms, locations, list(by_url.values())), failed
 
 
 def main():

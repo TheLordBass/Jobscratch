@@ -74,7 +74,8 @@ const FileSchema = z.object({
   version: z.literal(1),
   createdAt: z.string().optional(),
   query: z.object({ search: terms, location: terms }).optional(),
-  jobs: z.array(z.unknown()).max(5000),
+  // 100 searches on several sites can find thousands.
+  jobs: z.array(z.unknown()).max(20_000),
 });
 
 export interface JobspyImport {
