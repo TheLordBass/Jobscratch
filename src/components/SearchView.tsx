@@ -9,6 +9,7 @@ import { BulkTailor } from "@/components/BulkTailor";
 import { JobCard } from "@/components/JobCard";
 import { KeywordInput, addTerms } from "@/components/KeywordInput";
 import { MatchAllButton, useCurrentMatches } from "@/components/MatchAll";
+import { SaveByMatch } from "@/components/SaveByMatch";
 import { FIND_TABS, SectionTabs } from "@/components/Nav";
 import { COUNTRIES } from "@/lib/format";
 import { newId, useDismissed, useGroups, useHydrated, useSavedJobs, useSettings, type SearchGroup } from "@/lib/store";
@@ -487,6 +488,7 @@ export function SearchView() {
             )}
           </div>
           {onScreen.length > 0 && <MatchAllButton jobs={onScreen} onMatched={() => setSort("match")} />}
+          {onScreen.length > 0 && <SaveByMatch jobs={onScreen} />}
           {onScreen.length > 0 && <BulkTailor jobs={onScreen} />}
           {hiddenCount > 0 && (
             <p className="muted text-xs">

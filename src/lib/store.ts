@@ -63,7 +63,7 @@ export interface Settings {
   includeRemoteAnywhere: boolean;
   companyBoards: CompanyBoards;
   disabledSources: SearchSourceId[];
-  /** "Save jobs matching N% or more" on the JobSpy list. */
+  /** "Save jobs matching N% or more" on search results and the JobSpy list. */
   saveMatchesFrom: number;
   tailor: TailorOptions;
   /** The last JobSpy search, so the form starts with it. */
