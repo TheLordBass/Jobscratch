@@ -8,6 +8,7 @@ import { BulkTailor } from "@/components/BulkTailor";
 import { JobCard } from "@/components/JobCard";
 import { JobspyHelperPanel } from "@/components/JobspyHelper";
 import { MatchAllButton, useCurrentMatches } from "@/components/MatchAll";
+import { SaveByMatch } from "@/components/SaveByMatch";
 import { FIND_TABS, SectionTabs } from "@/components/Nav";
 import { formatPosted } from "@/lib/format";
 import { buildBookmarklet, findSavedCopy, payloadToJob, readImportHash, type ImportPayload } from "@/lib/import";
@@ -168,6 +169,7 @@ function JobspyImporter() {
             </div>
           </div>
           <MatchAllButton jobs={jobs} onMatched={() => setOrder("match")} />
+          <SaveByMatch jobs={jobs} />
           <BulkTailor jobs={jobs} />
           {hiddenCount > 0 && (
             <p className="muted text-xs">
