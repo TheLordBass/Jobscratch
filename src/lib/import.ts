@@ -122,12 +122,113 @@ export function buildBookmarklet(extractorSource: string, appOrigin: string): st
   return `javascript:${encodeURIComponent(code)}`;
 }
 
-/** The saved job that `job` is another copy of: the same id, or the same job on LinkedIn/Indeed/Glassdoor. */
+// Query parameters that only track where a click came from; the same posting can have any of them.
+const TRACKING_PARAM = /^(utm_.*|ref|refid|trackingid|trk.*|src|source|from|campaign|click.*|gclid|fbclid)$/i;
+
+/** A job's own posting link, tidied (no tracking, "www." or trailing slash), to tell when two links are one posting. */
+export function linkKey(raw: string): string | undefined {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return undefined;
+  }
+  const path = url.pathname.replace(/\/+$/, "");
+  const params = [...url.searchParams].filter(([name]) => !TRACKING_PARAM.test(name)).sort(([a], [b]) => a.localeCompare(b));
+  // A bare site or careers page ("https://example.com/") can be shared by many jobs, so it doesn't count.
+  if (!path && params.length === 0) return undefined;
+  const query = params.length ? `?${new URLSearchParams(params)}` : "";
+  return `link:${url.hostname.toLowerCase().replace(/^www\./, "")}${path.toLowerCase()}${query}`;
+}
+
+const COMPANY_ENDINGS = new Set(["ltd", "limited", "plc", "inc", "llc", "llp", "group", "uk", "co", "company", "corporation", "corp"]);
+
+/** The same job title at the same company ("CBRE" and "CBRE Group Ltd" are one), or undefined when either is unknown. */
+export function roleKey(job: Pick<Job, "title" | "company">): string | undefined {
+  const title = normalizeForMatch(job.title);
+  const company = normalizeForMatch(job.company);
+  if (!title || !company || title === "untitled job" || company === "unknown company") return undefined;
+  const words = company.split(" ");
+  while (words.length > 1 && COMPANY_ENDINGS.has(words[words.length - 1])) words.pop();
+  if (words.length > 1 && words[0] === "the") words.shift();
+  return `${title}|${words.join(" ")}`;
+}
+
+/** Whether two locations could be the same place: "Manchester" and "Manchester, England, UK" can, Manchester and London can't. */
+export function sameArea(a: string, b: string): boolean {
+  const first = (place: string) => normalizeForMatch(place.split(/[,(]/)[0]);
+  const x = ` ${normalizeForMatch(a)} `;
+  const y = ` ${normalizeForMatch(b)} `;
+  if (!x.trim() || !y.trim()) return true;
+  return x.includes(` ${first(b)} `) || y.includes(` ${first(a)} `);
+}
+
+/**
+ * Finds the saved job that a job is another copy of: the same id; the same LinkedIn, Indeed or
+ * Glassdoor job; the same posting link; or the same title at the same company in the same area.
+ * Built once for a list, so checking many jobs stays quick.
+ */
+export function savedCopyFinder<T extends { job: Job }>(saved: Record<string, T>): (job: Job) => T | undefined {
+  const index = copyIndex<T>();
+  for (const entry of Object.values(saved)) index.add(entry);
+  return (job) => saved[job.id] ?? index.find(job);
+}
+
+/** Jobs looked up by everything that can show two of them are one (see savedCopyFinder); entries can be added as you go. */
+function copyIndex<T extends { job: Job }>() {
+  const byId = new Map<string, T>();
+  const byKey = new Map<string, T>();
+  const byRole = new Map<string, T[]>();
+  const keysOf = (job: Job) => [...jobKeys(job), linkKey(job.url)].filter((key): key is string => Boolean(key));
+  return {
+    add(entry: T) {
+      if (!byId.has(entry.job.id)) byId.set(entry.job.id, entry);
+      for (const key of keysOf(entry.job)) if (!byKey.has(key)) byKey.set(key, entry);
+      const role = roleKey(entry.job);
+      if (role && !byRole.get(role)?.includes(entry)) byRole.set(role, [...(byRole.get(role) ?? []), entry]);
+    },
+    find(job: Job): T | undefined {
+      const same = byId.get(job.id);
+      if (same) return same;
+      for (const key of keysOf(job)) {
+        const entry = byKey.get(key);
+        if (entry) return entry;
+      }
+      const role = roleKey(job);
+      return role ? byRole.get(role)?.find((entry) => sameArea(entry.job.location, job.location)) : undefined;
+    },
+  };
+}
+
+/** The saved job that `job` is another copy of (see savedCopyFinder). */
 export function findSavedCopy<T extends { job: Job }>(saved: Record<string, T>, job: Job): T | undefined {
-  if (saved[job.id]) return saved[job.id];
-  const keys = jobKeys(job);
-  if (keys.length === 0) return undefined;
-  return Object.values(saved).find((entry) => jobKeys(entry.job).some((key) => keys.includes(key)));
+  return savedCopyFinder(saved)(job);
+}
+
+/**
+ * A results list with each job once: a job you've saved shows as the saved one, and copies of a
+ * new job (e.g. on Indeed and on Glassdoor) become one, with all their apply links.
+ */
+export function collapseCopies(jobs: Job[], findSaved: (job: Job) => { job: Job } | undefined): Job[] {
+  const index = copyIndex<{ job: Job; saved: boolean }>();
+  const kept: { job: Job; saved: boolean }[] = [];
+  for (const job of jobs) {
+    const savedCopy = findSaved(job)?.job;
+    const shown = savedCopy ?? job;
+    const earlier = index.find(shown);
+    if (earlier) {
+      // Saved jobs are shown as they are; two unsaved copies are combined.
+      if (!earlier.saved && !savedCopy) {
+        earlier.job = mergeJobs(earlier.job, job);
+        index.add(earlier);
+      }
+      continue;
+    }
+    const entry = { job: shown, saved: Boolean(savedCopy) };
+    index.add(entry);
+    kept.push(entry);
+  }
+  return kept.map((entry) => entry.job);
 }
 
 /**
@@ -157,7 +258,7 @@ export function mergeJobs(existing: Job, incoming: Job): Job {
     salary: existing.salary ?? incoming.salary,
     employmentType: existing.employmentType ?? incoming.employmentType,
     companyLogo: existing.companyLogo ?? incoming.companyLogo,
-    tags: [...new Set([...existing.tags, ...incoming.tags])],
+    tags: [...new Set([...(existing.tags ?? []), ...(incoming.tags ?? [])])],
   };
 }
 

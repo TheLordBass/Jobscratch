@@ -13,6 +13,7 @@ import { MatchAllButton, useCurrentMatches } from "@/components/MatchAll";
 import { SaveByMatch } from "@/components/SaveByMatch";
 import { FIND_TABS, SectionTabs } from "@/components/Nav";
 import { COUNTRIES } from "@/lib/format";
+import { collapseCopies, savedCopyFinder } from "@/lib/import";
 import { ANY_JOB, filterJobs, type JobFilter } from "@/lib/job-filters";
 import { newId, useDismissed, useGroups, useHydrated, useSavedJobs, useSettings, type SearchGroup } from "@/lib/store";
 import { SOURCE_IDS, type Job, type SearchRequest, type SearchResponse, type SourceResult } from "@/lib/types";
@@ -221,23 +222,26 @@ export function SearchView() {
   }
 
   function tailor(job: Job) {
-    saveJob(job);
-    router.push(`/tailor?job=${encodeURIComponent(job.id)}`);
+    const id = saveJob(job);
+    router.push(`/tailor?job=${encodeURIComponent(id)}`);
   }
 
+  const findCopy = useMemo(() => savedCopyFinder(saved), [saved]);
   const allResults = useMemo(() => {
     if (search.status !== "done") return [];
+    // A job you've saved already, even from another site or an earlier search, shows as the saved one, once.
+    const found = collapseCopies(search.response.jobs, findCopy);
     const needle = filter.trim().toLowerCase();
     const jobs = needle
-      ? search.response.jobs.filter((job) =>
+      ? found.filter((job) =>
           `${job.title} ${job.company} ${job.location} ${job.sourceName}`.toLowerCase().includes(needle),
         )
-      : search.response.jobs;
+      : found;
     if (sort === "newest") return [...jobs].sort((a, b) => (b.postedAt ?? "").localeCompare(a.postedAt ?? ""));
     // Unscored jobs keep their order after the scored ones.
     if (sort === "match") return [...jobs].sort((a, b) => (matchFor(b)?.score ?? -1) - (matchFor(a)?.score ?? -1));
     return jobs;
-  }, [search, filter, sort, matchFor]);
+  }, [search, filter, sort, matchFor, findCopy]);
 
   // Jobs marked "Not interested" are left out, unless you ask to see them.
   const hiddenCount = allResults.filter(isDismissed).length;

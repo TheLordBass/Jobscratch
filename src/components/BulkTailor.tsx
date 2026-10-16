@@ -75,8 +75,7 @@ export function BulkTailor({ jobs }: { jobs: Job[] }) {
     const report = (stopped?: string) => setProgress({ done, total, failed, current: [...current], stopped });
     report();
 
-    const write = async (job: Job, kind: "cv" | "cover-letter") => {
-      const into = target(job);
+    const write = async (into: Job, kind: "cv" | "cover-letter") => {
       const text = await streamTailored(
         {
           kind,
@@ -104,15 +103,16 @@ export function BulkTailor({ jobs }: { jobs: Job[] }) {
       while (!abort.signal.aborted) {
         const job = queue.shift();
         if (!job) return;
-        const into = target(job);
-        if (!saved[into.id]) saveJob(into);
+        const found = target(job);
+        // Saving may fold it into a job saved a moment ago (another copy in this run); the documents go there.
+        const into = saved[found.id] ? found : { ...found, id: saveJob(found) };
         const label = `${into.title} at ${into.company}`;
         current.add(label);
         report();
         try {
           const docs = tailored[into.id];
-          if (!docs?.cv) await write(job, "cv");
-          if (withLetters && !docs?.coverLetter) await write(job, "cover-letter");
+          if (!docs?.cv) await write(into, "cv");
+          if (withLetters && !docs?.coverLetter) await write(into, "cover-letter");
           failedInARow = 0;
         } catch (error) {
           if (abort.signal.aborted) return;
