@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import type { MatchAnalysis, TailorOptions } from "@/lib/ai/prompts";
-import { dismissKeys, mergeJobs } from "@/lib/import";
+import { dismissKeys, findSavedCopy, mergeJobs } from "@/lib/import";
 import type { HelperSearch } from "@/lib/jobspy-helper";
 import { connectStore, queueChange } from "@/lib/sync";
 import type { CompanyBoards, Job, SearchSourceId } from "@/lib/types";
@@ -319,18 +319,31 @@ function mergeSettings(stored: Settings): Settings {
 export function useSavedJobs() {
   const [saved, setSaved] = useStored("saved", EMPTY_SAVED);
 
+  /**
+   * Saves a job, or updates it if it's saved already. Another copy of a saved job (e.g. the same
+   * job from another site or a later search) is merged into it rather than saved twice.
+   * Returns the id it's saved under.
+   */
   const saveJob = useCallback(
-    (job: Job, status: ApplicationStatus = "saved") => {
+    (job: Job, status: ApplicationStatus = "saved"): string => {
+      let id = job.id;
       setSaved((previous) => {
         const now = new Date().toISOString();
-        const existing = previous[job.id];
+        if (previous[job.id]) {
+          const existing = previous[job.id];
+          return { ...previous, [job.id]: { ...existing, job: { ...existing.job, ...job }, updatedAt: now } };
+        }
+        const copy = findSavedCopy(previous, job);
+        if (copy) {
+          id = copy.job.id;
+          return { ...previous, [id]: { ...copy, job: mergeJobs(copy.job, job), updatedAt: now } };
+        }
         return {
           ...previous,
-          [job.id]: existing
-            ? { ...existing, job: { ...existing.job, ...job }, updatedAt: now }
-            : { job, status, notes: "", savedAt: now, updatedAt: now, history: [{ status, at: now }] },
+          [job.id]: { job, status, notes: "", savedAt: now, updatedAt: now, history: [{ status, at: now }] },
         };
       });
+      return id;
     },
     [setSaved],
   );

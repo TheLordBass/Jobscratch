@@ -60,15 +60,11 @@ describe("recognising the same job", () => {
     };
     expect(findSavedCopy({ a: { job: older } }, bookmarklet)?.job.id).toBe("import:oldhash");
     expect(findSavedCopy({ b: { job: fromSearch } }, bookmarklet)?.job.id).toBe("google-jobs:abc");
-    const elsewhere = payloadToJob({
-      title: "Data Analyst",
-      company: "CBRE",
-      location: "",
-      description: "",
-      url: "https://careers.example.com/jobs/9",
-      sourceName: "",
-    });
-    expect(findSavedCopy({ a: { job: older } }, elsewhere)).toBeUndefined();
+    const elsewhere = (location: string) =>
+      payloadToJob({ title: "Data Analyst", company: "CBRE", location, description: "", url: "https://careers.example.com/jobs/9", sourceName: "" });
+    // The same role at the same company is the same job, unless it's somewhere else.
+    expect(findSavedCopy({ a: { job: older } }, elsewhere(""))?.job.id).toBe("import:oldhash");
+    expect(findSavedCopy({ a: { job: older } }, elsewhere("London"))).toBeUndefined();
     expect(jobKeys(fromSearch)).toEqual(["linkedin:4012345678"]);
   });
 });

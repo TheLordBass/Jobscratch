@@ -3,7 +3,7 @@
 import { Plus } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { BulkTailor } from "@/components/BulkTailor";
 import { JobCard } from "@/components/JobCard";
 import { JobFilters } from "@/components/JobFilters";
@@ -12,7 +12,15 @@ import { MatchAllButton, useCurrentMatches } from "@/components/MatchAll";
 import { SaveByMatch } from "@/components/SaveByMatch";
 import { FIND_TABS, SectionTabs } from "@/components/Nav";
 import { formatPosted } from "@/lib/format";
-import { buildBookmarklet, findSavedCopy, payloadToJob, readImportHash, type ImportPayload } from "@/lib/import";
+import {
+  buildBookmarklet,
+  collapseCopies,
+  findSavedCopy,
+  payloadToJob,
+  readImportHash,
+  savedCopyFinder,
+  type ImportPayload,
+} from "@/lib/import";
 import { ANY_JOB, filterJobs, isFiltering, type JobFilter } from "@/lib/job-filters";
 import { parseJobspyFile, type JobspyImport } from "@/lib/jobspy";
 import { useDismissed, useSavedJobs } from "@/lib/store";
@@ -105,7 +113,8 @@ function JobspyImporter() {
 
   // A job you've already saved shows as saved, including anything added since, e.g. a LinkedIn
   // description sent with the bookmarklet.
-  const all = (result?.jobs ?? []).map((job) => findSavedCopy(saved, job)?.job ?? job);
+  const findCopy = useMemo(() => savedCopyFinder(saved), [saved]);
+  const all = collapseCopies(result?.jobs ?? [], findCopy);
   // Jobs marked "Not interested" are left out of everything here, unless you ask to see them.
   const notHidden = all.filter((job) => !isDismissed(job));
   const hiddenCount = all.length - notHidden.length;
@@ -222,8 +231,8 @@ function JobspyImporter() {
                 }
               }}
               onTailor={() => {
-                if (!saved[job.id]) saveJob(job);
-                router.push(`/tailor?job=${encodeURIComponent(job.id)}`);
+                const id = saved[job.id] ? job.id : saveJob(job);
+                router.push(`/tailor?job=${encodeURIComponent(id)}`);
               }}
             />
           ))}
@@ -294,9 +303,11 @@ export function ImportView() {
   function save(andTailor: boolean) {
     if (!draft) return;
     const job = payloadToJob(draft);
-    saveJob(job);
-    setSavedId(job.id);
-    if (andTailor) router.push(`/tailor?job=${encodeURIComponent(job.id)}`);
+    const id = saveJob(job);
+    // Saving a copy of a job you already have adds to that one instead.
+    if (id !== job.id) setMergedInto(id);
+    setSavedId(id);
+    if (andTailor) router.push(`/tailor?job=${encodeURIComponent(id)}`);
   }
 
   const set = (field: keyof ImportPayload) => (value: string) => setDraft({ ...(draft ?? EMPTY), [field]: value });
