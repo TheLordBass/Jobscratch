@@ -78,7 +78,7 @@ The helper only listens on your own computer (127.0.0.1:8765), only answers the 
 scripts/jobspy/.venv/Scripts/python scripts/jobspy/search.py "data analyst" --location London
 ```
 
-Either way, save the jobs you want, or tailor your CV to one straight away. **Match all to my CV** scores them all against your CV; then **Save jobs matching 70% or more** (pick 50–90%) adds just the good matches to My jobs instead of all of them. Tick **plus the N without a description** to save the jobs JobSpy couldn't get a description for too (usually LinkedIn and Glassdoor), so you can fill them in one by one with your **Send to JobScratch** bookmark. The same works on your search results.
+Either way, save the jobs you want, or tailor your CV to one straight away. **Match all to my CV** scores them all against your CV; then **Save jobs matching 70% or more** (pick 50–90% or more, or exactly 100%) adds just the good matches to My jobs instead of all of them. Tick **plus the N without a description** to save the jobs JobSpy couldn't get a description for too (usually LinkedIn and Glassdoor), so you can fill them in one by one with your **Send to JobScratch** bookmark. The same works on your search results.
 
 To narrow a list, use **From** (LinkedIn, Indeed, Glassdoor or any other site in the list) and **Show** (matched, not matched yet, or no full description) above it, on search results, JobSpy results and My jobs. Save all, Match all and the rest then act on just the jobs shown, so you can, say, pick out the LinkedIn jobs with no description and fill them in one by one.
 

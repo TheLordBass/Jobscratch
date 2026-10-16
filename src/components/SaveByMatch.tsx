@@ -9,7 +9,8 @@ import { siteName } from "@/lib/progress";
 import { useSavedJobs, useSettings } from "@/lib/store";
 import type { Job } from "@/lib/types";
 
-const THRESHOLDS = [50, 60, 70, 80, 90] as const;
+const THRESHOLDS = [50, 60, 70, 80, 90, 100] as const;
+const thresholdLabel = (threshold: number) => (threshold >= 100 ? "100%" : `${threshold}% or more`);
 
 const jobsLabel = (count: number) => `${count} ${count === 1 ? "job" : "jobs"}`;
 const listSites = (jobs: Job[]) => [...new Set(jobs.map((job) => siteName(job.sourceName)))].join(", ");
@@ -17,7 +18,7 @@ const listSites = (jobs: Job[]) => [...new Set(jobs.map((job) => siteName(job.so
 /**
  * Saves only the jobs that match your CV well enough, instead of all of them, and optionally the
  * ones with no description to match (often LinkedIn and Glassdoor), to fill in one by one.
- * Shown once some jobs are matched.
+ * Until the jobs are matched it says to run Match all first.
  */
 export function SaveByMatch({ jobs }: { jobs: Job[] }) {
   const { saved, saveJob } = useSavedJobs();
@@ -28,7 +29,9 @@ export function SaveByMatch({ jobs }: { jobs: Job[] }) {
   const min = settings.saveMatchesFrom;
   const withBare = settings.saveUndescribed;
   const scored = jobs.filter((job) => matchFor(job));
-  if (scored.length === 0) return null;
+  // Nothing here can be matched (no descriptions), so there is nothing to save by score.
+  if (!jobs.some(canMatch)) return null;
+  const waiting = scored.length === 0;
 
   const good = scored.filter((job) => (matchFor(job)?.score ?? 0) >= min);
   // No description, so no score: saved to add the description by hand (see the bookmarklet).
@@ -55,11 +58,11 @@ export function SaveByMatch({ jobs }: { jobs: Job[] }) {
         >
           {THRESHOLDS.map((threshold) => (
             <option key={threshold} value={threshold}>
-              {threshold}% or more
+              {thresholdLabel(threshold)}
             </option>
           ))}
         </select>
-        {bare.length > 0 && (
+        {bare.length > 0 && !waiting && (
           <label
             className="flex items-center gap-1.5"
             title="JobSpy often can't get the description of LinkedIn and Glassdoor jobs. Save them anyway to add it yourself: open each one on its site and click your Send to JobScratch bookmark."
@@ -71,18 +74,20 @@ export function SaveByMatch({ jobs }: { jobs: Job[] }) {
         <button
           type="button"
           className="btn btn-secondary btn-sm"
-          disabled={toSave.length === 0}
+          disabled={waiting || toSave.length === 0}
           onClick={() => {
             toSave.forEach((job) => saveJob(job));
             setJustSaved({ total: toSave.length, bare: bareToSave });
           }}
         >
           <BookmarkPlus size={14} aria-hidden />
-          {toSave.length ? `Save ${jobsLabel(toSave.length)}` : "Nothing new to save"}
+          {waiting ? "Save" : toSave.length ? `Save ${jobsLabel(toSave.length)}` : "Nothing new to save"}
         </button>
       </div>
       <p className="muted text-xs" role="status">
-        {justSaved ? (
+        {waiting ? (
+          "Click Match all to my CV first to give each job a score. Then you can save just the ones at the percentage you pick."
+        ) : justSaved ? (
           <>
             Saved {justSaved.total} to{" "}
             <Link href="/saved" className="link">
@@ -95,7 +100,7 @@ export function SaveByMatch({ jobs }: { jobs: Job[] }) {
         ) : (
           [
             wanted.length > toSave.length && `${wanted.length - toSave.length} already saved.`,
-            good.length === 0 && `None match ${min}% or more.`,
+            good.length === 0 && `None match ${thresholdLabel(min)}.`,
             notScored > 0 && `${notScored} not matched yet, so left out.`,
           ]
             .filter(Boolean)
