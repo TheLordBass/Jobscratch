@@ -7,11 +7,13 @@ import { useMemo, useState, type FormEvent } from "react";
 import { GettingStarted } from "@/components/GettingStarted";
 import { BulkTailor } from "@/components/BulkTailor";
 import { JobCard } from "@/components/JobCard";
+import { JobFilters } from "@/components/JobFilters";
 import { KeywordInput, addTerms } from "@/components/KeywordInput";
 import { MatchAllButton, useCurrentMatches } from "@/components/MatchAll";
 import { SaveByMatch } from "@/components/SaveByMatch";
 import { FIND_TABS, SectionTabs } from "@/components/Nav";
 import { COUNTRIES } from "@/lib/format";
+import { ANY_JOB, filterJobs, type JobFilter } from "@/lib/job-filters";
 import { newId, useDismissed, useGroups, useHydrated, useSavedJobs, useSettings, type SearchGroup } from "@/lib/store";
 import { SOURCE_IDS, type Job, type SearchRequest, type SearchResponse, type SourceResult } from "@/lib/types";
 
@@ -127,6 +129,7 @@ export function SearchView() {
   const { matchFor } = useCurrentMatches();
   const [filter, setFilter] = useState("");
   const [visible, setVisible] = useState(PAGE_SIZE);
+  const [jobFilter, setJobFilter] = useState<JobFilter>(ANY_JOB);
   const [expanded, setExpanded] = useState<string | null>(null);
 
   const activeGroup = groups.find((g) => g.id === activeGroupId) ?? null;
@@ -148,6 +151,7 @@ export function SearchView() {
     setVisible(PAGE_SIZE);
     setExpanded(null);
     setFilter("");
+    setJobFilter(ANY_JOB);
     const body: SearchRequest = {
       keywords: query.keywords,
       exclude: query.exclude,
@@ -237,7 +241,10 @@ export function SearchView() {
 
   // Jobs marked "Not interested" are left out, unless you ask to see them.
   const hiddenCount = allResults.filter(isDismissed).length;
-  const results = showHidden ? allResults : allResults.filter((job) => !isDismissed(job));
+  const unfiltered = showHidden ? allResults : allResults.filter((job) => !isDismissed(job));
+  // The From and Show filters narrow the list, and Match all and the rest act on what's left.
+  const isMatched = (job: Job) => Boolean(matchFor(job));
+  const results = filterJobs(unfiltered, (job) => job, jobFilter, isMatched);
   const onScreen = results.slice(0, visible).filter((job) => !isDismissed(job));
 
   const hasQuery = keywords.length > 0 || Boolean(keywordDraft.trim());
@@ -487,9 +494,20 @@ export function SearchView() {
               </div>
             )}
           </div>
-          {onScreen.length > 0 && <MatchAllButton jobs={onScreen} onMatched={() => setSort("match")} />}
-          {onScreen.length > 0 && <SaveByMatch jobs={onScreen} />}
-          {onScreen.length > 0 && <BulkTailor jobs={onScreen} />}
+          <JobFilters
+            items={unfiltered}
+            jobOf={(job) => job}
+            isMatched={isMatched}
+            filter={jobFilter}
+            onChange={(next) => {
+              setJobFilter(next);
+              setVisible(PAGE_SIZE);
+            }}
+            shown={results.length}
+          />
+          {unfiltered.length > 0 && <MatchAllButton jobs={onScreen} onMatched={() => setSort("match")} />}
+          {unfiltered.length > 0 && <SaveByMatch jobs={onScreen} />}
+          {unfiltered.length > 0 && <BulkTailor jobs={onScreen} />}
           {hiddenCount > 0 && (
             <p className="muted text-xs">
               {hiddenCount} {hiddenCount === 1 ? "job" : "jobs"} marked Not interested
@@ -516,7 +534,9 @@ export function SearchView() {
           </details>
           {results.length === 0 && (
             <div className="card muted p-6 text-center text-sm">
-              No jobs matched. Try broader keywords, a different location, or turn off “Remote only”.
+              {unfiltered.length > 0
+                ? "No jobs match these filters."
+                : "No jobs matched. Try broader keywords, a different location, or turn off “Remote only”."}
             </div>
           )}
           <div className="space-y-3">

@@ -80,6 +80,8 @@ scripts/jobspy/.venv/Scripts/python scripts/jobspy/search.py "data analyst" --lo
 
 Either way, save the jobs you want, or tailor your CV to one straight away. **Match all to my CV** scores them all against your CV; then **Save jobs matching 70% or more** (pick 50–90%) adds just the good matches to My jobs instead of all of them. Tick **plus the N without a description** to save the jobs JobSpy couldn't get a description for too (usually LinkedIn and Glassdoor), so you can fill them in one by one with your **Send to JobScratch** bookmark. The same works on your search results.
 
+To narrow a list, use **From** (LinkedIn, Indeed, Glassdoor or any other site in the list) and **Show** (matched, not matched yet, or no full description) above it, on search results, JobSpy results and My jobs. Save all, Match all and the rest then act on just the jobs shown, so you can, say, pick out the LinkedIn jobs with no description and fill them in one by one.
+
 LinkedIn jobs from JobSpy usually come without a description. Save them, then open each one on LinkedIn and click your **Send to JobScratch** bookmark: JobScratch recognises it as the same job (by its LinkedIn job number) and offers to **merge** the full description into the saved job, keeping its status and notes. The same works for Indeed and Glassdoor jobs.
 
 To search several job titles and places at once, list them. Every combination is searched, and the results are merged into one file without duplicates:

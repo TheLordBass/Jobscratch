@@ -5,9 +5,11 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { BulkTailor } from "@/components/BulkTailor";
 import { CompanyMark, MatchBadge } from "@/components/JobCard";
+import { JobFilters } from "@/components/JobFilters";
 import { MatchAllButton, useCurrentMatches } from "@/components/MatchAll";
 import { MY_JOBS_TABS, SectionTabs } from "@/components/Nav";
 import { downloadBlob, formatPosted, formatSalary } from "@/lib/format";
+import { ANY_JOB, filterJobs, type JobFilter } from "@/lib/job-filters";
 import { APPLICATION_STATUSES, useHydrated, useSavedJobs, useTailored, type ApplicationStatus } from "@/lib/store";
 import type { Job } from "@/lib/types";
 
@@ -66,6 +68,7 @@ export function SavedView() {
   const [statusFilter, setStatusFilter] = useState<ApplicationStatus | "all">("all");
   const { matchFor } = useCurrentMatches();
   const [order, setOrder] = useState<"saved" | "match">("saved");
+  const [jobFilter, setJobFilter] = useState<JobFilter>(ANY_JOB);
 
   // Newest saved first. Not by last update, or a job would jump to the top as soon as you change its status or notes.
   const entries = useMemo(
@@ -77,9 +80,12 @@ export function SavedView() {
     for (const entry of entries) result[entry.status] = (result[entry.status] ?? 0) + 1;
     return result;
   }, [entries]);
-  const shown = statusFilter === "all" ? entries : entries.filter((e) => e.status === statusFilter);
+  const byStatus = statusFilter === "all" ? entries : entries.filter((e) => e.status === statusFilter);
   // The full analysis from the job page counts over a quick score; unscored jobs go last.
   const scoreOf = (job: Job) => tailored[job.id]?.analysis?.matchScore ?? matchFor(job)?.score;
+  // The From and Show filters narrow the list further, and Match all and the rest act on what's left.
+  const isMatched = (job: Job) => scoreOf(job) !== undefined;
+  const shown = filterJobs(byStatus, (entry) => entry.job, jobFilter, isMatched);
   const anyScored = entries.some((entry) => scoreOf(entry.job) !== undefined);
   const ordered =
     order === "match" && anyScored
@@ -217,6 +223,14 @@ export function SavedView() {
                 );
               })}
             </div>
+            <JobFilters
+              items={byStatus}
+              jobOf={(entry) => entry.job}
+              isMatched={isMatched}
+              filter={jobFilter}
+              onChange={setJobFilter}
+              shown={shown.length}
+            />
             {anyScored && (
               <select
                 className="input ml-auto w-auto py-1.5 text-xs"
@@ -230,7 +244,7 @@ export function SavedView() {
             )}
           </div>
 
-          {shown.length > 0 && (
+          {byStatus.length > 0 && (
             <>
               <MatchAllButton jobs={shown.map((entry) => entry.job)} onMatched={() => setOrder("match")} />
               <BulkTailor jobs={shown.map((entry) => entry.job)} />
@@ -238,7 +252,9 @@ export function SavedView() {
           )}
           {shown.length === 0 && (
             <p className="card muted p-6 text-center text-sm">
-              No jobs are marked “{STATUS_LABEL[statusFilter as ApplicationStatus]}”.
+              {byStatus.length > 0
+                ? "No jobs match these filters."
+                : `No jobs are marked “${STATUS_LABEL[statusFilter as ApplicationStatus]}”.`}
             </p>
           )}
           <ul className="space-y-2.5">
