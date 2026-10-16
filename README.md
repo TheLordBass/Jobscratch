@@ -78,7 +78,7 @@ The helper only listens on your own computer (127.0.0.1:8765), only answers the 
 scripts/jobspy/.venv/Scripts/python scripts/jobspy/search.py "data analyst" --location London
 ```
 
-Either way, save the jobs you want, or tailor your CV to one straight away. **Match all to my CV** scores them all against your CV; then **Save jobs matching 70% or more** (pick 50–90%) adds just the good matches to My jobs instead of all of them. The same works on your search results.
+Either way, save the jobs you want, or tailor your CV to one straight away. **Match all to my CV** scores them all against your CV; then **Save jobs matching 70% or more** (pick 50–90%) adds just the good matches to My jobs instead of all of them. Tick **plus the N without a description** to save the jobs JobSpy couldn't get a description for too (usually LinkedIn and Glassdoor), so you can fill them in one by one with your **Send to JobScratch** bookmark. The same works on your search results.
 
 LinkedIn jobs from JobSpy usually come without a description. Save them, then open each one on LinkedIn and click your **Send to JobScratch** bookmark: JobScratch recognises it as the same job (by its LinkedIn job number) and offers to **merge** the full description into the saved job, keeping its status and notes. The same works for Indeed and Glassdoor jobs.
 
