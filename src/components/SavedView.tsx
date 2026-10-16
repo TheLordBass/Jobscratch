@@ -10,7 +10,14 @@ import { MatchAllButton, useCurrentMatches } from "@/components/MatchAll";
 import { MY_JOBS_TABS, SectionTabs } from "@/components/Nav";
 import { downloadBlob, formatPosted, formatSalary } from "@/lib/format";
 import { ANY_JOB, filterJobs, type JobFilter } from "@/lib/job-filters";
-import { APPLICATION_STATUSES, useHydrated, useSavedJobs, useTailored, type ApplicationStatus } from "@/lib/store";
+import {
+  APPLICATION_STATUSES,
+  useHydrated,
+  useSavedJobs,
+  useTailored,
+  type ApplicationStatus,
+  type SavedJob,
+} from "@/lib/store";
 import type { Job } from "@/lib/types";
 
 export const STATUS_LABEL: Record<ApplicationStatus, string> = {
@@ -67,7 +74,7 @@ export function SavedView() {
   const [tailored, setTailored] = useTailored();
   const [statusFilter, setStatusFilter] = useState<ApplicationStatus | "all">("all");
   const { matchFor } = useCurrentMatches();
-  const [order, setOrder] = useState<"saved" | "match">("saved");
+  const [order, setOrder] = useState<"saved" | "match" | "unmatched">("saved");
   const [jobFilter, setJobFilter] = useState<JobFilter>(ANY_JOB);
 
   // Newest saved first. Not by last update, or a job would jump to the top as soon as you change its status or notes.
@@ -87,10 +94,14 @@ export function SavedView() {
   const isMatched = (job: Job) => scoreOf(job) !== undefined;
   const shown = filterJobs(byStatus, (entry) => entry.job, jobFilter, isMatched);
   const anyScored = entries.some((entry) => scoreOf(entry.job) !== undefined);
+  const byScore = (a: SavedJob, b: SavedJob) => (scoreOf(b.job) ?? -1) - (scoreOf(a.job) ?? -1);
   const ordered =
     order === "match" && anyScored
-      ? [...shown].sort((a, b) => (scoreOf(b.job) ?? -1) - (scoreOf(a.job) ?? -1))
-      : shown;
+      ? [...shown].sort(byScore)
+      : order === "unmatched" && anyScored
+        ? // Jobs without a score first (newest saved first, as the sort keeps their order), then best match.
+          [...shown].sort((a, b) => Number(isMatched(a.job)) - Number(isMatched(b.job)) || byScore(a, b))
+        : shown;
   const clearable = shown.filter((entry) => CLEARABLE[statusFilter].includes(entry.status));
 
   function exportCsv() {
@@ -235,11 +246,12 @@ export function SavedView() {
               <select
                 className="input ml-auto w-auto py-1.5 text-xs"
                 value={order}
-                onChange={(e) => setOrder(e.target.value as "saved" | "match")}
+                onChange={(e) => setOrder(e.target.value as "saved" | "match" | "unmatched")}
                 aria-label="Order"
               >
                 <option value="saved">Newest saved first</option>
                 <option value="match">Best match to my CV</option>
+                <option value="unmatched">Not matched first</option>
               </select>
             )}
           </div>
