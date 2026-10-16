@@ -31,16 +31,38 @@ const POSTED = [
 const DISTANCES = [10, 25, 50, 100] as const;
 /** Above this many searches, LinkedIn is likely to start blocking them. */
 const LINKEDIN_LOTS = 20;
+/** Minutes between LinkedIn searches; 0 searches LinkedIn alongside the other sites. */
+const LINKEDIN_PACES = [
+  { minutes: 0, label: "All together (fastest)" },
+  { minutes: 1, label: "1 minute apart" },
+  { minutes: 2, label: "2 minutes apart" },
+  { minutes: 5, label: "5 minutes apart" },
+  { minutes: 10, label: "10 minutes apart" },
+] as const;
 
 const splitList = (text: string) => [...new Set(text.split(/[,;\n]/).map((item) => item.trim()).filter(Boolean))];
 const timeOf = (iso: string) => new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 
-/** "about 6 minutes left", from how long the searches so far have taken; undefined until one has finished. */
+/** "1 h 40 min", "25 minutes" or "1 minute". */
+function duration(minutes: number): string {
+  if (minutes < 60) return `${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `${hours} h ${rest} min` : `${hours} ${hours === 1 ? "hour" : "hours"}`;
+}
+
+/**
+ * "about 6 minutes left": from the helper's own estimate (it knows about LinkedIn's gaps), or else
+ * from how long the searches so far have taken. Undefined until there's something to go on.
+ */
 function timeLeft(state: HelperSearchState | null, checkedAt: number): string | undefined {
-  if (!state || state.status !== "running" || state.done === 0 || !checkedAt) return undefined;
-  const perSearch = (checkedAt - Date.parse(state.startedAt)) / state.done;
-  const minutes = Math.round((perSearch * (state.total - state.done)) / 60_000);
-  return minutes < 1 ? "under a minute left" : `about ${minutes} ${minutes === 1 ? "minute" : "minutes"} left`;
+  if (!state || state.status !== "running" || !checkedAt) return undefined;
+  let ms: number;
+  if (state.endsAround) ms = Date.parse(state.endsAround) - checkedAt;
+  else if (state.done > 0) ms = ((checkedAt - Date.parse(state.startedAt)) / state.done) * (state.total - state.done);
+  else return undefined;
+  const minutes = Math.round(ms / 60_000);
+  return minutes < 1 ? "under a minute left" : `about ${duration(minutes)} left`;
 }
 
 /** Whether the helper is running, checked every few seconds while the page is open. undefined = still checking. */
@@ -244,6 +266,7 @@ function SearchForm({ search }: { search: ReturnType<typeof useHelperSearch> }) 
   const [distance, setDistance] = useState(saved.distance);
   const [remote, setRemote] = useState(saved.remote);
   const [linkedinDescriptions, setLinkedinDescriptions] = useState(saved.linkedinDescriptions);
+  const [linkedinPace, setLinkedinPace] = useState(saved.linkedinPace);
 
   const country = COUNTRIES.find((c) => c.code === settings.country)?.name ?? "United Kingdom";
   const keywords = splitList(terms);
@@ -253,14 +276,22 @@ function SearchForm({ search }: { search: ReturnType<typeof useHelperSearch> }) 
   const { state, running, checkedAt } = search;
   const tooManyTitles = keywords.length > MAX_TITLES;
   const tooMany = tooManyTitles || count > MAX_SEARCHES;
-  // About 5 seconds a search plus the 3-second pause; full LinkedIn descriptions take much longer.
-  const minutes = Math.max(1, Math.round((count * (8 + (sites.includes("linkedin") && linkedinDescriptions ? 25 : 0))) / 60));
+  const withLinkedIn = sites.includes("linkedin");
+  // LinkedIn is only spaced out when there's more than one search to space.
+  const paced = withLinkedIn && linkedinPace > 0 && count > 1;
+  // About 5 seconds a search plus the 3-second pause; full LinkedIn descriptions take much longer, and
+  // spaced-out LinkedIn searches run after the others, the chosen gap apart.
+  const linkedInEach = 10 + (linkedinDescriptions ? 25 : 0);
+  const seconds = paced
+    ? (sites.length > 1 ? count * 8 : 0) + count * (linkedInEach + linkedinPace * 60)
+    : count * (8 + (withLinkedIn && linkedinDescriptions ? 25 : 0));
+  const minutes = Math.max(1, Math.round(seconds / 60));
   const left = timeLeft(state, checkedAt);
 
   function submit(event: FormEvent) {
     event.preventDefault();
     if (!keywords.length || !sites.length || tooMany) return;
-    const options = { search: keywords, location: locations, sites, results, hours, remote, linkedinDescriptions, distance };
+    const options = { search: keywords, location: locations, sites, results, hours, remote, linkedinDescriptions, distance, linkedinPace };
     setSettings((previous) => ({ ...previous, jobspy: options }));
     void search.start({ ...options, country: country.toLowerCase() });
   }
@@ -297,9 +328,19 @@ function SearchForm({ search }: { search: ReturnType<typeof useHelperSearch> }) 
             <Square size={13} aria-hidden /> Stop search
           </button>
         </div>
+        {state.waitingUntil && (
+          <p className="text-sm">
+            {state.waitingFor === "LinkedIn to stop blocking"
+              ? `LinkedIn turned a search away, so the helper is giving it a rest and will try again at ${timeOf(state.waitingUntil)}.`
+              : `Waiting until ${timeOf(state.waitingUntil)} for ${state.waitingFor ?? "the next search"}, so LinkedIn is less likely to block it.`}
+          </p>
+        )}
         <p className="muted text-xs">
-          Each search takes a few seconds, with a short pause between them so the sites are less likely to block it. You can
-          leave this page: the search carries on in the helper, and its results are offered when you come back.
+          {state.total > state.done + 1 && state.current?.startsWith("LinkedIn")
+            ? "The other sites are done; LinkedIn is being searched one at a time, spaced out. "
+            : "Each search takes a few seconds, with a short pause between them so the sites are less likely to block it. "}
+          You can leave this page: the search carries on in the helper (keep the computer on), and its results are offered
+          when you come back.
         </p>
       </div>
     );
@@ -410,7 +451,7 @@ function SearchForm({ search }: { search: ReturnType<typeof useHelperSearch> }) 
           <input type="checkbox" checked={remote} onChange={(e) => setRemote(e.target.checked)} />
           Remote only
         </label>
-        {sites.includes("linkedin") && (
+        {withLinkedIn && (
           <label className="flex items-center gap-2 pb-2 text-sm">
             <input
               type="checkbox"
@@ -419,6 +460,25 @@ function SearchForm({ search }: { search: ReturnType<typeof useHelperSearch> }) 
             />
             Full LinkedIn descriptions (slower)
           </label>
+        )}
+        {withLinkedIn && count > 1 && (
+          <div>
+            <label htmlFor="jobspy-pace" className="label">
+              LinkedIn searches
+            </label>
+            <select
+              id="jobspy-pace"
+              className="input w-auto"
+              value={linkedinPace}
+              onChange={(e) => setLinkedinPace(Number(e.target.value))}
+            >
+              {LINKEDIN_PACES.map((option) => (
+                <option key={option.minutes} value={option.minutes}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
         )}
       </div>
 
@@ -435,13 +495,20 @@ function SearchForm({ search }: { search: ReturnType<typeof useHelperSearch> }) 
                 ? `That’s ${keywords.length} job titles; ${MAX_TITLES} at most at once.`
                 : count > MAX_SEARCHES
                   ? `That’s ${count} searches (job titles × places); ${MAX_SEARCHES} at most at once.`
-                  : `${count} ${count === 1 ? "search" : "searches"} on ${sites.length} ${sites.length === 1 ? "site" : "sites"}, about ${minutes} ${minutes === 1 ? "minute" : "minutes"}. Indeed and Glassdoor search in ${country} (change it in Settings).`}
+                  : `${count} ${count === 1 ? "search" : "searches"} on ${sites.length} ${sites.length === 1 ? "site" : "sites"}, about ${duration(minutes)}. Indeed and Glassdoor search in ${country} (change it in Settings).`}
         </p>
       </div>
-      {!tooMany && count > LINKEDIN_LOTS && sites.includes("linkedin") && (
+      {!tooMany && paced && (
+        <p className="muted text-xs">
+          {sites.length > 1 ? "The other sites are searched first, then " : ""}LinkedIn one search at a time,{" "}
+          {linkedinPace} {linkedinPace === 1 ? "minute" : "minutes"} apart, so it’s less likely to block. If it blocks anyway,
+          the helper waits 10 minutes and tries again. Keep the computer on until it’s done.
+        </p>
+      )}
+      {!tooMany && !paced && count > LINKEDIN_LOTS && withLinkedIn && (
         <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-200">
-          LinkedIn usually starts blocking after a few dozen searches from one connection. The other sites keep going, and
-          any blocked searches are listed at the end. For a big search, Indeed copes much better.
+          LinkedIn usually starts blocking after a few dozen searches from one connection. Space the LinkedIn searches out
+          (above) to make that less likely; otherwise the other sites keep going, and any blocked searches are listed at the end.
         </p>
       )}
 

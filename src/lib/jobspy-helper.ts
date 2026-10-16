@@ -31,6 +31,8 @@ export interface HelperSearch {
   hours: number | null;
   remote: boolean;
   linkedinDescriptions: boolean;
+  /** Minutes between LinkedIn searches, run after the other sites so LinkedIn is less likely to block; 0 for no gap. */
+  linkedinPace: number;
   distance: number;
   /** For Indeed and Glassdoor, e.g. "united kingdom". */
   country: string;
@@ -52,6 +54,11 @@ export interface HelperSearchState {
   found: number;
   failed: string[];
   error: string | null;
+  /** Roughly when the whole run will finish. */
+  endsAround: string | null;
+  /** During a long wait: until when, and for what (e.g. "the next LinkedIn search"). */
+  waitingUntil: string | null;
+  waitingFor: string | null;
   /** A JobSpy results file (see lib/jobspy.ts), once finished. */
   result: unknown;
 }
