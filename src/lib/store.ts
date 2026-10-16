@@ -63,6 +63,8 @@ export interface Settings {
   includeRemoteAnywhere: boolean;
   companyBoards: CompanyBoards;
   disabledSources: SearchSourceId[];
+  /** "Save jobs matching N% or more" on search results and the JobSpy list. */
+  saveMatchesFrom: number;
   tailor: TailorOptions;
   /** The last JobSpy search, so the form starts with it. */
   jobspy: Omit<HelperSearch, "country">;
@@ -82,6 +84,7 @@ export const DEFAULT_SETTINGS: Settings = {
   includeRemoteAnywhere: true,
   companyBoards: { greenhouse: [], lever: [], ashby: [] },
   disabledSources: [],
+  saveMatchesFrom: 70,
   tailor: { style: "uk-cv", tone: "professional", length: "two-pages", extraInstructions: "" },
   jobspy: { search: [], location: [], sites: ["indeed", "linkedin"], results: 25, hours: null, remote: false, linkedinDescriptions: false, distance: 50 },
 };
