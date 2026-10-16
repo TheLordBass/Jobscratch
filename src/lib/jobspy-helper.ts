@@ -36,9 +36,15 @@ export interface HelperSearch {
   country: string;
 }
 
+/** The most job titles, and searches (titles × places), the helper takes at once. */
+export const MAX_TITLES = 50;
+export const MAX_SEARCHES = 100;
+
 export interface HelperSearchState {
   id: string;
   status: "running" | "done" | "failed" | "cancelled";
+  startedAt: string;
+  finishedAt: string | null;
   done: number;
   total: number;
   /** The search running now, e.g. “data analyst” in Manchester. */
@@ -74,6 +80,9 @@ export async function getHelperStatus(): Promise<HelperStatus | null> {
 }
 
 export const startHelperSearch = (search: HelperSearch) => call<HelperSearchState>("/search", search);
-export const getHelperSearch = (id: string) => call<HelperSearchState>(`/search?id=${encodeURIComponent(id)}`);
+// Finished, the reply carries every job found, so it can take a moment.
+export const getHelperSearch = (id: string) => call<HelperSearchState>(`/search?id=${encodeURIComponent(id)}`, undefined, 30000);
+/** The jobs a running search has found so far, as a results file. */
+export const getHelperPartial = (id: string) => call<unknown>(`/search/partial?id=${encodeURIComponent(id)}`, undefined, 15000);
 export const cancelHelperSearch = () => call<{ ok: true }>("/search/cancel", {});
 export const stopHelper = () => call<{ ok: true }>("/stop", {});
