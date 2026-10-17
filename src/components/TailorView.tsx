@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { ApplyButton, CompanyMark, OtherApplyLinks } from "@/components/JobCard";
+import { useCurrentMatches } from "@/components/MatchAll";
 import { MarkdownView } from "@/components/MarkdownView";
 import { STATUS_LABEL, STATUS_STYLE, SavedView } from "@/components/SavedView";
 import { useSources } from "@/components/useSources";
@@ -13,18 +14,20 @@ import { markdownToDocx } from "@/lib/export-docx";
 import { candidateFor } from "@/lib/candidate";
 import { streamTailored } from "@/lib/tailor-client";
 import { jobKeys } from "@/lib/import";
-import { downloadBlob, slugify } from "@/lib/format";
+import { downloadBlob, formatPosted, slugify } from "@/lib/format";
 import { inlinesToText, parseMarkdown, printableHtml } from "@/lib/markdown";
 import {
   APPLICATION_STATUSES,
   useCv,
   useHydrated,
+  useMatches,
   useProfile,
   useSavedJobs,
   useSettings,
   useTailored,
   type ApplicationStatus,
   type SavedJob,
+  type StoredMatch,
   type TailoredDocs,
 } from "@/lib/store";
 import type { Job } from "@/lib/types";
@@ -100,6 +103,36 @@ function AnalysisPanel({ analysis }: { analysis: MatchAnalysis }) {
         </div>
       </div>
       {section("Suggestions", analysis.suggestions, "No suggestions.")}
+    </div>
+  );
+}
+
+/** The quick score from Match all, until there's a full analysis. */
+function QuickMatchPanel({ match, stale }: { match: StoredMatch; stale: boolean }) {
+  const when = formatPosted(match.at);
+  return (
+    <div className="space-y-5">
+      <div>
+        <ScoreBadge score={match.score} />
+        <p className="mt-2 text-sm">{match.verdict}</p>
+      </div>
+      <div>
+        <h3 className="mb-1 text-sm font-semibold">What the job asks for that your CV doesn’t show</h3>
+        {match.missing.length ? (
+          <ul className="list-disc space-y-1 pl-5 text-sm">
+            {match.missing.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        ) : (
+          <p className="muted text-sm">Nothing obvious.</p>
+        )}
+      </div>
+      <p className="muted text-xs">
+        From Match all{when ? `, ${when}` : ""}.
+        {stale && " Your CV or this job’s description has changed since, so it may be out of date."} The full analysis adds
+        your strengths, the gaps, keywords and suggestions.
+      </p>
     </div>
   );
 }
@@ -268,6 +301,11 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
   const [tailored, setTailored] = useTailored();
   const sources = useSources();
   const docs: TailoredDocs | undefined = tailored[job.id];
+  // The quick score from Match all, shown until there's a full analysis (an out-of-date one is marked so).
+  const { matchFor } = useCurrentMatches();
+  const [matches] = useMatches();
+  const currentMatch = matchFor(job);
+  const quick = currentMatch ?? matches[job.id];
 
   const [tab, setTab] = useState<Tab>(docs?.cv || docs?.analysis ? "cv" : "analysis");
   // Open for editing when there is only a snippet, which is worth replacing with the full text.
@@ -421,7 +459,11 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
           <div className="mb-4 flex gap-1 border-b border-zinc-100 pb-2 dark:border-zinc-800" role="tablist">
             {(
               [
-                ["analysis", docs?.analysis ? `Match ${docs.analysis.matchScore}%` : "Match", Boolean(docs?.analysis)],
+                [
+                  "analysis",
+                  docs?.analysis ? `Match ${docs.analysis.matchScore}%` : quick ? `Match ${quick.score}%` : "Match",
+                  Boolean(docs?.analysis),
+                ],
                 ["cv", "Tailored CV", Boolean(docs?.cv)],
                 ["coverLetter", "Cover letter", Boolean(docs?.coverLetter)],
               ] as const
@@ -471,6 +513,26 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
                         <RotateCcw size={13} aria-hidden /> Analyse again
                       </button>
                     </div>
+                  </>
+                ) : quick ? (
+                  <>
+                    <QuickMatchPanel match={quick} stale={!currentMatch} />
+                    <div className="mt-6 flex flex-wrap items-center gap-2 border-t border-zinc-100 pt-4 dark:border-zinc-800">
+                      {!docs?.cv && (
+                        <button
+                          type="button"
+                          className="btn btn-primary"
+                          disabled={!ready || busy}
+                          onClick={() => void generate("cv")}
+                        >
+                          <Sparkles size={15} aria-hidden /> Next: tailor my CV
+                        </button>
+                      )}
+                      <button type="button" className="btn btn-secondary btn-sm" disabled={!ready || busy} onClick={() => void analyse()}>
+                        Full analysis
+                      </button>
+                    </div>
+                    {blocker && <p className="muted mt-3 text-xs">{blocker}</p>}
                   </>
                 ) : (
                   <div className="py-10 text-center text-sm">
