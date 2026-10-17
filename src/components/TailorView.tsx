@@ -11,7 +11,7 @@ import { STATUS_LABEL, STATUS_STYLE, SavedView } from "@/components/SavedView";
 import { useSources } from "@/components/useSources";
 import type { MatchAnalysis, TailorOptions } from "@/lib/ai/prompts";
 import { markdownToDocx } from "@/lib/export-docx";
-import { candidateFor } from "@/lib/candidate";
+import { canMatch, candidateFor, hasFullDescription } from "@/lib/candidate";
 import { streamTailored } from "@/lib/tailor-client";
 import { jobKeys } from "@/lib/import";
 import { downloadBlob, formatPosted, slugify } from "@/lib/format";
@@ -45,7 +45,6 @@ interface Generation {
 }
 
 const IDLE: Generation = { status: "idle", text: "", thinking: "" };
-const SNIPPET_LENGTH = 600;
 
 function ScoreBadge({ score }: { score: number }) {
   const [text, bar] =
@@ -304,13 +303,14 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
   // The quick score from Match all, shown until there's a full analysis (an out-of-date one is marked so).
   const { matchFor } = useCurrentMatches();
   const [matches] = useMatches();
+  // Not for a job with only a snippet: a score made from one would be misleading.
   const currentMatch = matchFor(job);
-  const quick = currentMatch ?? matches[job.id];
+  const quick = currentMatch ?? (canMatch(job) ? matches[job.id] : undefined);
 
   const [tab, setTab] = useState<Tab>(docs?.cv || docs?.analysis ? "cv" : "analysis");
   // Open for editing when there is only a snippet, which is worth replacing with the full text.
   const [editingDescription, setEditingDescription] = useState(
-    () => (docs?.jobDescription ?? job.description).length < SNIPPET_LENGTH,
+    () => !hasFullDescription(docs?.jobDescription ?? job.description),
   );
   const [analysisState, setAnalysisState] = useState<{ status: "idle" | "loading" | "error"; error?: string }>({
     status: "idle",
@@ -333,6 +333,10 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
         ? "Paste the job description first."
         : undefined;
   const ready = !blocker;
+  // Matching needs the full description; tailoring can still go ahead without it.
+  const fullDescription = hasFullDescription(description);
+  const matchBlocker =
+    blocker ?? (fullDescription ? undefined : "Add the full job description first (on the right): it’s only a snippet so far.");
 
   const updateDocs = (patch: Partial<TailoredDocs>) =>
     setTailored((previous) => ({
@@ -509,7 +513,13 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
                           <Sparkles size={15} aria-hidden /> Next: tailor my CV
                         </button>
                       )}
-                      <button type="button" className="btn btn-ghost btn-sm" disabled={!ready || busy} onClick={() => void analyse()}>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        disabled={!ready || busy || !fullDescription}
+                        title={matchBlocker}
+                        onClick={() => void analyse()}
+                      >
                         <RotateCcw size={13} aria-hidden /> Analyse again
                       </button>
                     </div>
@@ -528,7 +538,12 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
                           <Sparkles size={15} aria-hidden /> Next: tailor my CV
                         </button>
                       )}
-                      <button type="button" className="btn btn-secondary btn-sm" disabled={!ready || busy} onClick={() => void analyse()}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        disabled={!ready || busy || !fullDescription}
+                        onClick={() => void analyse()}
+                      >
                         Full analysis
                       </button>
                     </div>
@@ -536,10 +551,27 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
                   </>
                 ) : (
                   <div className="py-10 text-center text-sm">
-                    <p className="mb-1 font-medium">How well do you fit this job?</p>
-                    <p className="muted mb-4">Get a match score, your strengths, the gaps and the keywords you’re missing.</p>
+                    {fullDescription ? (
+                      <>
+                        <p className="mb-1 font-medium">How well do you fit this job?</p>
+                        <p className="muted mb-4">Get a match score, your strengths, the gaps and the keywords you’re missing.</p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="mb-1 font-medium">No full description yet, so no match</p>
+                        <p className="muted mx-auto mb-4 max-w-md">
+                          A score from a snippet would be misleading. Add the full description on the right (for LinkedIn,
+                          Indeed or Glassdoor, your Send to JobScratch bookmark does it), then analyse the match.
+                        </p>
+                      </>
+                    )}
                     <div className="flex flex-wrap justify-center gap-2">
-                      <button type="button" className="btn btn-primary" disabled={!ready || busy} onClick={() => void analyse()}>
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        disabled={!ready || busy || !fullDescription}
+                        onClick={() => void analyse()}
+                      >
                         Analyse match
                       </button>
                       <button type="button" className="btn btn-secondary" disabled={!ready || busy} onClick={() => void generate("cv")}>
@@ -620,15 +652,16 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
                 </button>
               </span>
             </div>
-            {description.length < SNIPPET_LENGTH && (
+            {!fullDescription && (
               <p className="rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-200">
-                {jobKeys(job).some((key) => key.startsWith("linkedin:")) ? (
+                {jobKeys(job).length > 0 ? (
                   <>
-                    LinkedIn didn’t share the full description. Open the job on LinkedIn and click your{" "}
-                    <strong>Send to JobScratch</strong> bookmark, then choose <strong>Merge</strong>: it’s added here.
+                    {job.sourceName.replace(/\s*\(JobSpy\)$/, "")} didn’t share the full description. Open the job there and
+                    click your <strong>Send to JobScratch</strong> bookmark, then choose <strong>Merge</strong>: it’s added
+                    here. Until then it isn’t matched.
                   </>
                 ) : (
-                  "This looks like a snippet. For a better result, open the listing and paste the full description here."
+                  "This looks like a snippet, so it isn’t matched. Open the listing and paste the full description here."
                 )}
               </p>
             )}

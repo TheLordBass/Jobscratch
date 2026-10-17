@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowUpRight, Banknote, Bookmark, BookmarkCheck, Clock, Eye, EyeOff, MapPin, Sparkles, Wifi } from "lucide-react";
+import { hasFullDescription } from "@/lib/candidate";
 import { formatPosted, formatSalary } from "@/lib/format";
 import type { ApplicationStatus, StoredMatch } from "@/lib/store";
 import type { Job } from "@/lib/types";
@@ -19,7 +20,6 @@ interface Props {
   dismissed?: boolean;
 }
 
-const SNIPPET_LENGTH = 600;
 
 export function ApplyButton({ job, className = "" }: { job: Job; className?: string }) {
   if (!job.url) return null;
@@ -83,7 +83,7 @@ export function CompanyMark({ job, size = "md" }: { job: Job; size?: "md" | "lg"
 export function JobCard({ job, status, expanded, onToggle, onSave, onTailor, match, onDismiss, dismissed }: Props) {
   const salary = formatSalary(job.salary);
   const posted = formatPosted(job.postedAt);
-  const isSnippet = job.description.length > 0 && job.description.length < SNIPPET_LENGTH;
+  const isSnippet = job.description.trim().length > 0 && !hasFullDescription(job.description);
 
   return (
     <article
@@ -178,7 +178,8 @@ export function JobCard({ job, status, expanded, onToggle, onSave, onTailor, mat
           )}
           {isSnippet && (
             <p className="mt-2 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-200">
-              {job.sourceName} only shares a snippet. Open the listing for the full description, and paste it in when
+              {job.sourceName} only shares a snippet, so it isn’t matched against your CV. Open the listing for the full
+              description: on LinkedIn, Indeed or Glassdoor your Send to JobScratch bookmark adds it, or paste it in when
               you tailor your CV.
             </p>
           )}

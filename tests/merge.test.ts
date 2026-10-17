@@ -113,8 +113,10 @@ describe("quick match freshness", () => {
     expect(candidate.profile).toEqual({ website: "", github: "someone-else", evidence: "" });
   });
 
-  it("only matches jobs with a description", () => {
+  it("only matches jobs with a full description, not a snippet", () => {
     expect(canMatch(jobspyLinkedIn)).toBe(false);
-    expect(canMatch(bookmarklet)).toBe(true);
+    // A few lines, as Adzuna, Reed or a LinkedIn teaser give, would make a misleading score.
+    expect(canMatch(bookmarklet)).toBe(false);
+    expect(canMatch({ ...bookmarklet, description: bookmarklet.description.repeat(8) })).toBe(true);
   });
 });

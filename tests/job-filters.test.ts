@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { ANY_JOB, detailOf, filterCounts, filterJobs, isFiltering } from "@/lib/job-filters";
 import type { Job } from "@/lib/types";
 
-const FULL = "We are looking for an analyst to build dashboards in Power BI and write SQL against our data warehouse.";
+// Long enough to count as a full description (see FULL_DESCRIPTION), not a snippet.
+const FULL = "We are looking for an analyst to build dashboards in Power BI and write SQL against our data warehouse. ".repeat(8);
 
 const job = (id: string, sourceName: string, description = FULL) => ({ id, sourceName, description }) as Job;
 

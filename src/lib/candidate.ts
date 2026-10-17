@@ -25,11 +25,19 @@ export function candidateFor(cv: StoredCv | null, profile: StoredProfile): Candi
   return { cv: text, profile: payload, staleDetails, key: hashString(JSON.stringify([text, payload ?? null])) };
 }
 
-/** Jobs need at least this much description to be matched. */
-export const MIN_MATCH_DESCRIPTION = 80;
+/**
+ * Shorter than this, a description is taken to be a snippet: many sources (Adzuna, Reed, Jooble,
+ * LinkedIn through JobSpy) only share the first few lines, or nothing.
+ */
+export const FULL_DESCRIPTION = 600;
+
+/** Whether there's a full description, not just a snippet. Only those are matched: a snippet gives a misleading score. */
+export function hasFullDescription(description: string): boolean {
+  return description.trim().length >= FULL_DESCRIPTION;
+}
 
 export function canMatch(job: Job): boolean {
-  return job.description.trim().length >= MIN_MATCH_DESCRIPTION;
+  return hasFullDescription(job.description);
 }
 
 /** Identifies the CV and description a match score was made from, to tell when it's out of date. */
