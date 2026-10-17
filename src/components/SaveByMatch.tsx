@@ -17,7 +17,7 @@ const listSites = (jobs: Job[]) => [...new Set(jobs.map((job) => siteName(job.so
 
 /**
  * Saves only the jobs that match your CV well enough, instead of all of them, and optionally the
- * ones with no description to match (often LinkedIn and Glassdoor), to fill in one by one.
+ * ones with no full description to match (often LinkedIn and Glassdoor), to fill in one by one.
  * Until the jobs are matched it says to run Match all first.
  */
 export function SaveByMatch({ jobs }: { jobs: Job[] }) {
@@ -29,7 +29,7 @@ export function SaveByMatch({ jobs }: { jobs: Job[] }) {
   const min = settings.saveMatchesFrom;
   const withBare = settings.saveUndescribed;
   const scored = jobs.filter((job) => matchFor(job));
-  // Nothing here can be matched (no descriptions), so there is nothing to save by score.
+  // Nothing here can be matched (no full descriptions), so there is nothing to save by score.
   if (!jobs.some(canMatch)) return null;
   const waiting = scored.length === 0;
 
@@ -68,7 +68,7 @@ export function SaveByMatch({ jobs }: { jobs: Job[] }) {
             title="JobSpy often can't get the description of LinkedIn and Glassdoor jobs. Save them anyway to add it yourself: open each one on its site and click your Send to JobScratch bookmark."
           >
             <input type="checkbox" checked={withBare} onChange={(e) => change({ saveUndescribed: e.target.checked })} />
-            plus the {bare.length} without a description ({listSites(bare)})
+            plus the {bare.length} without a full description ({listSites(bare)})
           </label>
         )}
         <button
@@ -94,7 +94,7 @@ export function SaveByMatch({ jobs }: { jobs: Job[] }) {
               My jobs
             </Link>
             {justSaved.bare > 0
-              ? `, including ${jobsLabel(justSaved.bare)} without a description. Open each one on its site and click your Send to JobScratch bookmark to add it, then match or tailor it there.`
+              ? `, including ${jobsLabel(justSaved.bare)} without a full description. Open each one on its site and click your Send to JobScratch bookmark to add it, then match or tailor it there.`
               : "."}
           </>
         ) : (

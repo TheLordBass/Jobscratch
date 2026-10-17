@@ -23,7 +23,8 @@ export function useCurrentMatches(): { matchFor: (job: Job) => StoredMatch | und
     candidate,
     matchFor: (job) => {
       const match = matches[job.id];
-      return match && match.key === matchKey(job, candidate) ? match : undefined;
+      // A score made from a snippet (before snippets stopped being matched) isn't shown.
+      return match && canMatch(job) && match.key === matchKey(job, candidate) ? match : undefined;
     },
   };
 }
@@ -50,7 +51,8 @@ export function MatchAllButton({ jobs, onMatched }: MatchAllProps) {
   const matchable = jobs.filter(canMatch);
   const todo = matchable.filter((job) => !matchFor(job));
   const withoutDescription = jobs.length - matchable.length;
-  const linkedInWithout = jobs.filter((job) => !canMatch(job) && siteJobKey(job.url)?.startsWith("linkedin:")).length;
+  // The bookmarklet can add the full description for jobs it recognises (LinkedIn, Indeed, Glassdoor).
+  const fillable = jobs.filter((job) => !canMatch(job) && siteJobKey(job.url)).length;
   const noCv = candidate.cv.trim().length < 50;
   const noAi = sources !== null && !sources.aiConfigured;
 
@@ -132,7 +134,7 @@ export function MatchAllButton({ jobs, onMatched }: MatchAllProps) {
     : noAi
       ? "AI isn’t set up. Add ANTHROPIC_API_KEY (see the README)."
       : matchable.length === 0
-        ? "None of these jobs has a description to match against."
+        ? "None of these jobs has a full description to match against, only snippets."
         : undefined;
 
   return (
@@ -187,11 +189,12 @@ export function MatchAllButton({ jobs, onMatched }: MatchAllProps) {
       )}
       {withoutDescription > 0 && (
         <p className="muted text-xs">
-          {withoutDescription} {withoutDescription === 1 ? "job has" : "jobs have"} no description to match against
-          {linkedInWithout > 0 && (
+          {withoutDescription} {withoutDescription === 1 ? "job has" : "jobs have"} no full description (only a snippet, or
+          nothing), so {withoutDescription === 1 ? "it isn’t" : "they aren’t"} matched
+          {fillable > 0 && (
             <>
-              . For the LinkedIn {linkedInWithout === 1 ? "one" : "ones"}, open the job on LinkedIn and click your{" "}
-              <strong>Send to JobScratch</strong> bookmark: the description is added to the saved job here
+              . For the LinkedIn, Indeed or Glassdoor {fillable === 1 ? "one" : "ones"}, open the job there and click your{" "}
+              <strong>Send to JobScratch</strong> bookmark: the full description is added to the saved job here
             </>
           )}
           .
