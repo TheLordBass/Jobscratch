@@ -51,8 +51,8 @@ export function ProfileLinks() {
         body: JSON.stringify(requested),
         signal: controller.signal,
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? "Couldn't read your links");
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error ?? `Couldn't read your links (HTTP ${response.status}). Try again.`);
       const fetched = data as ProfileResponse;
       setResult(fetched);
       // A source that failed this time keeps the text it had, if its link is unchanged.

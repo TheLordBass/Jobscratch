@@ -1,3 +1,4 @@
+import { sameArea } from "@/lib/import";
 import { SOURCES, SOURCE_BY_ID, missingEnvKeys } from "@/lib/sources";
 import type { JobSource, SearchContext } from "@/lib/sources/types";
 import { locationMatches } from "@/lib/location";
@@ -35,14 +36,20 @@ function dedupeKey(job: Job): string {
   return `${title}|${company}`;
 }
 
-/** Merge duplicates found on several portals into one listing with every apply link. */
+/**
+ * Merge duplicates found on several portals into one listing with every apply link. The same
+ * title at the same company somewhere else (an NHS trust hiring in two cities) stays separate.
+ */
 export function mergeDuplicates(jobs: Job[]): Job[] {
-  const byKey = new Map<string, Job>();
+  const byKey = new Map<string, Job[]>();
+  const kept: Job[] = [];
   for (const job of jobs) {
     const key = dedupeKey(job);
-    const existing = byKey.get(key);
+    const existing = byKey.get(key)?.find((other) => sameArea(other.location, job.location));
     if (!existing) {
-      byKey.set(key, { ...job, applyOptions: [...job.applyOptions], tags: [...job.tags] });
+      const copy = { ...job, applyOptions: [...job.applyOptions], tags: [...job.tags] };
+      byKey.set(key, [...(byKey.get(key) ?? []), copy]);
+      kept.push(copy);
       continue;
     }
     const seenUrls = new Set(existing.applyOptions.map((option) => option.url));
@@ -60,7 +67,7 @@ export function mergeDuplicates(jobs: Job[]): Job[] {
     existing.remote ||= job.remote;
     if (job.postedAt && (!existing.postedAt || job.postedAt < existing.postedAt)) existing.postedAt = job.postedAt;
   }
-  return [...byKey.values()];
+  return kept;
 }
 
 function normalizeRequest(request: SearchRequest) {

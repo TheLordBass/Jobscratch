@@ -58,6 +58,11 @@ describe("sessions", () => {
     expect(safeNext("//evil.example")).toBe("/");
     expect(safeNext("https://evil.example")).toBe("/");
     expect(safeNext(null)).toBe("/");
+    // Browsers drop tabs and newlines and read "\" as "/", which would make these lead off the site.
+    expect(safeNext("/\t/evil.example")).toBe("/");
+    expect(safeNext("/\n/evil.example/x")).toBe("/");
+    expect(safeNext("/\\evil.example")).toBe("/");
+    expect(safeNext("/saved#job-1")).toBe("/saved#job-1");
   });
 });
 
@@ -90,6 +95,24 @@ describe("proxy", () => {
   it("does nothing when no password is set", () => {
     delete process.env.APP_PASSWORD;
     expect(proxy(request("/saved")).headers.get("x-middleware-next")).toBe("1");
+  });
+
+  it("refuses API changes sent from another website, signed in or not", async () => {
+    const post = (headers: Record<string, string>) =>
+      proxy(new NextRequest(new URL("/api/tailor/generate", "https://jobs.example"), { method: "POST", headers }));
+    const { token } = createSession(ENV, true);
+    const signedIn = { cookie: `${SESSION_COOKIE}=${token}` };
+    // A form on another site, even with a remembered Basic Auth password.
+    const blocked = post({ origin: "https://evil.example", authorization: basic(ENV.APP_USERNAME, ENV.APP_PASSWORD) });
+    expect(blocked.status).toBe(403);
+    expect(post({ ...signedIn, "sec-fetch-site": "cross-site" }).status).toBe(403);
+    // The app itself, and tools that send no Origin.
+    expect(post({ ...signedIn, origin: "https://jobs.example" }).headers.get("x-middleware-next")).toBe("1");
+    expect(post(signedIn).headers.get("x-middleware-next")).toBe("1");
+    // Without a password (a local dev server) too.
+    delete process.env.APP_PASSWORD;
+    expect(post({ origin: "https://evil.example" }).status).toBe(403);
+    expect(post({ origin: "https://jobs.example" }).headers.get("x-middleware-next")).toBe("1");
   });
 });
 

@@ -221,6 +221,16 @@ describe("mergeDuplicates", () => {
     expect(merged).toHaveLength(1);
     expect(merged[0].applyOptions).toHaveLength(2);
   });
+
+  it("keeps the same title at the same company in another city as a separate job", () => {
+    const merged = mergeDuplicates([
+      job({ id: "1", location: "Manchester" }),
+      job({ id: "2", location: "London", applyOptions: [{ label: "B", url: "https://b.example" }] }),
+      job({ id: "3", location: "Manchester, England", applyOptions: [{ label: "C", url: "https://c.example" }] }),
+    ]);
+    expect(merged.map((j) => j.location)).toEqual(["Manchester", "London"]);
+    expect(merged[0].applyOptions.map((option) => option.label)).toEqual(["A", "C"]);
+  });
 });
 
 describe("parseBoardToken", () => {

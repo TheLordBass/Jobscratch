@@ -9,9 +9,16 @@ import { SESSION_COOKIE, authEnabled, checkBasicAuth, verifySession } from "@/li
  */
 export function proxy(request: NextRequest) {
   const env = process.env;
+  const { pathname, search } = request.nextUrl;
+
+  // Another website can't make your browser change data or spend credits here, signed in
+  // (a remembered Basic Auth password is sent automatically) or not (a local dev server).
+  if (pathname.startsWith("/api/") && !SAFE_METHODS.has(request.method) && !sameSite(request)) {
+    return Response.json({ error: "Requests from other websites aren't allowed." }, { status: 403 });
+  }
+
   if (!authEnabled(env)) return NextResponse.next();
 
-  const { pathname, search } = request.nextUrl;
   // The sign-in page and the routes it uses.
   if (pathname === "/login" || pathname.startsWith("/api/auth/")) return NextResponse.next();
 
@@ -27,6 +34,26 @@ export function proxy(request: NextRequest) {
   const login = new URL("/login", request.url);
   if (pathname !== "/") login.searchParams.set("next", `${pathname}${search}`);
   return NextResponse.redirect(login);
+}
+
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+/**
+ * Whether a request comes from this site. Browsers send Origin with every cross-site POST,
+ * so a request without one comes from a script or tool rather than another web page.
+ */
+function sameSite(request: NextRequest): boolean {
+  const origin = request.headers.get("origin");
+  if (origin === null) return request.headers.get("sec-fetch-site") !== "cross-site";
+  let host: string;
+  try {
+    host = new URL(origin).host;
+  } catch {
+    return false;
+  }
+  // The site's own address, however the host passed it on.
+  const own = [request.nextUrl.host, request.headers.get("host"), request.headers.get("x-forwarded-host")?.split(",")[0].trim()];
+  return own.includes(host);
 }
 
 export const config = {

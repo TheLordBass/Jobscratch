@@ -26,8 +26,8 @@ export function CvView() {
       const form = new FormData();
       form.append("file", file);
       const response = await fetch("/api/cv/parse", { method: "POST", body: form });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? "Upload failed");
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error ?? `Upload failed (HTTP ${response.status}). Try again.`);
       setCv({ text: data.text, fileName: data.fileName, updatedAt: new Date().toISOString() });
       setDraft(null);
       setMessage({ tone: "ok", text: `Read ${file.name}. Check the text below; fix anything that came through oddly.` });
