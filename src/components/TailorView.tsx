@@ -370,8 +370,9 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ cv: cvText, job: payloadJob, profile: payloadProfile }),
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? "Analysis failed");
+      // A timeout or server error can come back as a page rather than JSON.
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error ?? `The analysis failed (HTTP ${response.status}). Try again.`);
       updateDocs({ analysis: data as MatchAnalysis });
       setAnalysisState({ status: "idle" });
     } catch (error) {

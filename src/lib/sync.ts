@@ -4,6 +4,7 @@ import { useSyncExternalStore } from "react";
 import {
   COLLECTION_KEYS,
   SINGLETON_KEYS,
+  SYNC_KEYS,
   isCollectionKey,
   isTombstone,
   type CollectionKey,
@@ -37,6 +38,13 @@ const DEBOUNCE_MS = 1000;
 const RETRY_MS = 15_000;
 /** Stay well under the 4.5 MB request limit of a Vercel function. */
 const MAX_REQUEST_CHARS = 3_000_000;
+/** Browsers finish a request after the page closes ("keepalive") only if it's under 64 KB. */
+const KEEPALIVE_CHARS = 60_000;
+/**
+ * Changes not on the server yet are also kept in this browser, so closing the tab, a reload or
+ * going offline doesn't lose them (a job deleted offline would otherwise come back).
+ */
+const PENDING_KEY = "jobscratch-sync:pending";
 
 let store: StoreAccess | null = null;
 let state: SyncState = { status: "checking" };
@@ -47,7 +55,60 @@ let timer: ReturnType<typeof setTimeout> | undefined;
 let flushing: Promise<void> | null = null;
 const pendingValues = new Map<SyncKey, unknown>();
 const pendingItems = new Map<CollectionKey, Items>();
+/** Changes being sent right now, kept in the saved copy until the server has them. */
+let inflight: SyncOp[] = [];
+/** Whether the saved copy from an earlier visit has been read in, so saving doesn't overwrite it. */
+let pendingLoaded = false;
 const listeners = new Set<() => void>();
+
+function savePending() {
+  loadPending();
+  const values: Record<string, unknown> = {};
+  const items: Record<string, Items> = {};
+  for (const op of inflight) {
+    if ("items" in op) items[op.key] = { ...items[op.key], ...op.items };
+    else values[op.key] = op.value;
+  }
+  for (const [key, value] of pendingValues) values[key] = value;
+  for (const [key, changed] of pendingItems) items[key] = { ...items[key], ...changed };
+  try {
+    if (Object.keys(values).length === 0 && Object.keys(items).length === 0) window.localStorage.removeItem(PENDING_KEY);
+    else window.localStorage.setItem(PENDING_KEY, JSON.stringify({ values, items }));
+  } catch {
+    // Storage full or blocked: the changes are still sent while the page is open.
+  }
+}
+
+/** Picks up changes a previous visit didn't get to send. Changes made since come first. */
+function loadPending() {
+  if (pendingLoaded) return;
+  pendingLoaded = true;
+  try {
+    const raw = window.localStorage.getItem(PENDING_KEY);
+    if (!raw) return;
+    const saved = JSON.parse(raw) as { values?: Record<string, unknown>; items?: Record<string, Items> };
+    for (const [key, value] of Object.entries(saved.values ?? {})) {
+      if ((SYNC_KEYS as readonly string[]).includes(key) && !pendingValues.has(key as SyncKey)) pendingValues.set(key as SyncKey, value);
+    }
+    for (const [key, changed] of Object.entries(saved.items ?? {})) {
+      if (isCollectionKey(key)) pendingItems.set(key, { ...changed, ...pendingItems.get(key) });
+    }
+  } catch {
+    // An unreadable copy is ignored.
+  }
+}
+
+function forgetPending() {
+  pendingLoaded = true;
+  pendingValues.clear();
+  pendingItems.clear();
+  inflight = [];
+  try {
+    window.localStorage.removeItem(PENDING_KEY);
+  } catch {
+    // Nothing to remove.
+  }
+}
 
 function setState(next: SyncState) {
   state = next;
@@ -95,7 +156,8 @@ export function mergeCollection(local: Items, remote: Items): { merged: Items; u
 
 /** Called by the store after every local change. */
 export function queueChange(key: SyncKey, previous: unknown, next: unknown) {
-  if (state.status === "off") return;
+  // Unreachable (offline when the page opened): changes are still kept, for the next visit to send.
+  if (state.status === "off" && state.reason !== "unreachable") return;
   if (isCollectionKey(key)) {
     const before = (previous ?? {}) as Items;
     const after = (next ?? {}) as Items;
@@ -108,6 +170,7 @@ export function queueChange(key: SyncKey, previous: unknown, next: unknown) {
   } else {
     pendingValues.set(key, next ?? null);
   }
+  savePending();
   scheduleFlush(DEBOUNCE_MS);
 }
 
@@ -175,18 +238,26 @@ export function flush(): Promise<void> {
   flushing = (async () => {
     setState({ status: "saving" });
     const batches = takeBatches();
+    inflight = batches.flat();
     for (let i = 0; i < batches.length; i++) {
       try {
+        const body = JSON.stringify({ ops: batches[i] });
         const response = await fetch("/api/data", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ops: batches[i] }),
+          body,
+          // So a change made just before the tab closes still arrives.
+          keepalive: body.length < KEEPALIVE_CHARS,
         });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(data.error ?? `HTTP ${response.status}`);
         lastSeen = data.updatedAt ?? lastSeen;
+        inflight = batches.slice(i + 1).flat();
+        savePending();
       } catch (error) {
+        inflight = [];
         for (const unsent of batches.slice(i)) requeue(unsent);
+        savePending();
         setState({ status: "error", message: (error as Error).message });
         scheduleFlush(RETRY_MS);
         return;
@@ -271,18 +342,18 @@ export function startSync() {
     try {
       status = await getJson<SyncAvailability>("/api/data");
     } catch {
-      pendingValues.clear();
-      pendingItems.clear();
+      // Not reachable now (offline?): changes are kept in this browser and sent on a later visit.
+      loadPending();
       setState({ status: "off", reason: "unreachable" });
       return;
     }
     if (!status.enabled) {
-      pendingValues.clear();
-      pendingItems.clear();
+      forgetPending();
       setState({ status: "off", reason: status.reason });
       return;
     }
     enabled = true;
+    loadPending();
     try {
       await pull(status.updatedAt);
     } catch (error) {
@@ -300,9 +371,9 @@ export function startSync() {
 
 /** Settings → Delete all data. */
 export async function clearServerData(): Promise<void> {
+  // Even with server storage off now, unsent changes mustn't bring the data back on a later visit.
+  forgetPending();
   if (!enabled) return;
-  pendingValues.clear();
-  pendingItems.clear();
   const response = await fetch("/api/data", { method: "DELETE" });
   if (!response.ok) throw new Error(`Couldn't delete the data on the server (HTTP ${response.status}).`);
 }

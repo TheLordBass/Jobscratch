@@ -170,7 +170,7 @@ export function SearchView() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error ?? `Search failed (HTTP ${response.status})`);
       setSearch({ status: "done", label, response: data as SearchResponse });
     } catch (error) {

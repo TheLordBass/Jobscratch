@@ -21,7 +21,7 @@ const listSites = (jobs: Job[]) => [...new Set(jobs.map((job) => siteName(job.so
  * Until the jobs are matched it says to run Match all first.
  */
 export function SaveByMatch({ jobs }: { jobs: Job[] }) {
-  const { saved, saveJob } = useSavedJobs();
+  const { saved, saveJobs } = useSavedJobs();
   const { matchFor } = useCurrentMatches();
   const [settings, setSettings] = useSettings();
   const [justSaved, setJustSaved] = useState<{ total: number; bare: number } | null>(null);
@@ -76,7 +76,7 @@ export function SaveByMatch({ jobs }: { jobs: Job[] }) {
           className="btn btn-secondary btn-sm"
           disabled={waiting || toSave.length === 0}
           onClick={() => {
-            toSave.forEach((job) => saveJob(job));
+            saveJobs(toSave);
             setJustSaved({ total: toSave.length, bare: bareToSave });
           }}
         >

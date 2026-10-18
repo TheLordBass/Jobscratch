@@ -316,34 +316,59 @@ function mergeSettings(stored: Settings): Settings {
   return merged;
 }
 
+/**
+ * Saved jobs with `job` saved, or updated if it's saved already. Another copy of a saved job
+ * (e.g. the same job from another site or a later search) is merged into it rather than saved twice.
+ */
+function withJobSaved(
+  previous: Record<string, SavedJob>,
+  job: Job,
+  status: ApplicationStatus,
+  now: string,
+): { saved: Record<string, SavedJob>; id: string } {
+  const existing = previous[job.id];
+  if (existing) {
+    return { saved: { ...previous, [job.id]: { ...existing, job: { ...existing.job, ...job }, updatedAt: now } }, id: job.id };
+  }
+  const copy = findSavedCopy(previous, job);
+  if (copy) {
+    const id = copy.job.id;
+    return { saved: { ...previous, [id]: { ...copy, job: mergeJobs(copy.job, job), updatedAt: now } }, id };
+  }
+  return {
+    saved: { ...previous, [job.id]: { job, status, notes: "", savedAt: now, updatedAt: now, history: [{ status, at: now }] } },
+    id: job.id,
+  };
+}
+
 export function useSavedJobs() {
   const [saved, setSaved] = useStored("saved", EMPTY_SAVED);
 
   /**
-   * Saves a job, or updates it if it's saved already. Another copy of a saved job (e.g. the same
-   * job from another site or a later search) is merged into it rather than saved twice.
-   * Returns the id it's saved under.
+   * Saves a job (see withJobSaved). Returns the id it's saved under, which is the saved copy's when it
+   * was another copy of one.
    */
   const saveJob = useCallback(
     (job: Job, status: ApplicationStatus = "saved"): string => {
       let id = job.id;
       setSaved((previous) => {
-        const now = new Date().toISOString();
-        if (previous[job.id]) {
-          const existing = previous[job.id];
-          return { ...previous, [job.id]: { ...existing, job: { ...existing.job, ...job }, updatedAt: now } };
-        }
-        const copy = findSavedCopy(previous, job);
-        if (copy) {
-          id = copy.job.id;
-          return { ...previous, [id]: { ...copy, job: mergeJobs(copy.job, job), updatedAt: now } };
-        }
-        return {
-          ...previous,
-          [job.id]: { job, status, notes: "", savedAt: now, updatedAt: now, history: [{ status, at: now }] },
-        };
+        const result = withJobSaved(previous, job, status, new Date().toISOString());
+        id = result.id;
+        return result.saved;
       });
       return id;
+    },
+    [setSaved],
+  );
+
+  /** Saves several jobs at once (Save all), with one write instead of one per job. */
+  const saveJobs = useCallback(
+    (jobs: Job[], status: ApplicationStatus = "saved") => {
+      if (jobs.length === 0) return;
+      setSaved((previous) => {
+        const now = new Date().toISOString();
+        return jobs.reduce((saved, job) => withJobSaved(saved, job, status, now).saved, previous);
+      });
     },
     [setSaved],
   );
@@ -412,7 +437,7 @@ export function useSavedJobs() {
     [setSaved],
   );
 
-  return { saved, saveJob, updateJob, removeJob, removeJobs, mergeJob };
+  return { saved, saveJob, saveJobs, updateJob, removeJob, removeJobs, mergeJob };
 }
 
 /** Removes everything JobScratch keeps in this browser (not on the server). */

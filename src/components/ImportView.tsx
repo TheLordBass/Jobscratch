@@ -82,7 +82,7 @@ function Bookmarklet() {
 /** Loads a results file from scripts/jobspy/search.py, which the user runs on their own computer. */
 function JobspyImporter() {
   const router = useRouter();
-  const { saved, saveJob, removeJob } = useSavedJobs();
+  const { saved, saveJob, saveJobs, removeJob } = useSavedJobs();
   const { matchFor } = useCurrentMatches();
   const { isDismissed, dismiss, restore } = useDismissed();
   const [showHidden, setShowHidden] = useState(false);
@@ -184,7 +184,7 @@ function JobspyImporter() {
                 </select>
               )}
               {unsaved.length > 0 && (
-                <button type="button" className="btn btn-secondary btn-sm" onClick={() => unsaved.forEach((job) => saveJob(job))}>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => saveJobs(unsaved)}>
                   {isFiltering(jobFilter) ? "Save all shown" : "Save all"} ({unsaved.length})
                 </button>
               )}
@@ -278,9 +278,9 @@ export function ImportView() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url }),
       });
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        setUrlError({ message: data.error ?? "Import failed", blockedSite: data.blockedSite });
+        setUrlError({ message: data.error ?? `Import failed (HTTP ${response.status}). Try again.`, blockedSite: data.blockedSite });
         return;
       }
       const extract = await loadExtractor();
