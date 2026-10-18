@@ -3,7 +3,7 @@
 import { ArrowLeft, Check, RotateCcw, Sparkles, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { ApplyButton, CompanyMark, OtherApplyLinks } from "@/components/JobCard";
 import { useCurrentMatches } from "@/components/MatchAll";
 import { MarkdownView } from "@/components/MarkdownView";
@@ -12,7 +12,7 @@ import { useSources } from "@/components/useSources";
 import type { MatchAnalysis, TailorOptions } from "@/lib/ai/prompts";
 import { markdownToDocx } from "@/lib/export-docx";
 import { canMatch, candidateFor, hasFullDescription } from "@/lib/candidate";
-import { streamTailored } from "@/lib/tailor-client";
+import { dismissTask, startAnalysis, startDocument, stopJobTasks, stopTask, useJobTask, type JobTask } from "@/lib/job-tasks";
 import { jobKeys } from "@/lib/import";
 import { downloadBlob, formatPosted, slugify } from "@/lib/format";
 import { inlinesToText, parseMarkdown, printableHtml } from "@/lib/markdown";
@@ -45,6 +45,16 @@ interface Generation {
 }
 
 const IDLE: Generation = { status: "idle", text: "", thinking: "" };
+
+/** How a background task (lib/job-tasks.ts) shows on the page. */
+function toGeneration(task: JobTask | undefined): Generation {
+  if (!task) return IDLE;
+  if (task.status === "running") {
+    return { status: "streaming", text: task.text, thinking: task.thinking, notice: task.notice, startedAt: task.startedAt };
+  }
+  if (task.status === "error") return { status: "error", text: "", thinking: "", error: task.error };
+  return { status: "idle", text: "", thinking: "", notice: task.status === "stopped" ? task.notice : undefined };
+}
 
 function ScoreBadge({ score }: { score: number }) {
   const [text, bar] =
@@ -386,16 +396,22 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
   const [editingDescription, setEditingDescription] = useState(
     () => !hasFullDescription(docs?.jobDescription ?? job.description),
   );
-  const [analysisState, setAnalysisState] = useState<{ status: "idle" | "loading" | "error"; error?: string }>({
-    status: "idle",
-  });
-  const [generations, setGenerations] = useState<Record<DocKind, Generation>>({ cv: IDLE, coverLetter: IDLE });
-  const controllers = useRef<Partial<Record<DocKind, AbortController>>>({});
-
+  // Analysis and writing run in the background (lib/job-tasks.ts), so leaving this page doesn't stop them.
+  const analysisTask = useJobTask(job.id, "analysis");
+  const cvTask = useJobTask(job.id, "cv");
+  const letterTask = useJobTask(job.id, "coverLetter");
+  const analysisState =
+    analysisTask?.status === "running"
+      ? { status: "loading" as const }
+      : analysisTask?.status === "error"
+        ? { status: "error" as const, error: analysisTask.error }
+        : { status: "idle" as const };
+  const generations: Record<DocKind, Generation> = { cv: toGeneration(cvTask), coverLetter: toGeneration(letterTask) };
+  // Anything that finished while you were elsewhere has now been seen.
   useEffect(() => {
-    const current = controllers.current;
-    return () => Object.values(current).forEach((c) => c?.abort());
-  }, []);
+    for (const task of [analysisTask, cvTask, letterTask]) if (task?.status === "done") dismissTask(task.jobId, task.kind);
+  }, [analysisTask, cvTask, letterTask]);
+  const label = `${job.title} at ${job.company}`;
 
   const description = docs?.jobDescription ?? job.description;
   const options = settings.tailor;
@@ -436,58 +452,14 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
     description,
   };
 
-  async function analyse() {
+  function analyse() {
     setTab("analysis");
-    setAnalysisState({ status: "loading" });
-    try {
-      const response = await fetch("/api/tailor/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cv: cvText, job: payloadJob, profile: payloadProfile, notes: payloadNotes }),
-      });
-      // A timeout or server error can come back as a page rather than JSON.
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error ?? `The analysis failed (HTTP ${response.status}). Try again.`);
-      updateDocs({ analysis: data as MatchAnalysis });
-      setAnalysisState({ status: "idle" });
-    } catch (error) {
-      setAnalysisState({ status: "error", error: (error as Error).message });
-    }
+    startAnalysis(job.id, label, { cv: cvText, job: payloadJob, profile: payloadProfile, notes: payloadNotes });
   }
 
-  async function generate(kind: DocKind) {
+  function generate(kind: DocKind) {
     setTab(kind);
-    controllers.current[kind]?.abort();
-    const controller = new AbortController();
-    controllers.current[kind] = controller;
-    const update = (patch: Partial<Generation>) =>
-      setGenerations((previous) => ({ ...previous, [kind]: { ...previous[kind], ...patch } }));
-    update({ ...IDLE, status: "streaming", startedAt: Date.now() });
-
-    let text = "";
-    try {
-      const finished = await streamTailored(
-        { kind: kind === "cv" ? "cv" : "cover-letter", cv: cvText, job: payloadJob, profile: payloadProfile, notes: payloadNotes, options },
-        {
-          signal: controller.signal,
-          onText: (current) => {
-            text = current;
-            update({ text: current });
-          },
-          onThinking: (thinking) => update({ thinking }),
-          onNotice: (notice) => update({ notice }),
-        },
-      );
-      updateDocs({ [kind]: finished });
-      update({ status: "idle", text: "" });
-    } catch (error) {
-      if (controller.signal.aborted) {
-        if (text.trim()) updateDocs({ [kind]: text.trim() });
-        update({ status: "idle", text: "", notice: text ? "Stopped early, so this draft may be incomplete." : undefined });
-        return;
-      }
-      update({ status: "error", text: "", error: (error as Error).message });
-    }
+    startDocument(job.id, label, kind, { cv: cvText, job: payloadJob, profile: payloadProfile, notes: payloadNotes, options });
   }
 
   /** Adds a line to the job's notes (from "Have you done any of these?"), and makes sure tailoring uses them. */
@@ -502,7 +474,7 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
     const status = entry.status === "saved" ? "" : ` It’s marked “${STATUS_LABEL[entry.status]}”.`;
     const documents = docs?.cv || docs?.coverLetter ? " Its tailored CV and cover letter will be deleted too." : "";
     if (!window.confirm(`Remove ${job.title} at ${job.company} from My jobs?${status}${documents} This can’t be undone.`)) return;
-    Object.values(controllers.current).forEach((controller) => controller?.abort());
+    stopJobTasks(job.id);
     router.replace("/saved");
     removeJob(job.id);
     setTailored((previous) => {
@@ -511,6 +483,10 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
       return next;
     });
   }
+
+  /** A full analysis can run: CV and full description here, Claude set up, nothing else being written. */
+  const canAnalyse = (): boolean =>
+    ready && fullDescription && sources?.aiConfigured !== false && generations.cv.status !== "streaming" && generations.coverLetter.status !== "streaming";
 
   const busy = analysisState.status === "loading" || generations.cv.status === "streaming" || generations.coverLetter.status === "streaming";
 
@@ -584,7 +560,11 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
                 type="button"
                 role="tab"
                 aria-selected={tab === id}
-                onClick={() => setTab(id)}
+                onClick={() => {
+                  // Clicking Match on a job with its full description but no full analysis yet runs one.
+                  if (id === "analysis" && canAnalyse() && !docs?.analysis && analysisState.status !== "loading") analyse();
+                  else setTab(id);
+                }}
                 className={`btn btn-sm ${tab === id ? "bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-white" : "btn-ghost"}`}
               >
                 {label}
@@ -641,26 +621,26 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
                     <QuickMatchPanel match={quick} stale={!currentMatch} />
                     <MissingExperience items={quick.missing} notes={entry.notes} onAdd={addToNotes} />
                     <div className="mt-6 flex flex-wrap items-center gap-2 border-t border-zinc-100 pt-4 dark:border-zinc-800">
-                      {!docs?.cv && (
-                        <button
-                          type="button"
-                          className="btn btn-primary"
-                          disabled={!ready || busy}
-                          onClick={() => void generate("cv")}
-                        >
-                          <Sparkles size={15} aria-hidden /> Next: tailor my CV
-                        </button>
-                      )}
                       <button
                         type="button"
-                        className="btn btn-secondary btn-sm"
+                        className="btn btn-primary"
                         disabled={!ready || busy || !fullDescription}
                         onClick={() => void analyse()}
                       >
                         Full analysis
                       </button>
+                      {!docs?.cv && (
+                        <button
+                          type="button"
+                          className="btn btn-secondary"
+                          disabled={!ready || busy}
+                          onClick={() => void generate("cv")}
+                        >
+                          <Sparkles size={15} aria-hidden /> Tailor my CV
+                        </button>
+                      )}
                     </div>
-                    {blocker && <p className="muted mt-3 text-xs">{blocker}</p>}
+                    {matchBlocker && <p className="muted mt-3 text-xs">{matchBlocker}</p>}
                   </>
                 ) : (
                   <div className="py-10 text-center text-sm">
@@ -708,7 +688,7 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
               onGenerate={() => {
                 if (ready) void generate(tab);
               }}
-              onStop={() => controllers.current[tab]?.abort()}
+              onStop={() => stopTask(job.id, tab)}
             />
           )}
         </div>

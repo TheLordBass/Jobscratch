@@ -1,12 +1,13 @@
 "use client";
 
-import { BriefcaseBusiness, Cloud, CloudAlert, CloudUpload, LogOut, Search, UserRound } from "lucide-react";
+import { BriefcaseBusiness, Check, Cloud, CloudAlert, CloudUpload, Loader2, LogOut, Search, UserRound, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useHydrated, useSavedJobs } from "@/lib/store";
 import { signOut, useSession } from "@/components/useSession";
 import { startSync, useSyncState } from "@/lib/sync";
+import { dismissTask, useJobTasks, type TaskKind } from "@/lib/job-tasks";
 
 /** Three sections; each covers the pages listed in `paths`. */
 const SECTIONS = [
@@ -70,7 +71,45 @@ export function Nav() {
           </>
         )}
       </div>
+      {!onLogin && <JobTasksBar />}
     </header>
+  );
+}
+
+const TASK_NAMES: Record<TaskKind, string> = { analysis: "Match analysis", cv: "Tailored CV", coverLetter: "Cover letter" };
+
+/** Analyses and documents being written in the background (lib/job-tasks.ts), and ones just finished. */
+function JobTasksBar() {
+  const tasks = useJobTasks().filter((task) => task.status === "running" || task.status === "done");
+  if (tasks.length === 0) return null;
+  return (
+    <div className="mx-auto flex max-w-6xl flex-wrap gap-2 px-4 pb-2 sm:px-6" aria-live="polite">
+      {tasks.map((task) => (
+        <span
+          key={`${task.jobId}:${task.kind}`}
+          className={`chip gap-2 py-1 ${task.status === "done" ? "bg-emerald-50 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200" : ""}`}
+        >
+          {task.status === "running" ? (
+            <Loader2 size={13} className="animate-spin" aria-hidden />
+          ) : (
+            <Check size={13} aria-hidden />
+          )}
+          <Link href={`/tailor?job=${encodeURIComponent(task.jobId)}`} className="hover:underline">
+            {TASK_NAMES[task.kind]} {task.status === "running" ? "in progress" : "ready"}: {task.label}
+          </Link>
+          {task.status === "done" && (
+            <button
+              type="button"
+              className="cursor-pointer opacity-70 hover:opacity-100"
+              onClick={() => dismissTask(task.jobId, task.kind)}
+              aria-label="Dismiss"
+            >
+              <X size={13} aria-hidden />
+            </button>
+          )}
+        </span>
+      ))}
+    </div>
   );
 }
 

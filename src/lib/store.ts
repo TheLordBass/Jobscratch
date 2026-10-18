@@ -443,6 +443,17 @@ export function useSavedJobs() {
   return { saved, saveJob, saveJobs, updateJob, removeJob, removeJobs, mergeJob };
 }
 
+/** Whether a job is in My jobs, read outside React (see lib/job-tasks.ts). */
+export function isSavedJob(id: string): boolean {
+  return Boolean(read("saved", EMPTY_SAVED)[id]);
+}
+
+/** Saves a job's tailored documents or analysis outside React, e.g. when one finishes in the background. */
+export function updateTailoredDocs(id: string, patch: Partial<TailoredDocs>) {
+  const previous = read("tailored", EMPTY_TAILORED);
+  write("tailored", { ...previous, [id]: { ...previous[id], ...patch, updatedAt: new Date().toISOString() } });
+}
+
 /** Removes everything JobScratch keeps in this browser (not on the server). */
 export function clearLocalData() {
   try {
