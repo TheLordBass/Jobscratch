@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { analyzeMatch, toAiError } from "@/lib/ai/claude";
-import { CandidateProfileSchema, TailorJobSchema } from "@/lib/ai/prompts";
+import { CandidateProfileSchema, JobNotesSchema, TailorJobSchema } from "@/lib/ai/prompts";
 import { hasFullDescription } from "@/lib/candidate";
 
 export const maxDuration = 300;
@@ -9,6 +9,7 @@ const Body = z.object({
   cv: z.string().min(50, "Add your CV first").max(60_000),
   job: TailorJobSchema,
   profile: CandidateProfileSchema.optional(),
+  notes: JobNotesSchema,
 });
 
 export async function POST(request: Request) {

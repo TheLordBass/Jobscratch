@@ -88,6 +88,7 @@ export function BulkTailor({ jobs }: { jobs: Job[] }) {
             description: (tailored[into.id]?.jobDescription ?? into.description).slice(0, 40_000),
           },
           profile: candidate.profile,
+          notes: settings.useJobNotes ? saved[into.id]?.notes.slice(0, 4000) || undefined : undefined,
           options: settings.tailor,
         },
         { signal: abort.signal },
