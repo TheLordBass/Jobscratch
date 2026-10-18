@@ -67,6 +67,8 @@ export interface Settings {
   saveMatchesFrom: number;
   /** With it, also save the jobs that have no description to match (often LinkedIn and Glassdoor ones). */
   saveUndescribed: boolean;
+  /** Send each job's notes with tailoring and analysis, as extra experience and guidance. */
+  useJobNotes: boolean;
   tailor: TailorOptions;
   /** The last JobSpy search, so the form starts with it. */
   jobspy: Omit<HelperSearch, "country">;
@@ -88,6 +90,7 @@ export const DEFAULT_SETTINGS: Settings = {
   disabledSources: [],
   saveMatchesFrom: 70,
   saveUndescribed: true,
+  useJobNotes: true,
   tailor: { style: "uk-cv", tone: "professional", length: "two-pages", extraInstructions: "" },
   jobspy: { search: [], location: [], sites: ["indeed", "linkedin"], results: 25, hours: null, remote: false, linkedinDescriptions: false, distance: 50, linkedinPace: 2 },
 };

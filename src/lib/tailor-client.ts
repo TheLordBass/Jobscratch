@@ -6,6 +6,8 @@ export interface TailorRequest {
   cv: string;
   job: TailorJob;
   profile?: CandidateProfile;
+  /** The candidate's notes on this job, used as extra experience and guidance. */
+  notes?: string;
   options: TailorOptions;
 }
 

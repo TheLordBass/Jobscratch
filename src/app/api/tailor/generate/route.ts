@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { streamDocument } from "@/lib/ai/claude";
-import { CandidateProfileSchema, TailorJobSchema, TailorOptionsSchema } from "@/lib/ai/prompts";
+import { CandidateProfileSchema, JobNotesSchema, TailorJobSchema, TailorOptionsSchema } from "@/lib/ai/prompts";
 
 export const maxDuration = 300;
 
@@ -9,6 +9,7 @@ const Body = z.object({
   cv: z.string().min(50, "Add your CV first").max(60_000),
   job: TailorJobSchema,
   profile: CandidateProfileSchema.optional(),
+  notes: JobNotesSchema,
   options: TailorOptionsSchema.default({
     style: "uk-cv",
     tone: "professional",
@@ -23,9 +24,9 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return Response.json({ error: parsed.error.issues[0]?.message ?? "Invalid request" }, { status: 400 });
   }
-  const { kind, cv, job, profile, options } = parsed.data;
+  const { kind, cv, job, profile, notes, options } = parsed.data;
   const encoder = new TextEncoder();
-  const events = streamDocument(kind, { cv, job, profile }, options, process.env, request.signal);
+  const events = streamDocument(kind, { cv, job, profile, notes }, options, process.env, request.signal);
 
   const body = new ReadableStream<Uint8Array>({
     async pull(controller) {

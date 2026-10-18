@@ -136,6 +136,79 @@ function QuickMatchPanel({ match, stale }: { match: StoredMatch; stale: boolean 
   );
 }
 
+/**
+ * What the match found missing, asking whether the candidate has it anyway. What they write goes
+ * into the job's notes, which tailoring uses as their own account of their experience.
+ */
+function MissingExperience({ items, notes, onAdd }: { items: string[]; notes: string; onAdd: (line: string) => void }) {
+  const [open, setOpen] = useState<string | null>(null);
+  const [text, setText] = useState("");
+  const noted = (item: string) => notes.toLowerCase().includes(item.toLowerCase());
+  const list = [...new Set(items.map((item) => item.trim()).filter(Boolean))];
+  if (list.length === 0) return null;
+
+  return (
+    <div className="mt-6 space-y-2 border-t border-zinc-100 pt-4 dark:border-zinc-800">
+      <h3 className="text-sm font-semibold">Have you done any of these?</h3>
+      <p className="muted text-xs">
+        Your CV doesn’t show them. If you have the experience, say where and how: it’s added to this job’s notes, and the
+        next tailored CV and cover letter use it.
+      </p>
+      <ul className="space-y-1.5">
+        {list.map((item) => (
+          <li key={item} className="rounded-lg border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-800">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="min-w-0 flex-1">{item}</span>
+              {noted(item) ? (
+                <span className="flex items-center gap-1 text-xs text-emerald-700 dark:text-emerald-400">
+                  <Check size={13} aria-hidden /> In your notes
+                </span>
+              ) : open !== item ? (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => {
+                    setOpen(item);
+                    setText("");
+                  }}
+                >
+                  I have this
+                </button>
+              ) : null}
+            </div>
+            {open === item && !noted(item) && (
+              <form
+                className="mt-2 flex flex-wrap gap-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (!text.trim()) return;
+                  onAdd(`${item}: ${text.trim()}`);
+                  setOpen(null);
+                }}
+              >
+                <input
+                  className="input min-w-0 flex-1 py-1.5 text-sm"
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                  placeholder="Where and how, e.g. used it weekly at Acme for the sales dashboards"
+                  aria-label={`Your experience with ${item}`}
+                  autoFocus
+                />
+                <button type="submit" className="btn btn-primary btn-sm" disabled={!text.trim()}>
+                  Add to notes
+                </button>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => setOpen(null)}>
+                  Cancel
+                </button>
+              </form>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function DocumentPanel({
   kind,
   job,
@@ -353,6 +426,7 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
     [profile.website.trim() && "website", profile.github.trim() && "GitHub"].filter(Boolean).join(" and ") ||
     "website and GitHub details";
   const { profile: payloadProfile, staleDetails } = candidateFor(cv, profile);
+  const payloadNotes = settings.useJobNotes ? entry.notes.trim().slice(0, 4000) || undefined : undefined;
 
   const payloadJob = {
     title: job.title,
@@ -369,7 +443,7 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
       const response = await fetch("/api/tailor/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cv: cvText, job: payloadJob, profile: payloadProfile }),
+        body: JSON.stringify({ cv: cvText, job: payloadJob, profile: payloadProfile, notes: payloadNotes }),
       });
       // A timeout or server error can come back as a page rather than JSON.
       const data = await response.json().catch(() => ({}));
@@ -393,7 +467,7 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
     let text = "";
     try {
       const finished = await streamTailored(
-        { kind: kind === "cv" ? "cv" : "cover-letter", cv: cvText, job: payloadJob, profile: payloadProfile, options },
+        { kind: kind === "cv" ? "cv" : "cover-letter", cv: cvText, job: payloadJob, profile: payloadProfile, notes: payloadNotes, options },
         {
           signal: controller.signal,
           onText: (current) => {
@@ -414,6 +488,13 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
       }
       update({ status: "error", text: "", error: (error as Error).message });
     }
+  }
+
+  /** Adds a line to the job's notes (from "Have you done any of these?"), and makes sure tailoring uses them. */
+  function addToNotes(line: string) {
+    const current = entry.notes.trimEnd();
+    updateJob(job.id, { notes: current ? `${current}\n${line}` : line });
+    if (!settings.useJobNotes) setSettings({ ...settings, useJobNotes: true });
   }
 
   /** Removes the job and its tailored documents, then goes back to My jobs. */
@@ -528,6 +609,11 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
                 {docs?.analysis ? (
                   <>
                     <AnalysisPanel analysis={docs.analysis} />
+                    <MissingExperience
+                      items={docs.analysis.keywordsMissing.length ? docs.analysis.keywordsMissing : docs.analysis.gaps}
+                      notes={entry.notes}
+                      onAdd={addToNotes}
+                    />
                     <div className="mt-6 flex flex-wrap items-center gap-2 border-t border-zinc-100 pt-4 dark:border-zinc-800">
                       {!docs.cv && (
                         <button
@@ -553,6 +639,7 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
                 ) : quick ? (
                   <>
                     <QuickMatchPanel match={quick} stale={!currentMatch} />
+                    <MissingExperience items={quick.missing} notes={entry.notes} onAdd={addToNotes} />
                     <div className="mt-6 flex flex-wrap items-center gap-2 border-t border-zinc-100 pt-4 dark:border-zinc-800">
                       {!docs?.cv && (
                         <button
@@ -778,10 +865,23 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
             <textarea
               id="notes"
               className="input min-h-24 text-sm"
-              placeholder="Contacts, interview dates, salary discussed…"
+              placeholder="e.g. I used Tableau every week at Acme, though it's not on my CV. Interview on Tuesday with Sam."
               value={entry.notes}
               onChange={(e) => updateJob(job.id, { notes: e.target.value })}
             />
+            <label className="flex items-start gap-2 text-xs">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={settings.useJobNotes}
+                onChange={(e) => setSettings({ ...settings, useJobNotes: e.target.checked })}
+              />
+              <span className="muted">
+                Use these notes when tailoring and analysing: experience you mention that isn’t in your CV is used as
+                yours, and so is guidance like “emphasise X”. Contacts, dates and salary stay out of the documents.
+                Regenerate to use new notes.
+              </span>
+            </label>
           </section>
         </aside>
       </div>
