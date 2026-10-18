@@ -1,8 +1,8 @@
 "use client";
 
-import { ArrowLeft, Check, RotateCcw, Sparkles, X } from "lucide-react";
+import { ArrowLeft, Check, RotateCcw, Sparkles, Trash2, X } from "lucide-react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { ApplyButton, CompanyMark, OtherApplyLinks } from "@/components/JobCard";
 import { useCurrentMatches } from "@/components/MatchAll";
@@ -293,7 +293,8 @@ function DocumentPanel({
 
 function TailorWorkspace({ entry }: { entry: SavedJob }) {
   const job = entry.job;
-  const { updateJob } = useSavedJobs();
+  const { updateJob, removeJob } = useSavedJobs();
+  const router = useRouter();
   const [cv] = useCv();
   const [profile] = useProfile();
   const [settings, setSettings] = useSettings();
@@ -415,6 +416,21 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
     }
   }
 
+  /** Removes the job and its tailored documents, then goes back to My jobs. */
+  function remove() {
+    const status = entry.status === "saved" ? "" : ` It’s marked “${STATUS_LABEL[entry.status]}”.`;
+    const documents = docs?.cv || docs?.coverLetter ? " Its tailored CV and cover letter will be deleted too." : "";
+    if (!window.confirm(`Remove ${job.title} at ${job.company} from My jobs?${status}${documents} This can’t be undone.`)) return;
+    Object.values(controllers.current).forEach((controller) => controller?.abort());
+    router.replace("/saved");
+    removeJob(job.id);
+    setTailored((previous) => {
+      const next = { ...previous };
+      delete next[job.id];
+      return next;
+    });
+  }
+
   const busy = analysisState.status === "loading" || generations.cv.status === "streaming" || generations.coverLetter.status === "streaming";
 
   return (
@@ -449,6 +465,15 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
             ))}
           </select>
           <ApplyButton job={job} />
+          <button
+            type="button"
+            className="btn btn-danger btn-sm btn-icon"
+            onClick={remove}
+            aria-label="Remove this job from My jobs"
+            title="Remove from My jobs"
+          >
+            <Trash2 size={15} aria-hidden />
+          </button>
         </div>
       </div>
 
