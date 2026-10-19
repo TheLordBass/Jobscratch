@@ -7,7 +7,7 @@ import { canMatch, candidateFor, matchKey, type Candidate } from "@/lib/candidat
 import type { MatchAnalysis } from "@/lib/ai/prompts";
 import { siteJobKey } from "@/lib/import";
 import { matchFromAnalysis } from "@/lib/job-tasks";
-import { updateTailoredDocs, useCv, useMatches, useProfile, useSavedJobs, useSettings, type StoredMatch } from "@/lib/store";
+import { updateTailoredDocs, useCv, useMatches, useProfile, useSavedJobs, useSettings, useTailored, type StoredMatch } from "@/lib/store";
 import type { Job } from "@/lib/types";
 
 /** How many jobs are matched at the same time. */
@@ -46,6 +46,7 @@ export function MatchAllButton({ jobs, onMatched }: MatchAllProps) {
   const sources = useSources();
   const [, setMatches] = useMatches();
   const { saved } = useSavedJobs();
+  const [tailored] = useTailored();
   const [settings] = useSettings();
   const { matchFor, candidate } = useCurrentMatches();
   const [progress, setProgress] = useState<{ done: number; total: number; failed: number } | null>(null);
@@ -56,7 +57,8 @@ export function MatchAllButton({ jobs, onMatched }: MatchAllProps) {
   useEffect(() => () => controller.current?.abort(), []);
 
   const matchable = jobs.filter(canMatch);
-  const todo = matchable.filter((job) => !matchFor(job));
+  // A saved job analysed on its own page already has its analysis.
+  const todo = matchable.filter((job) => !matchFor(job) && !(saved[job.id] && tailored[job.id]?.analysis));
   const withoutDescription = jobs.length - matchable.length;
   // The bookmarklet can add the full description for jobs it recognises (LinkedIn, Indeed, Glassdoor).
   const fillable = jobs.filter((job) => !canMatch(job) && siteJobKey(job.url)).length;

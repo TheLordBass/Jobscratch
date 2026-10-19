@@ -88,7 +88,7 @@ export function SavedView() {
     return result;
   }, [entries]);
   const byStatus = statusFilter === "all" ? entries : entries.filter((e) => e.status === statusFilter);
-  // The full analysis from the job page counts over a quick score; unscored jobs go last.
+  // The job's analysis (from its page or Match all); unscored jobs go last.
   const scoreOf = (job: Job) => tailored[job.id]?.analysis?.matchScore ?? matchFor(job)?.score;
   // The From and Show filters narrow the list further, and Match all and the rest act on what's left.
   const isMatched = (job: Job) => scoreOf(job) !== undefined;
@@ -272,8 +272,7 @@ export function SavedView() {
           <ul className="space-y-2.5">
             {ordered.map(({ job, status, notes, savedAt }) => {
               const docs = tailored[job.id];
-              // The full analysis from the job page wins over a quick score.
-              const quick = docs?.analysis ? undefined : matchFor(job);
+              const score = scoreOf(job);
               const salary = formatSalary(job.salary);
               const href = `/tailor?job=${encodeURIComponent(job.id)}`;
               return (
@@ -289,18 +288,13 @@ export function SavedView() {
                         <Link href={href} className="font-bold hover:text-indigo-600 dark:hover:text-indigo-400">
                           {job.title}
                         </Link>
-                        {quick && <MatchBadge score={quick.score} />}
+                        {score !== undefined && <MatchBadge score={score} />}
                       </div>
                       <p className="text-sm text-zinc-700 dark:text-zinc-300">
                         {job.company}
                         {job.location && <span className="muted"> · {job.location}</span>}
                       </p>
                       <p className="muted mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs">
-                        {docs?.analysis && (
-                          <span className="chip bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
-                            {docs.analysis.matchScore}% match
-                          </span>
-                        )}
                         {docs?.cv && (
                           <span className="inline-flex items-center gap-1">
                             <FileText size={12} aria-hidden /> CV tailored
