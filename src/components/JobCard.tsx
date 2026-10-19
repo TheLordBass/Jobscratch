@@ -13,7 +13,7 @@ interface Props {
   onToggle: () => void;
   onSave: () => void;
   onTailor: () => void;
-  /** Quick match score from "Match all", if there is one. */
+  /** The job's match score (from Match all or its page), if it has one. */
   match?: StoredMatch;
   /** "Not interested": hide the job, or show it again when `dismissed`. */
   onDismiss?: () => void;
@@ -212,7 +212,7 @@ export function MatchBadge({ score }: { score: number }) {
   return (
     <span
       className={`mt-0.5 inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-xs font-bold tabular-nums ring-1 ${tone}`}
-      title="Quick match with your CV"
+      title="Match with your CV"
     >
       {score}%<span className="sr-only"> match</span>
     </span>
