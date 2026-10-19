@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { POST as analyze } from "@/app/api/tailor/analyze/route";
-import { POST as quickMatch } from "@/app/api/tailor/quick-match/route";
 
 const cv = "Alex Test. Data analyst with four years of SQL, Power BI and Python in retail. ".repeat(2);
 
@@ -15,7 +14,7 @@ const post = (handler: (request: Request) => Promise<Response>, description: str
 
 describe("matching a job", () => {
   it("is refused for a snippet of the description, before Claude is asked", async () => {
-    for (const handler of [quickMatch, analyze]) {
+    for (const handler of [analyze]) {
       const response = await post(handler, "Build Power BI dashboards and write SQL. Hybrid, Manchester.");
       expect(response.status).toBe(422);
       expect((await response.json()).error).toMatch(/snippet/);

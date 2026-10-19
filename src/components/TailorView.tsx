@@ -11,10 +11,10 @@ import { STATUS_LABEL, STATUS_STYLE, SavedView } from "@/components/SavedView";
 import { useSources } from "@/components/useSources";
 import type { MatchAnalysis, TailorOptions } from "@/lib/ai/prompts";
 import { markdownToDocx } from "@/lib/export-docx";
-import { canMatch, candidateFor, hasFullDescription } from "@/lib/candidate";
+import { canMatch, candidateFor, hasFullDescription, matchKey } from "@/lib/candidate";
 import { dismissTask, startAnalysis, startDocument, stopJobTasks, stopTask, useJobTask, type JobTask } from "@/lib/job-tasks";
 import { jobKeys } from "@/lib/import";
-import { downloadBlob, formatPosted, slugify } from "@/lib/format";
+import { downloadBlob, slugify } from "@/lib/format";
 import { inlinesToText, parseMarkdown, printableHtml } from "@/lib/markdown";
 import {
   APPLICATION_STATUSES,
@@ -27,7 +27,6 @@ import {
   useTailored,
   type ApplicationStatus,
   type SavedJob,
-  type StoredMatch,
   type TailoredDocs,
 } from "@/lib/store";
 import type { Job } from "@/lib/types";
@@ -112,36 +111,6 @@ function AnalysisPanel({ analysis }: { analysis: MatchAnalysis }) {
         </div>
       </div>
       {section("Suggestions", analysis.suggestions, "No suggestions.")}
-    </div>
-  );
-}
-
-/** The quick score from Match all, until there's a full analysis. */
-function QuickMatchPanel({ match, stale }: { match: StoredMatch; stale: boolean }) {
-  const when = formatPosted(match.at);
-  return (
-    <div className="space-y-5">
-      <div>
-        <ScoreBadge score={match.score} />
-        <p className="mt-2 text-sm">{match.verdict}</p>
-      </div>
-      <div>
-        <h3 className="mb-1 text-sm font-semibold">What the job asks for that your CV doesn’t show</h3>
-        {match.missing.length ? (
-          <ul className="list-disc space-y-1 pl-5 text-sm">
-            {match.missing.map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
-        ) : (
-          <p className="muted text-sm">Nothing obvious.</p>
-        )}
-      </div>
-      <p className="muted text-xs">
-        From Match all{when ? `, ${when}` : ""}.
-        {stale && " Your CV or this job’s description has changed since, so it may be out of date."} The full analysis adds
-        your strengths, the gaps, keywords and suggestions.
-      </p>
     </div>
   );
 }
@@ -384,12 +353,14 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
   const [tailored, setTailored] = useTailored();
   const sources = useSources();
   const docs: TailoredDocs | undefined = tailored[job.id];
-  // The quick score from Match all, shown until there's a full analysis (an out-of-date one is marked so).
-  const { matchFor } = useCurrentMatches();
+  // An analysis from Match all counts as this job's until one is run here (an out-of-date one is marked so).
+  // Not for a job with only a snippet: one made from it would be misleading.
+  const { matchFor, candidate } = useCurrentMatches();
   const [matches] = useMatches();
-  // Not for a job with only a snippet: a score made from one would be misleading.
   const currentMatch = matchFor(job);
-  const quick = currentMatch ?? (canMatch(job) ? matches[job.id] : undefined);
+  const listMatch = currentMatch ?? (canMatch(job) ? matches[job.id] : undefined);
+  const analysis = docs?.analysis ?? listMatch?.analysis;
+  const staleAnalysis = !docs?.analysis && Boolean(listMatch?.analysis) && !currentMatch;
 
   const [tab, setTab] = useState<Tab>(docs?.cv || docs?.analysis ? "cv" : "analysis");
   // Open for editing when there is only a snippet, which is worth replacing with the full text.
@@ -454,7 +425,13 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
 
   function analyse() {
     setTab("analysis");
-    startAnalysis(job.id, label, { cv: cvText, job: payloadJob, profile: payloadProfile, notes: payloadNotes });
+    startAnalysis(
+      job.id,
+      label,
+      { cv: cvText, job: payloadJob, profile: payloadProfile, notes: payloadNotes },
+      // So the score shows in the job lists too, when it's for the job's own description.
+      description === job.description ? matchKey(job, candidate) : undefined,
+    );
   }
 
   function generate(kind: DocKind) {
@@ -548,8 +525,8 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
               [
                 [
                   "analysis",
-                  docs?.analysis ? `Match ${docs.analysis.matchScore}%` : quick ? `Match ${quick.score}%` : "Match",
-                  Boolean(docs?.analysis),
+                  analysis ? `Match ${analysis.matchScore}%` : "Match",
+                  Boolean(analysis),
                 ],
                 ["cv", "Tailored CV", Boolean(docs?.cv)],
                 ["coverLetter", "Cover letter", Boolean(docs?.coverLetter)],
@@ -562,7 +539,7 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
                 aria-selected={tab === id}
                 onClick={() => {
                   // Clicking Match on a job with its full description but no full analysis yet runs one.
-                  if (id === "analysis" && canAnalyse() && !docs?.analysis && analysisState.status !== "loading") analyse();
+                  if (id === "analysis" && canAnalyse() && !analysis && analysisState.status !== "loading") analyse();
                   else setTab(id);
                 }}
                 className={`btn btn-sm ${tab === id ? "bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-white" : "btn-ghost"}`}
@@ -586,16 +563,21 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
                     {analysisState.error}
                   </p>
                 )}
-                {docs?.analysis ? (
+                {analysis ? (
                   <>
-                    <AnalysisPanel analysis={docs.analysis} />
+                    <AnalysisPanel analysis={analysis} />
+                    {staleAnalysis && (
+                      <p className="muted mt-3 text-xs">
+                        Your CV or this job’s description has changed since this analysis, so it may be out of date.
+                      </p>
+                    )}
                     <MissingExperience
-                      items={docs.analysis.keywordsMissing.length ? docs.analysis.keywordsMissing : docs.analysis.gaps}
+                      items={analysis.keywordsMissing.length ? analysis.keywordsMissing : analysis.gaps}
                       notes={entry.notes}
                       onAdd={addToNotes}
                     />
                     <div className="mt-6 flex flex-wrap items-center gap-2 border-t border-zinc-100 pt-4 dark:border-zinc-800">
-                      {!docs.cv && (
+                      {!docs?.cv && (
                         <button
                           type="button"
                           className="btn btn-primary"
@@ -615,32 +597,6 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
                         <RotateCcw size={13} aria-hidden /> Analyse again
                       </button>
                     </div>
-                  </>
-                ) : quick ? (
-                  <>
-                    <QuickMatchPanel match={quick} stale={!currentMatch} />
-                    <MissingExperience items={quick.missing} notes={entry.notes} onAdd={addToNotes} />
-                    <div className="mt-6 flex flex-wrap items-center gap-2 border-t border-zinc-100 pt-4 dark:border-zinc-800">
-                      <button
-                        type="button"
-                        className="btn btn-primary"
-                        disabled={!ready || busy || !fullDescription}
-                        onClick={() => void analyse()}
-                      >
-                        Full analysis
-                      </button>
-                      {!docs?.cv && (
-                        <button
-                          type="button"
-                          className="btn btn-secondary"
-                          disabled={!ready || busy}
-                          onClick={() => void generate("cv")}
-                        >
-                          <Sparkles size={15} aria-hidden /> Tailor my CV
-                        </button>
-                      )}
-                    </div>
-                    {matchBlocker && <p className="muted mt-3 text-xs">{matchBlocker}</p>}
                   </>
                 ) : (
                   <div className="py-10 text-center text-sm">

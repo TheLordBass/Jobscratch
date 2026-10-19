@@ -2,7 +2,7 @@
 
 import { useSyncExternalStore } from "react";
 import type { MatchAnalysis } from "@/lib/ai/prompts";
-import { isSavedJob, updateTailoredDocs } from "@/lib/store";
+import { isSavedJob, updateStoredMatch, updateTailoredDocs, type StoredMatch } from "@/lib/store";
 import { streamTailored, type TailorRequest } from "@/lib/tailor-client";
 
 /*
@@ -79,7 +79,8 @@ function save(jobId: string, patch: Parameters<typeof updateTailoredDocs>[1]) {
   if (isSavedJob(jobId)) updateTailoredDocs(jobId, patch);
 }
 
-export function startAnalysis(jobId: string, label: string, body: Omit<TailorRequest, "kind" | "options">) {
+/** `matchKey` (see lib/candidate.ts), when given, also saves the result as the job's match score in lists. */
+export function startAnalysis(jobId: string, label: string, body: Omit<TailorRequest, "kind" | "options">, matchKey?: string) {
   const controller = begin(jobId, "analysis", label);
   void (async () => {
     try {
@@ -92,7 +93,9 @@ export function startAnalysis(jobId: string, label: string, body: Omit<TailorReq
       // A timeout or server error can come back as a page rather than JSON.
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error ?? `The analysis failed (HTTP ${response.status}). Try again.`);
-      save(jobId, { analysis: data as MatchAnalysis });
+      const analysis = data as MatchAnalysis;
+      save(jobId, { analysis });
+      if (matchKey) updateStoredMatch(jobId, matchFromAnalysis(analysis, matchKey));
       set(jobId, "analysis", { status: "done" });
     } catch (error) {
       if (controller.signal.aborted) set(jobId, "analysis", { status: "stopped" });
@@ -133,6 +136,18 @@ export function startDocument(jobId: string, label: string, kind: "cv" | "coverL
       finish(jobId, kind, controller);
     }
   })();
+}
+
+/** A job's match score, as kept for lists, from its full analysis. */
+export function matchFromAnalysis(analysis: MatchAnalysis, key: string): StoredMatch {
+  return {
+    score: analysis.matchScore,
+    verdict: analysis.verdict,
+    missing: (analysis.keywordsMissing.length ? analysis.keywordsMissing : analysis.gaps).slice(0, 3),
+    key,
+    at: new Date().toISOString(),
+    analysis,
+  };
 }
 
 export function stopTask(jobId: string, kind: TaskKind) {

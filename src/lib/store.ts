@@ -97,11 +97,13 @@ export const DEFAULT_SETTINGS: Settings = {
 
 export const EMPTY_PROFILE: StoredProfile = { website: "", github: "", evidence: "", enabled: true };
 
-/** A quick match score for one job (from "Match all"). */
+/** A job's match (from "Match all" or its page), kept with its full analysis for lists and the job's page. */
 export interface StoredMatch {
   score: number;
   verdict: string;
   missing: string[];
+  /** The full analysis. Older, quick-only scores have none and aren't shown any more. */
+  analysis?: MatchAnalysis;
   /** Which CV and description it was scored against (see matchKey), to spot when it's out of date. */
   key: string;
   at: string;
@@ -452,6 +454,11 @@ export function isSavedJob(id: string): boolean {
 export function updateTailoredDocs(id: string, patch: Partial<TailoredDocs>) {
   const previous = read("tailored", EMPTY_TAILORED);
   write("tailored", { ...previous, [id]: { ...previous[id], ...patch, updatedAt: new Date().toISOString() } });
+}
+
+/** Saves a job's match score outside React (see lib/job-tasks.ts). */
+export function updateStoredMatch(id: string, match: StoredMatch) {
+  write("matches", { ...read("matches", EMPTY_MATCHES), [id]: match });
 }
 
 /** Removes everything JobScratch keeps in this browser (not on the server). */
