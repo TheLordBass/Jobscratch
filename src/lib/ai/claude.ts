@@ -2,18 +2,13 @@ import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import {
   MatchAnalysisSchema,
-  QuickMatchSchema,
   SYSTEM_PROMPT,
   analysisInstruction,
-  candidateBlock,
   coverLetterInstruction,
   cvInstruction,
   hasProfile,
-  jobBlock,
   materialsBlock,
-  quickMatchInstruction,
   type MatchAnalysis,
-  type QuickMatch,
   type TailorMaterials,
   type TailorOptions,
 } from "./prompts";
@@ -119,46 +114,6 @@ export async function analyzeMatch(materials: TailorMaterials, env: Env, signal?
   const analysis = response.parsed_output;
   if (!analysis) throw new AiError("Claude's analysis couldn't be read. Try again.", 502);
   return { ...analysis, matchScore: Math.min(100, Math.max(0, Math.round(analysis.matchScore))) };
-}
-
-/**
- * A quick score for one job, for "Match all". Low effort keeps it fast; the
- * system prompt and the candidate's CV are the same for every job in a run,
- * so they're a cached prefix. ANTHROPIC_QUICK_MODEL can point this at a
- * cheaper model than the one used for writing CVs.
- */
-export async function quickMatch(materials: TailorMaterials, env: Env, signal?: AbortSignal): Promise<QuickMatch> {
-  const client = getClient(env);
-  const response = await client.beta.messages.parse(
-    {
-      ...modelParams({ ...env, ANTHROPIC_MODEL: env.ANTHROPIC_QUICK_MODEL?.trim() || env.ANTHROPIC_MODEL }),
-      max_tokens: 4000,
-      system: SYSTEM_PROMPT,
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: candidateBlock(materials), cache_control: { type: "ephemeral" } },
-            {
-              type: "text",
-              text: `${jobBlock(materials.job)}\n\n${quickMatchInstruction(hasProfile(materials.profile))}`,
-            },
-          ],
-        },
-      ],
-      output_config: { effort: "low", format: betaZodOutputFormat(QuickMatchSchema) },
-    },
-    { signal },
-  );
-  if (response.stop_reason === "refusal") throw new AiError(REFUSAL_MESSAGE, 422);
-  if (response.stop_reason === "max_tokens") throw new AiError("The match was cut off. Try again.", 502);
-  const match = response.parsed_output;
-  if (!match) throw new AiError("Claude's match couldn't be read. Try again.", 502);
-  return {
-    matchScore: Math.min(100, Math.max(0, Math.round(match.matchScore))),
-    verdict: match.verdict.trim(),
-    missing: match.missing.map((item) => item.trim()).filter(Boolean).slice(0, 3),
-  };
 }
 
 export type DocumentKind = "cv" | "cover-letter";

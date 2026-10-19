@@ -4,16 +4,21 @@ import { Gauge, Square } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useSources } from "@/components/useSources";
 import { canMatch, candidateFor, matchKey, type Candidate } from "@/lib/candidate";
+import type { MatchAnalysis } from "@/lib/ai/prompts";
 import { siteJobKey } from "@/lib/import";
-import { useCv, useMatches, useProfile, type StoredMatch } from "@/lib/store";
+import { matchFromAnalysis } from "@/lib/job-tasks";
+import { updateTailoredDocs, useCv, useMatches, useProfile, useSavedJobs, useSettings, type StoredMatch } from "@/lib/store";
 import type { Job } from "@/lib/types";
 
 /** How many jobs are matched at the same time. */
 const PARALLEL = 3;
-/** Ask before matching more than this many in one go. */
-const CONFIRM_ABOVE = 20;
+/** Ask before matching more than this many in one go: each is a full analysis. */
+const CONFIRM_ABOVE = 10;
 
-/** The current match score for each job, leaving out ones made from an older CV or description. */
+/**
+ * The current match for each job: a full analysis, leaving out ones made from an older CV or
+ * description, from a snippet, or quick-only scores from before every match was a full analysis.
+ */
 export function useCurrentMatches(): { matchFor: (job: Job) => StoredMatch | undefined; candidate: Candidate } {
   const [cv] = useCv();
   const [profile] = useProfile();
@@ -24,13 +29,13 @@ export function useCurrentMatches(): { matchFor: (job: Job) => StoredMatch | und
     matchFor: (job) => {
       const match = matches[job.id];
       // A score made from a snippet (before snippets stopped being matched) isn't shown.
-      return match && canMatch(job) && match.key === matchKey(job, candidate) ? match : undefined;
+      return match?.analysis && canMatch(job) && match.key === matchKey(job, candidate) ? match : undefined;
     },
   };
 }
 
 
-/** Scores every job in `jobs` against the CV, one Claude request each. */
+/** Runs a full match analysis of every job in `jobs` against the CV, one Claude request each. */
 interface MatchAllProps {
   jobs: Job[];
   /** Called after a run that scored at least one job, e.g. to sort by match. */
@@ -40,6 +45,8 @@ interface MatchAllProps {
 export function MatchAllButton({ jobs, onMatched }: MatchAllProps) {
   const sources = useSources();
   const [, setMatches] = useMatches();
+  const { saved } = useSavedJobs();
+  const [settings] = useSettings();
   const { matchFor, candidate } = useCurrentMatches();
   const [progress, setProgress] = useState<{ done: number; total: number; failed: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -60,7 +67,9 @@ export function MatchAllButton({ jobs, onMatched }: MatchAllProps) {
     if (todo.length === 0) return;
     if (
       todo.length > CONFIRM_ABOVE &&
-      !window.confirm(`Match ${todo.length} jobs against your CV? That's ${todo.length} Claude requests.`)
+      !window.confirm(
+        `Analyse ${todo.length} jobs against your CV? Each is a full analysis, one Claude request per job, so it takes a few minutes.`,
+      )
     ) {
       return;
     }
@@ -79,7 +88,8 @@ export function MatchAllButton({ jobs, onMatched }: MatchAllProps) {
         const job = queue.shift();
         if (!job) return;
         try {
-          const response = await fetch("/api/tailor/quick-match", {
+          const notes = settings.useJobNotes ? saved[job.id]?.notes.trim().slice(0, 4000) || undefined : undefined;
+          const response = await fetch("/api/tailor/analyze", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -92,6 +102,7 @@ export function MatchAllButton({ jobs, onMatched }: MatchAllProps) {
                 url: job.url.slice(0, 2000),
                 description: job.description.slice(0, 40_000),
               },
+              notes,
             }),
             signal: abort.signal,
           });
@@ -105,14 +116,11 @@ export function MatchAllButton({ jobs, onMatched }: MatchAllProps) {
             }
             failed++;
           } else {
-            const match: StoredMatch = {
-              score: data.matchScore,
-              verdict: data.verdict,
-              missing: data.missing ?? [],
-              key: matchKey(job, candidate),
-              at: new Date().toISOString(),
-            };
+            const analysis = data as MatchAnalysis;
+            const match: StoredMatch = matchFromAnalysis(analysis, matchKey(job, candidate));
             setMatches((previous) => ({ ...previous, [job.id]: match }));
+            // A saved job's page shows it as its analysis straight away.
+            if (saved[job.id]) updateTailoredDocs(job.id, { analysis });
           }
         } catch {
           if (abort.signal.aborted) return;
