@@ -4,6 +4,7 @@ import { Upload } from "lucide-react";
 import Link from "next/link";
 import { useState, type ChangeEvent, type DragEvent } from "react";
 import { PROFILE_TABS, SectionTabs } from "@/components/Nav";
+import { SkillsProfile } from "@/components/SkillsProfile";
 import { ProfileLinks } from "@/components/ProfileLinks";
 import { useCv, useHydrated } from "@/lib/store";
 
@@ -149,6 +150,7 @@ export function CvView() {
         </div>
       </div>
 
+      <SkillsProfile />
       <ProfileLinks />
     </div>
   );

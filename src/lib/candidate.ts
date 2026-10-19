@@ -1,5 +1,6 @@
 import { hashString } from "@/lib/import";
 import { MAX_EVIDENCE_CHARS, MAX_GITHUB_LENGTH, MAX_WEBSITE_LENGTH, linksChanged } from "@/lib/profile/links";
+import type { ExtraSkill } from "@/lib/ai/prompts";
 import type { StoredCv, StoredProfile } from "@/lib/store";
 import type { Job } from "@/lib/types";
 
@@ -7,6 +8,8 @@ import type { Job } from "@/lib/types";
 export interface Candidate {
   cv: string;
   profile?: { website: string; github: string; evidence: string };
+  /** Skills from the profile that the CV doesn't show. */
+  skills?: ExtraSkill[];
   /** Details fetched for links that have since changed, so they're left out. */
   staleDetails: boolean;
   /** Changes whenever what Claude is told about the candidate changes. */
@@ -22,7 +25,13 @@ export function candidateFor(cv: StoredCv | null, profile: StoredProfile): Candi
   const evidence = staleDetails ? "" : profile.evidence.trim().slice(0, MAX_EVIDENCE_CHARS);
   const payload = profile.enabled && (website || github || evidence) ? { website, github, evidence } : undefined;
   const text = cv?.text ?? "";
-  return { cv: text, profile: payload, staleDetails, key: hashString(JSON.stringify([text, payload ?? null])) };
+  const skills = (profile.skills ?? [])
+    .filter((skill) => skill.name.trim())
+    .slice(0, 60)
+    .map((skill) => ({ name: skill.name.trim().slice(0, 100), detail: skill.detail.trim().slice(0, 500) }));
+  // Extra skills aren't part of the key: adding one shouldn't hide every match score. New analyses use them.
+  const key = hashString(JSON.stringify([text, payload ?? null]));
+  return { cv: text, profile: payload, skills: skills.length ? skills : undefined, staleDetails, key };
 }
 
 /**

@@ -412,7 +412,7 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
   const profileSources =
     [profile.website.trim() && "website", profile.github.trim() && "GitHub"].filter(Boolean).join(" and ") ||
     "website and GitHub details";
-  const { profile: payloadProfile, staleDetails } = candidateFor(cv, profile);
+  const { profile: payloadProfile, skills: payloadSkills, staleDetails } = candidateFor(cv, profile);
   const payloadNotes = settings.useJobNotes ? entry.notes.trim().slice(0, 4000) || undefined : undefined;
 
   const payloadJob = {
@@ -428,7 +428,7 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
     startAnalysis(
       job.id,
       label,
-      { cv: cvText, job: payloadJob, profile: payloadProfile, notes: payloadNotes },
+      { cv: cvText, job: payloadJob, profile: payloadProfile, skills: payloadSkills, notes: payloadNotes },
       // So the score shows in the job lists too, when it's for the job's own description.
       description === job.description ? matchKey(job, candidate) : undefined,
     );
@@ -436,7 +436,7 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
 
   function generate(kind: DocKind) {
     setTab(kind);
-    startDocument(job.id, label, kind, { cv: cvText, job: payloadJob, profile: payloadProfile, notes: payloadNotes, options });
+    startDocument(job.id, label, kind, { cv: cvText, job: payloadJob, profile: payloadProfile, skills: payloadSkills, notes: payloadNotes, options });
   }
 
   /** Adds a line to the job's notes (from "Have you done any of these?"), and makes sure tailoring uses them. */

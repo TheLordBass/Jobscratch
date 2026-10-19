@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { analyzeMatch, toAiError } from "@/lib/ai/claude";
-import { CandidateProfileSchema, JobNotesSchema, TailorJobSchema } from "@/lib/ai/prompts";
+import { CandidateProfileSchema, ExtraSkillsSchema, JobNotesSchema, TailorJobSchema } from "@/lib/ai/prompts";
 import { hasFullDescription } from "@/lib/candidate";
 
 export const maxDuration = 300;
@@ -10,6 +10,7 @@ const Body = z.object({
   job: TailorJobSchema,
   profile: CandidateProfileSchema.optional(),
   notes: JobNotesSchema,
+  skills: ExtraSkillsSchema,
 });
 
 export async function POST(request: Request) {
