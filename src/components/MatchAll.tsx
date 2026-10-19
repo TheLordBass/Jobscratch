@@ -95,6 +95,7 @@ export function MatchAllButton({ jobs, onMatched }: MatchAllProps) {
             body: JSON.stringify({
               cv: candidate.cv,
               profile: candidate.profile,
+              skills: candidate.skills,
               job: {
                 title: job.title.slice(0, 300),
                 company: job.company.slice(0, 200),

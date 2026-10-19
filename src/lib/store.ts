@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useSyncExternalStore } from "react";
-import type { MatchAnalysis, TailorOptions } from "@/lib/ai/prompts";
+import type { ExtraSkill, MatchAnalysis, TailorOptions } from "@/lib/ai/prompts";
 import { dismissKeys, findSavedCopy, mergeJobs } from "@/lib/import";
 import type { HelperSearch } from "@/lib/jobspy-helper";
 import { connectStore, queueChange } from "@/lib/sync";
@@ -56,6 +56,8 @@ export interface StoredProfile {
   fetchedAt?: string;
   /** The links `evidence` was read from, to spot when they've been changed since. */
   fetchedFor?: { website: string; github: string };
+  /** Skills and experience the CV doesn't show, added on the Profile page. Sent with every analysis and document. */
+  skills?: ExtraSkill[];
 }
 
 export interface Settings {
