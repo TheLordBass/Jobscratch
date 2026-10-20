@@ -86,6 +86,9 @@ function JobspyImporter() {
   const { matchFor } = useCurrentMatches();
   const { isDismissed, dismiss, restore } = useDismissed();
   const [showHidden, setShowHidden] = useState(false);
+  // Jobs already saved when the results came in are left out; ones saved from them stay, marked saved.
+  const [savedBefore, setSavedBefore] = useState<Set<string>>(() => new Set());
+  const [showSaved, setShowSaved] = useState(false);
   const [result, setResult] = useState<JobspyImport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -94,6 +97,8 @@ function JobspyImporter() {
 
   /** A new list starts unfiltered. */
   function show(next: JobspyImport) {
+    setSavedBefore(new Set(Object.keys(saved)));
+    setShowSaved(false);
     setResult(next);
     setJobFilter(ANY_JOB);
   }
@@ -114,7 +119,10 @@ function JobspyImporter() {
   // A job you've already saved shows as saved, including anything added since, e.g. a LinkedIn
   // description sent with the bookmarklet.
   const findCopy = useMemo(() => savedCopyFinder(saved), [saved]);
-  const all = collapseCopies(result?.jobs ?? [], findCopy);
+  const found = collapseCopies(result?.jobs ?? [], findCopy);
+  const wasSaved = (job: Job) => savedBefore.has(job.id) && Boolean(saved[job.id]);
+  const savedCount = found.filter(wasSaved).length;
+  const all = showSaved ? found : found.filter((job) => !wasSaved(job));
   // Jobs marked "Not interested" are left out of everything here, unless you ask to see them.
   const notHidden = all.filter((job) => !isDismissed(job));
   const hiddenCount = all.length - notHidden.length;
@@ -201,6 +209,15 @@ function JobspyImporter() {
           <MatchAllButton jobs={jobs} onMatched={() => setOrder("match")} />
           <SaveByMatch jobs={jobs} />
           <BulkTailor jobs={jobs} />
+          {savedCount > 0 && (
+            <p className="muted text-xs">
+              {savedCount} {savedCount === 1 ? "job you’ve" : "jobs you’ve"} already saved
+              {showSaved ? " shown. " : " left out (they’re in My jobs). "}
+              <button type="button" className="link cursor-pointer" onClick={() => setShowSaved(!showSaved)}>
+                {showSaved ? "Hide them" : "Show them"}
+              </button>
+            </p>
+          )}
           {hiddenCount > 0 && (
             <p className="muted text-xs">
               {hiddenCount} {hiddenCount === 1 ? "job" : "jobs"} marked Not interested

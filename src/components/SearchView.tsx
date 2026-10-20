@@ -126,6 +126,9 @@ export function SearchView() {
   const [search, setSearch] = useState<SearchState>({ status: "idle" });
   const [sort, setSort] = useState<"relevance" | "newest" | "match">("relevance");
   const [showHidden, setShowHidden] = useState(false);
+  // Jobs already saved when the search ran are left out; ones saved from its results stay, marked saved.
+  const [savedBefore, setSavedBefore] = useState<Set<string>>(() => new Set());
+  const [showSaved, setShowSaved] = useState(false);
   const { isDismissed, dismiss, restore } = useDismissed();
   const { matchFor } = useCurrentMatches();
   const [filter, setFilter] = useState("");
@@ -172,6 +175,8 @@ export function SearchView() {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error ?? `Search failed (HTTP ${response.status})`);
+      setSavedBefore(new Set(Object.keys(saved)));
+      setShowSaved(false);
       setSearch({ status: "done", label, response: data as SearchResponse });
     } catch (error) {
       setSearch({ status: "error", message: (error as Error).message });
@@ -244,8 +249,11 @@ export function SearchView() {
   }, [search, filter, sort, matchFor, findCopy]);
 
   // Jobs marked "Not interested" are left out, unless you ask to see them.
-  const hiddenCount = allResults.filter(isDismissed).length;
-  const unfiltered = showHidden ? allResults : allResults.filter((job) => !isDismissed(job));
+  const wasSaved = (job: Job) => savedBefore.has(job.id) && Boolean(saved[job.id]);
+  const savedCount = allResults.filter(wasSaved).length;
+  const fresh = showSaved ? allResults : allResults.filter((job) => !wasSaved(job));
+  const hiddenCount = fresh.filter(isDismissed).length;
+  const unfiltered = showHidden ? fresh : fresh.filter((job) => !isDismissed(job));
   // The From and Show filters narrow the list, and Match all and the rest act on what's left.
   const isMatched = (job: Job) => Boolean(matchFor(job));
   const results = filterJobs(unfiltered, (job) => job, jobFilter, isMatched);
@@ -512,6 +520,15 @@ export function SearchView() {
           {unfiltered.length > 0 && <MatchAllButton jobs={onScreen} onMatched={() => setSort("match")} />}
           {unfiltered.length > 0 && <SaveByMatch jobs={onScreen} />}
           {unfiltered.length > 0 && <BulkTailor jobs={onScreen} />}
+          {savedCount > 0 && (
+            <p className="muted text-xs">
+              {savedCount} {savedCount === 1 ? "job you’ve" : "jobs you’ve"} already saved
+              {showSaved ? " shown. " : " left out (they’re in My jobs). "}
+              <button type="button" className="link cursor-pointer" onClick={() => setShowSaved(!showSaved)}>
+                {showSaved ? "Hide them" : "Show them"}
+              </button>
+            </p>
+          )}
           {hiddenCount > 0 && (
             <p className="muted text-xs">
               {hiddenCount} {hiddenCount === 1 ? "job" : "jobs"} marked Not interested
