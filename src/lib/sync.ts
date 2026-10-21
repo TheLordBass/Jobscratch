@@ -22,7 +22,9 @@ import {
 
 export type SyncState =
   | { status: "checking" }
-  | { status: "off"; reason: "not-configured" | "needs-password" | "unreachable" }
+  | { status: "off"; reason: "not-configured" | "needs-password" }
+  /** detail: what went wrong, e.g. the database rejecting the connection. */
+  | { status: "off"; reason: "unreachable"; detail?: string }
   | { status: "saved" | "saving" }
   | { status: "error"; message: string };
 
@@ -341,10 +343,10 @@ export function startSync() {
     let status: SyncAvailability;
     try {
       status = await getJson<SyncAvailability>("/api/data");
-    } catch {
-      // Not reachable now (offline?): changes are kept in this browser and sent on a later visit.
+    } catch (error) {
+      // Not reachable now (offline, or the database failed): changes are kept here and sent on a later visit.
       loadPending();
-      setState({ status: "off", reason: "unreachable" });
+      setState({ status: "off", reason: "unreachable", detail: (error as Error).message });
       return;
     }
     if (!status.enabled) {
