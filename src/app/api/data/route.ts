@@ -13,7 +13,7 @@ import { COLLECTION_KEYS, SINGLETON_KEYS, SyncOpSchema, isCollectionKey, type Sy
 
 export const maxDuration = 30;
 
-const Body = z.object({ ops: z.array(SyncOpSchema).min(1).max(50) });
+const Body = z.object({ ops: z.array(z.unknown()).min(1).max(50) });
 
 /** The backend, or a response saying why server storage is off. */
 function open(): DataBackend | Response {
@@ -54,8 +54,13 @@ export async function POST(request: Request) {
   if (backend instanceof Response) return Response.json({ error: "Server storage is off." }, { status: 409 });
   const parsed = Body.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "Invalid changes" }, { status: 400 });
+  // Each change is checked on its own, so one that can't be saved doesn't hold up the rest
+  // (the browser would otherwise retry the whole batch forever).
+  const checked = parsed.data.ops.map((op) => SyncOpSchema.safeParse(op));
+  const ops = checked.flatMap((result) => (result.success ? [result.data] : []));
+  if (ops.length === 0) return Response.json({ error: "Invalid changes" }, { status: 400 });
   try {
-    return Response.json({ updatedAt: await applyOps(backend, parsed.data.ops) });
+    return Response.json({ updatedAt: await applyOps(backend, ops), skipped: checked.length - ops.length });
   } catch (error) {
     return Response.json({ error: (error as Error).message }, { status: 502 });
   }

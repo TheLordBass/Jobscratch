@@ -30,7 +30,8 @@ export function isTombstone(value: unknown): value is Tombstone {
 
 export const SyncOpSchema = z.union([
   z.object({ key: z.enum(SINGLETON_KEYS), value: z.unknown() }),
-  z.object({ key: z.enum(COLLECTION_KEYS), items: z.record(z.string().min(1).max(500), z.unknown()) }),
+  // Job ids can be long: Google Jobs' are encoded search details, often several hundred characters.
+  z.object({ key: z.enum(COLLECTION_KEYS), items: z.record(z.string().min(1).max(4000), z.unknown()) }),
 ]);
 
 export type SyncOp = z.infer<typeof SyncOpSchema>;
