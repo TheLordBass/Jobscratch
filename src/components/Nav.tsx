@@ -1,6 +1,6 @@
 "use client";
 
-import { BriefcaseBusiness, Check, Cloud, CloudAlert, CloudUpload, Loader2, LogOut, Search, UserRound, X } from "lucide-react";
+import { BriefcaseBusiness, Check, Cloud, CloudAlert, CloudUpload, Loader2, LogOut, Menu, Search, UserRound, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -25,6 +25,9 @@ export function Nav() {
   const { saved } = useSavedJobs();
   const hydrated = useHydrated();
   const savedCount = Object.keys(saved).length;
+  // The phone menu is open for the page it was opened on, so going to another page closes it.
+  const [menuFor, setMenuFor] = useState<string | null>(null);
+  const menuOpen = menuFor === pathname;
 
   // The sign-in page has nothing to sync yet; signing in reloads the page.
   const onLogin = pathname === "/login";
@@ -34,16 +37,16 @@ export function Nav() {
 
   return (
     <header className="sticky top-0 z-20 border-b border-zinc-200/70 bg-white/75 backdrop-blur-lg dark:border-zinc-800/70 dark:bg-zinc-950/75">
-      <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3 sm:gap-6 sm:px-6">
+      <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-2.5 sm:gap-6 sm:px-6 sm:py-3">
         <Link href="/" className="flex items-center gap-2.5 font-bold tracking-tight">
           <span className="grid h-8 w-8 place-items-center rounded-xl bg-linear-to-br from-indigo-500 to-violet-600 text-white shadow-sm shadow-indigo-600/30">
             <BriefcaseBusiness size={16} strokeWidth={2.25} aria-hidden />
           </span>
-          <span className="hidden text-lg sm:inline">JobScratch</span>
+          <span className="text-lg">JobScratch</span>
         </Link>
         {onLogin ? null : (
           <>
-            <nav className="-mx-1 flex flex-1 gap-1 overflow-x-auto" aria-label="Main">
+            <nav className="-mx-1 hidden flex-1 gap-1 sm:flex" aria-label="Main">
               {SECTIONS.map(({ href, label, icon: Icon, paths }) => {
                 const active = inSection(pathname, paths);
                 return (
@@ -53,7 +56,7 @@ export function Nav() {
                     aria-current={active ? "page" : undefined}
                     className={`btn rounded-full ${active ? "bg-zinc-900 text-white shadow-sm hover:bg-zinc-800 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-100" : "btn-ghost"}`}
                   >
-                    <Icon size={16} aria-hidden className="hidden sm:block" />
+                    <Icon size={16} aria-hidden />
                     {label}
                     {href === "/saved" && hydrated && savedCount > 0 && (
                       <span
@@ -66,11 +69,60 @@ export function Nav() {
                 );
               })}
             </nav>
-            <SyncIndicator />
-            <SignOutButton />
+            <div className="ml-auto flex items-center gap-1 sm:ml-0">
+              <SyncIndicator />
+              <span className="hidden sm:inline-flex">
+                <SignOutButton />
+              </span>
+              <button
+                type="button"
+                className="btn btn-ghost btn-icon -mr-1.5 h-10! w-10! sm:hidden"
+                onClick={() => setMenuFor(menuOpen ? null : pathname)}
+                aria-expanded={menuOpen}
+                aria-controls="phone-menu"
+                aria-label={menuOpen ? "Close menu" : "Open menu"}
+              >
+                {menuOpen ? <X size={20} aria-hidden /> : <Menu size={20} aria-hidden />}
+              </button>
+            </div>
           </>
         )}
       </div>
+      {!onLogin && menuOpen && (
+        <nav
+          id="phone-menu"
+          className="border-t border-zinc-200/70 px-4 pb-3 sm:hidden dark:border-zinc-800/70"
+          aria-label="Main"
+          onKeyDown={(event) => event.key === "Escape" && setMenuFor(null)}
+        >
+          <ul className="space-y-1 pt-2">
+            {SECTIONS.map(({ href, label, icon: Icon, paths }) => {
+              const active = inSection(pathname, paths);
+              return (
+                <li key={href}>
+                  <Link
+                    href={href}
+                    aria-current={active ? "page" : undefined}
+                    onClick={() => setMenuFor(null)}
+                    className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-base font-semibold ${active ? "bg-zinc-900 text-white dark:bg-white dark:text-zinc-900" : "hover:bg-zinc-900/5 dark:hover:bg-white/5"}`}
+                  >
+                    <Icon size={18} aria-hidden />
+                    <span className="flex-1">{label}</span>
+                    {href === "/saved" && hydrated && savedCount > 0 && (
+                      <span
+                        className={`rounded-full px-2 text-xs leading-5 font-bold ${active ? "bg-white/20 text-white dark:bg-zinc-900/10 dark:text-zinc-900" : "bg-indigo-600 text-white"}`}
+                      >
+                        {savedCount}
+                      </span>
+                    )}
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+          <SignOutButton wide />
+        </nav>
+      )}
       {!onLogin && <JobTasksBar />}
     </header>
   );
@@ -167,10 +219,29 @@ function SyncIndicator() {
   );
 }
 
-function SignOutButton() {
+/** `wide`: a full-width row with the account name, for the phone menu. */
+function SignOutButton({ wide = false }: { wide?: boolean }) {
   const session = useSession();
   const [busy, setBusy] = useState(false);
   if (!session?.signedIn) return null;
+  if (wide) {
+    return (
+      <button
+        type="button"
+        className="mt-2 flex w-full cursor-pointer items-center gap-3 rounded-xl border-t border-zinc-200/70 px-3 pt-3 pb-1 text-left text-sm text-zinc-600 dark:border-zinc-800/70 dark:text-zinc-400"
+        onClick={() => {
+          setBusy(true);
+          void signOut();
+        }}
+        disabled={busy}
+      >
+        <LogOut size={18} aria-hidden />
+        <span className="flex-1">
+          Sign out <span className="muted">({session.username})</span>
+        </span>
+      </button>
+    );
+  }
   return (
     <button
       type="button"
