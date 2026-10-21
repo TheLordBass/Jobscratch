@@ -12,6 +12,8 @@ import {
   readUpdatedAt,
   readValue,
   storageAvailability,
+  redisBackend,
+  redisUrl,
   upstashCredentials,
 } from "@/lib/server-data";
 import { mergeCollection } from "@/lib/sync";
@@ -63,6 +65,60 @@ describe("server storage", () => {
     ).toEqual({ url: "https://c.upstash.io", token: "t3" });
     expect(upstashCredentials({ KV_URL: "rediss://x", REDIS_URL: "rediss://y" })).toBeUndefined();
     expect(upstashCredentials({ STORAGE_KV_REST_API_URL: "https://c.upstash.io" })).toBeUndefined();
+  });
+
+  it("uses Vercel's Redis database (a redis:// address) when there's no Upstash one", () => {
+    expect(redisUrl({ REDIS_URL: "rediss://default:pw@redis.example:6379" })).toBe("rediss://default:pw@redis.example:6379");
+    expect(redisUrl({ STORAGE_REDIS_URL: "redis://r.example:6379" })).toBe("redis://r.example:6379");
+    expect(redisUrl({ REDIS_URL: "https://not-redis.example" })).toBeUndefined();
+    expect(dataBackend({ REDIS_URL: "redis://r.example:6379" })?.kind).toBe("redis");
+    // Upstash's REST settings come first when both are there.
+    expect(dataBackend({ REDIS_URL: "redis://r.example", KV_REST_API_URL: "https://u.upstash.io", KV_REST_API_TOKEN: "t" })?.kind).toBe("upstash");
+    // Like Upstash, it holds your CV, so it needs the site password.
+    expect(storageAvailability({ REDIS_URL: "redis://r.example" })).toEqual({ enabled: false, reason: "needs-password" });
+    expect(storageAvailability({ REDIS_URL: "redis://r.example", APP_PASSWORD: "x" })).toBeNull();
+  });
+
+  it("saves and reads everything through a redis:// connection", async () => {
+    // A stand-in Redis that answers the commands the app sends.
+    const strings = new Map<string, string>();
+    const hashes = new Map<string, Map<string, string>>();
+    const sent: string[][] = [];
+    const fake = {
+      async sendCommand([name, key, ...args]: string[]) {
+        sent.push([name, key, ...args]);
+        if (name === "GET") return strings.get(key) ?? null;
+        if (name === "SET") {
+          strings.set(key, args[0]);
+          return "OK";
+        }
+        if (name === "HSET") {
+          const hash = hashes.get(key) ?? new Map();
+          for (let i = 0; i < args.length; i += 2) hash.set(args[i], args[i + 1]);
+          hashes.set(key, hash);
+          return args.length / 2;
+        }
+        if (name === "HSCAN") return ["0", [...(hashes.get(key) ?? new Map())].flat()];
+        if (name === "DEL") return [key, ...args].filter((k) => strings.delete(k) || hashes.delete(k)).length;
+        throw new Error(`unexpected ${name}`);
+      },
+    };
+    let connects = 0;
+    const backend = redisBackend("redis://test", async () => (connects++, fake));
+    await applyOps(backend, [{ key: "cv", value: { text: "Alex" } }, { key: "saved", items: { a: job("A", "1") } }], "T1");
+    expect(await readUpdatedAt(backend)).toBe("T1");
+    expect(await readValue(backend, "cv")).toEqual({ text: "Alex" });
+    expect(await readItems(backend, "saved")).toEqual({ items: { a: job("A", "1") }, cursor: "0" });
+    // The "last changed" time is written after the changes, in the same pipeline.
+    expect(sent.slice(0, 3).map(([name, key]) => `${name} ${key}`)).toEqual([
+      "SET jobscratch:cv",
+      "HSET jobscratch:saved",
+      "SET jobscratch:meta",
+    ]);
+    await clearAll(backend, "T2");
+    expect(await readValue(backend, "cv")).toBeNull();
+    // One connection, reused.
+    expect(connects).toBe(1);
   });
 
   it("talks to Upstash through one pipeline request", async () => {

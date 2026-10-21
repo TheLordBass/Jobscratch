@@ -1,4 +1,5 @@
 import { promises as fs } from "node:fs";
+import { createClient } from "redis";
 import {
   SYNC_KEYS,
   type CollectionKey,
@@ -8,9 +9,10 @@ import {
 } from "@/lib/sync-types";
 
 /*
- * Server storage for one person's JobScratch data, in Upstash Redis (added
- * from the Vercel Marketplace). Singletons are Redis strings; collections are
- * hashes with one field per job, so a change writes only the jobs it touched.
+ * Server storage for one person's JobScratch data, in Redis added from the Vercel
+ * Marketplace: "Upstash for Redis" (over its REST API) or "Redis" (over a redis:// connection).
+ * Singletons are Redis strings; collections are hashes with one field per job, so a change
+ * writes only the jobs it touched.
  */
 
 const PREFIX = "jobscratch:";
@@ -21,7 +23,7 @@ type Env = Record<string, string | undefined>;
 type Command = string[];
 
 export interface DataBackend {
-  kind: "upstash" | "file";
+  kind: "upstash" | "redis" | "file";
   /** Runs Redis commands in order and returns each one's result. */
   run(commands: Command[]): Promise<unknown[]>;
 }
@@ -139,9 +141,59 @@ export function upstashCredentials(env: Env): { url: string; token: string } | u
   return undefined;
 }
 
+/**
+ * A redis:// address: what Vercel's "Redis" database (as opposed to "Upstash for Redis") gives,
+ * as REDIS_URL or with a prefix (e.g. STORAGE_REDIS_URL); Upstash's KV_URL is one too.
+ */
+export function redisUrl(env: Env): string | undefined {
+  const names = ["REDIS_URL", "KV_URL", ...Object.keys(env).sort().filter((name) => /_(REDIS|KV)_URL$/.test(name))];
+  for (const name of names) {
+    const value = env[name]?.trim();
+    if (value && /^rediss?:\/\//i.test(value)) return value;
+  }
+  return undefined;
+}
+
+/** All the app needs from a Redis connection. */
+interface RedisConnection {
+  sendCommand(command: string[]): Promise<unknown>;
+}
+const redisClients = new Map<string, Promise<RedisConnection>>();
+
+/**
+ * A Redis server over its own protocol. The connection is kept between requests while the
+ * function stays warm, and the commands of one call are pipelined in order.
+ */
+export function redisBackend(url: string, connect: (url: string) => Promise<RedisConnection> = connectRedis): DataBackend {
+  return {
+    kind: "redis",
+    async run(commands) {
+      let client = redisClients.get(url);
+      if (!client) {
+        client = connect(url);
+        redisClients.set(url, client);
+        // A failed connection is retried on the next request.
+        client.catch(() => redisClients.delete(url));
+      }
+      const ready = await client;
+      return Promise.all(commands.map((command) => ready.sendCommand(command)));
+    },
+  };
+}
+
+async function connectRedis(url: string): Promise<RedisConnection> {
+  const client = createClient({ url, socket: { connectTimeout: 10_000 } });
+  // Errors after connecting (e.g. an idle connection being closed) show up on the next command instead.
+  client.on("error", () => {});
+  await client.connect();
+  return { sendCommand: (command) => client.sendCommand(command) };
+}
+
 export function dataBackend(env: Env): DataBackend | undefined {
   const upstash = upstashCredentials(env);
   if (upstash) return upstashBackend(upstash.url, upstash.token);
+  const redis = redisUrl(env);
+  if (redis) return redisBackend(redis);
   const file = env.JOBSCRATCH_DATA_FILE?.trim();
   if (file && env.NODE_ENV !== "production") return fileBackend(file);
   return undefined;
@@ -154,7 +206,7 @@ export function dataBackend(env: Env): DataBackend | undefined {
  */
 export function storageAvailability(env: Env, backend = dataBackend(env)): Exclude<SyncAvailability, { enabled: true }> | null {
   if (!backend) return { enabled: false, reason: "not-configured" };
-  if (backend.kind === "upstash" && !env.APP_PASSWORD) return { enabled: false, reason: "needs-password" };
+  if (backend.kind !== "file" && !env.APP_PASSWORD) return { enabled: false, reason: "needs-password" };
   return null;
 }
 
