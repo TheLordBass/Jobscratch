@@ -317,8 +317,8 @@ export function SettingsView() {
               : sync.status === "off" && sync.reason === "needs-password"
                 ? "Server storage is connected, but it stays off until you set APP_PASSWORD, so your CV isn't open to anyone with the link."
                 : sync.status === "off" && sync.reason === "unreachable"
-                  ? "Couldn't reach server storage, so for now everything is only in this browser."
-                  : "Everything is stored in this browser only. To keep it on the server and use it on any device, add Upstash Redis to this project in Vercel (see the README). Or back it up to move it by hand."}
+                  ? `Server storage is connected but isn't working right now${sync.detail ? ` (${sync.detail})` : ""}, so for now everything is only in this browser. If it says Upstash rejected the request, reconnect the database to this project in Vercel and redeploy.`
+                  : "No database found in this deployment, so everything is stored in this browser only. To use your jobs on any device, add Upstash for Redis to this project in Vercel (Storage tab, see the README). If you've just added it, redeploy (Deployments → the latest one → Redeploy): the app only sees it in deployments made after that."}
           </p>
           {sync.status === "error" && (
             <p className="mt-1 text-sm text-amber-700 dark:text-amber-300">

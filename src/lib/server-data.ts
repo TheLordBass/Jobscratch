@@ -116,10 +116,32 @@ export function fileBackend(path: string): DataBackend {
   };
 }
 
+/**
+ * The Upstash REST address and token. Vercel names them KV_REST_API_URL / _TOKEN, or with a prefix
+ * chosen when the database was connected (e.g. STORAGE_KV_REST_API_URL); Upstash's own are
+ * UPSTASH_REDIS_REST_URL / _TOKEN. (The read-only token can't save, so it's never used.)
+ */
+export function upstashCredentials(env: Env): { url: string; token: string } | undefined {
+  const pairs: Array<[string, string]> = [
+    ["UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN"],
+    ["KV_REST_API_URL", "KV_REST_API_TOKEN"],
+  ];
+  for (const name of Object.keys(env).sort()) {
+    for (const suffix of ["_KV_REST_API_URL", "_UPSTASH_REDIS_REST_URL"]) {
+      if (name.endsWith(suffix) && name !== suffix.slice(1)) pairs.push([name, name.replace(/_URL$/, "_TOKEN")]);
+    }
+  }
+  for (const [urlName, tokenName] of pairs) {
+    const url = env[urlName]?.trim();
+    const token = env[tokenName]?.trim();
+    if (url && token) return { url, token };
+  }
+  return undefined;
+}
+
 export function dataBackend(env: Env): DataBackend | undefined {
-  const url = env.UPSTASH_REDIS_REST_URL?.trim() || env.KV_REST_API_URL?.trim();
-  const token = env.UPSTASH_REDIS_REST_TOKEN?.trim() || env.KV_REST_API_TOKEN?.trim();
-  if (url && token) return upstashBackend(url, token);
+  const upstash = upstashCredentials(env);
+  if (upstash) return upstashBackend(upstash.url, upstash.token);
   const file = env.JOBSCRATCH_DATA_FILE?.trim();
   if (file && env.NODE_ENV !== "production") return fileBackend(file);
   return undefined;

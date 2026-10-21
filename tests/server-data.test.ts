@@ -12,6 +12,7 @@ import {
   readUpdatedAt,
   readValue,
   storageAvailability,
+  upstashCredentials,
 } from "@/lib/server-data";
 import { mergeCollection } from "@/lib/sync";
 
@@ -51,6 +52,17 @@ describe("server storage", () => {
     await clearAll(backend);
     expect(await readValue(backend, "cv")).toBeNull();
     expect((await readItems(backend, "saved")).items).toEqual({});
+  });
+
+  it("finds the database however Vercel named its settings", () => {
+    expect(upstashCredentials({ UPSTASH_REDIS_REST_URL: "https://a.upstash.io", UPSTASH_REDIS_REST_TOKEN: "t1" })).toEqual({ url: "https://a.upstash.io", token: "t1" });
+    expect(upstashCredentials({ KV_REST_API_URL: "https://b.upstash.io", KV_REST_API_TOKEN: "t2" })).toEqual({ url: "https://b.upstash.io", token: "t2" });
+    // A prefix chosen when connecting it in Vercel.
+    expect(
+      upstashCredentials({ STORAGE_KV_REST_API_URL: "https://c.upstash.io", STORAGE_KV_REST_API_TOKEN: "t3", STORAGE_KV_REST_API_READ_ONLY_TOKEN: "ro" }),
+    ).toEqual({ url: "https://c.upstash.io", token: "t3" });
+    expect(upstashCredentials({ KV_URL: "rediss://x", REDIS_URL: "rediss://y" })).toBeUndefined();
+    expect(upstashCredentials({ STORAGE_KV_REST_API_URL: "https://c.upstash.io" })).toBeUndefined();
   });
 
   it("talks to Upstash through one pipeline request", async () => {
