@@ -3,7 +3,7 @@
 import { ArrowLeft, Check, RotateCcw, Sparkles, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { ApplyButton, CompanyMark, OtherApplyLinks } from "@/components/JobCard";
 import { useCurrentMatches } from "@/components/MatchAll";
 import { MarkdownView } from "@/components/MarkdownView";
@@ -14,7 +14,7 @@ import { markdownToDocx } from "@/lib/export-docx";
 import { canMatch, candidateFor, hasFullDescription, matchKey } from "@/lib/candidate";
 import { dismissTask, startAnalysis, startDocument, stopJobTasks, stopTask, useJobTask, type JobTask } from "@/lib/job-tasks";
 import { jobKeys } from "@/lib/import";
-import { downloadBlob, slugify } from "@/lib/format";
+import { downloadBlob, formatPosted, slugify } from "@/lib/format";
 import { inlinesToText, parseMarkdown, printableHtml } from "@/lib/markdown";
 import {
   APPLICATION_STATUSES,
@@ -32,7 +32,7 @@ import {
 import type { Job } from "@/lib/types";
 
 type DocKind = "cv" | "coverLetter";
-type Tab = "analysis" | DocKind;
+type Tab = "job" | "analysis" | DocKind;
 
 interface Generation {
   status: "idle" | "streaming" | "error";
@@ -184,6 +184,72 @@ function MissingExperience({ items, notes, onAdd }: { items: string[]; notes: st
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+/** A job description laid out to read: paragraphs, bullet lists and section headings. */
+function JobDescription({ text }: { text: string }) {
+  const blocks = text
+    .replace(/\r\n?/g, "\n")
+    .split(/\n\s*\n/)
+    .map((block) => block.split("\n").map((line) => line.trim()).filter(Boolean))
+    .filter((lines) => lines.length);
+  const bullet = /^([•·▪◦‣*–—-]|\d{1,2}[.)])\s+/;
+  // A short line on its own that ends with ":" or is in capitals reads as a heading.
+  const heading = (line: string, first: boolean, more: boolean) =>
+    line.length <= 80 &&
+    !bullet.test(line) &&
+    (/:$/.test(line) ||
+      (/[A-Z]/.test(line) && line === line.toUpperCase()) ||
+      (first && more && line.length <= 50 && !/[.,;!?)]$/.test(line)));
+  return (
+    <div className="max-w-prose space-y-4 text-[15px] leading-7 text-zinc-800 dark:text-zinc-200">
+      {blocks.map((lines, i) => {
+        const out: ReactNode[] = [];
+        let list: string[] = [];
+        const flush = () => {
+          if (list.length) {
+            out.push(
+              <ul key={out.length} className="list-disc space-y-1.5 pl-5 marker:text-zinc-400">
+                {list.map((item, j) => (
+                  <li key={j}>{item}</li>
+                ))}
+              </ul>,
+            );
+            list = [];
+          }
+        };
+        let paragraph: string[] = [];
+        const flushParagraph = () => {
+          if (paragraph.length) {
+            out.push(<p key={out.length}>{paragraph.join(" ")}</p>);
+            paragraph = [];
+          }
+        };
+        lines.forEach((line, index) => {
+          if (bullet.test(line)) {
+            flushParagraph();
+            list.push(line.replace(bullet, ""));
+          } else if (heading(line, index === 0, lines.length > 1)) {
+            flushParagraph();
+            flush();
+            out.push(
+              <h3 key={out.length} className="pt-1 text-base font-semibold text-zinc-900 dark:text-white">
+                {line.replace(/:$/, "")}
+              </h3>,
+            );
+          } else {
+            flush();
+            // Lines inside a paragraph are often hard-wrapped; a line that ends a sentence starts a new one.
+            paragraph.push(line);
+            if (/[.!?]$/.test(line) && lines.length > 3) flushParagraph();
+          }
+        });
+        flushParagraph();
+        flush();
+        return <div key={i} className="space-y-3">{out}</div>;
+      })}
     </div>
   );
 }
@@ -362,7 +428,8 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
   const analysis = docs?.analysis ?? listMatch?.analysis;
   const staleAnalysis = !docs?.analysis && Boolean(listMatch?.analysis) && !currentMatch;
 
-  const [tab, setTab] = useState<Tab>(docs?.cv || docs?.analysis ? "cv" : "analysis");
+  // Open on what there is: the tailored CV, else the match analysis, else the job itself.
+  const [tab, setTab] = useState<Tab>(docs?.cv ? "cv" : analysis ? "analysis" : "job");
   // Open for editing when there is only a snippet, which is worth replacing with the full text.
   const [editingDescription, setEditingDescription] = useState(
     () => !hasFullDescription(docs?.jobDescription ?? job.description),
@@ -473,19 +540,21 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
         <ArrowLeft size={14} aria-hidden /> My jobs
       </Link>
 
-      <div className="card flex flex-col gap-4 p-5 sm:flex-row sm:items-start">
-        <CompanyMark job={job} size="lg" />
-        <div className="min-w-0 flex-1">
-          <h1 className="text-xl font-bold tracking-tight">{job.title}</h1>
-          <p className="text-sm">
-            {job.company}
-            {job.location && <span className="muted"> · {job.location}</span>}
-          </p>
-          <div className="mt-1">
-            <OtherApplyLinks job={job} />
+      <div className="card flex flex-col gap-4 p-4 sm:flex-row sm:items-start sm:p-5">
+        <div className="flex min-w-0 flex-1 items-start gap-3 sm:gap-4">
+          <CompanyMark job={job} size="lg" />
+          <div className="min-w-0 flex-1">
+            <h1 className="text-lg leading-snug font-bold tracking-tight sm:text-xl">{job.title}</h1>
+            <p className="text-sm">
+              {job.company}
+              {job.location && <span className="muted"> · {job.location}</span>}
+            </p>
+            <div className="mt-1">
+              <OtherApplyLinks job={job} />
+            </div>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex items-center gap-1.5">
           <select
             className={`input w-auto py-1.5 text-xs font-medium ${STATUS_STYLE[entry.status]}`}
             value={entry.status}
@@ -498,10 +567,10 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
               </option>
             ))}
           </select>
-          <ApplyButton job={job} />
+          <ApplyButton job={job} className="min-w-0 flex-1 sm:flex-none" />
           <button
             type="button"
-            className="btn btn-danger btn-sm btn-icon"
+            className="btn btn-danger btn-sm btn-icon shrink-0"
             onClick={remove}
             aria-label="Remove this job from My jobs"
             title="Remove from My jobs"
@@ -520,9 +589,10 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
 
       <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
         <div className="card min-w-0 p-4 lg:self-start">
-          <div className="mb-4 flex gap-1 border-b border-zinc-100 pb-2 dark:border-zinc-800" role="tablist">
+          <div className="-mx-1 mb-4 flex gap-1 overflow-x-auto border-b border-zinc-100 px-1 pb-2 dark:border-zinc-800" role="tablist">
             {(
               [
+                ["job", "Job", false],
                 [
                   "analysis",
                   analysis ? `Match ${analysis.matchScore}%` : "Match",
@@ -542,11 +612,13 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
                   if (id === "analysis" && canAnalyse() && !analysis && analysisState.status !== "loading") analyse();
                   else setTab(id);
                 }}
-                className={`btn btn-sm ${tab === id ? "bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-white" : "btn-ghost"}`}
+                className={`btn btn-sm shrink-0 ${tab === id ? "bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-white" : "btn-ghost"}`}
               >
                 {label}
-                {id !== "analysis" && done && <Check size={13} className="text-emerald-600 dark:text-emerald-400" aria-label="(written)" />}
-                {id !== "analysis" && generations[id].status === "streaming" && (
+                {(id === "cv" || id === "coverLetter") && done && (
+                  <Check size={13} className="text-emerald-600 dark:text-emerald-400" aria-label="(written)" />
+                )}
+                {(id === "cv" || id === "coverLetter") && generations[id].status === "streaming" && (
                   <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-indigo-500" />
                 )}
               </button>
@@ -632,7 +704,49 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
                 )}
               </>
             ))}
-          {tab !== "analysis" && (
+          {tab === "job" && (
+            <div className="space-y-4">
+              {!fullDescription && (
+                <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+                  {jobKeys(job).length > 0 ? (
+                    <>
+                      {job.sourceName.replace(/\s*\(JobSpy\)$/, "")} didn’t share the full description. Open the job there
+                      and click your <strong>Send to JobScratch</strong> bookmark, then choose <strong>Merge</strong>: it’s
+                      added here. Until then it isn’t matched.
+                    </>
+                  ) : (
+                    "This looks like a snippet, so it isn’t matched. Open the listing and paste the full description here (Edit)."
+                  )}
+                </p>
+              )}
+              {editingDescription ? (
+                <textarea
+                  className="input min-h-96 text-sm leading-relaxed"
+                  value={description}
+                  onChange={(e) => updateDocs({ jobDescription: e.target.value })}
+                  placeholder="Paste the full job description"
+                  aria-label="Job description"
+                />
+              ) : description.trim() ? (
+                <JobDescription text={description} />
+              ) : (
+                <p className="muted text-sm">No description yet. Click Edit to paste it.</p>
+              )}
+              <div className="flex flex-wrap items-center gap-3 border-t border-zinc-100 pt-3 text-sm dark:border-zinc-800">
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setEditingDescription(!editingDescription)}>
+                  {editingDescription ? "Done" : "Edit"}
+                </button>
+                {docs?.jobDescription !== undefined && (
+                  <button type="button" className="link text-xs" onClick={() => updateDocs({ jobDescription: undefined })}>
+                    Back to the original
+                  </button>
+                )}
+                {job.postedAt && <span className="muted text-xs">Posted {formatPosted(job.postedAt)}</span>}
+              </div>
+            </div>
+          )}
+
+          {(tab === "cv" || tab === "coverLetter") && (
             <DocumentPanel
               key={tab}
               kind={tab}
@@ -687,47 +801,6 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
             )}
           </section>
 
-          <section className="card space-y-2 p-4">
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="text-sm font-semibold">Job description</h2>
-              <span className="flex gap-2">
-                {docs?.jobDescription !== undefined && (
-                  <button type="button" className="link text-xs" onClick={() => updateDocs({ jobDescription: undefined })}>
-                    Reset
-                  </button>
-                )}
-                <button type="button" className="link text-xs" onClick={() => setEditingDescription(!editingDescription)}>
-                  {editingDescription ? "Done" : "Edit"}
-                </button>
-              </span>
-            </div>
-            {!fullDescription && (
-              <p className="rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-200">
-                {jobKeys(job).length > 0 ? (
-                  <>
-                    {job.sourceName.replace(/\s*\(JobSpy\)$/, "")} didn’t share the full description. Open the job there and
-                    click your <strong>Send to JobScratch</strong> bookmark, then choose <strong>Merge</strong>: it’s added
-                    here. Until then it isn’t matched.
-                  </>
-                ) : (
-                  "This looks like a snippet, so it isn’t matched. Open the listing and paste the full description here."
-                )}
-              </p>
-            )}
-            {editingDescription ? (
-              <textarea
-                className="input min-h-64 text-xs leading-relaxed"
-                value={description}
-                onChange={(e) => updateDocs({ jobDescription: e.target.value })}
-                placeholder="Paste the full job description"
-                aria-label="Job description"
-              />
-            ) : (
-              <p className="muted line-clamp-6 text-xs leading-relaxed whitespace-pre-line">
-                {description || "No description yet. Click Edit to paste it."}
-              </p>
-            )}
-          </section>
 
           <details className="card p-4">
             <summary className="cursor-pointer text-sm font-semibold">Writing options</summary>
