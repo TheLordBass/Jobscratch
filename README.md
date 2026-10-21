@@ -126,9 +126,9 @@ By default, everything personal lives in your browser's local storage, not on th
 
 ### Keep it on the server (optional)
 
-To have your CV, saved jobs, tailored documents and settings on every device, and safe if you clear your browser, add a free Upstash Redis database:
+To have your CV, saved jobs, tailored documents and settings on every device, and safe if you clear your browser, add a free Redis database:
 
-1. In Vercel, open your project, then **Storage → Create Database → Upstash for Redis** (free plan) and connect it to the project. Vercel adds its connection settings (`UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`, or `KV_REST_API_URL` and `KV_REST_API_TOKEN`) for you.
+1. In Vercel, open your project, then **Storage → Create Database**, choose **Upstash for Redis** or **Redis** (either works; the free plans are plenty), and connect it to the project (with **Production** ticked). Vercel adds its connection settings for you: `UPSTASH_REDIS_REST_URL`/`_TOKEN` or `KV_REST_API_URL`/`_TOKEN` for Upstash, `REDIS_URL` for Redis, possibly with a prefix you chose. You don't need to install anything or write code: ignore the quickstart steps Vercel shows. Then redeploy, so the app sees the new settings.
 2. Make sure `APP_PASSWORD` is set (see Deploying). Server storage stays off without it, so your CV is never open to anyone with the link.
 3. Redeploy.
 
