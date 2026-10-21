@@ -182,6 +182,28 @@ describe("/api/data", () => {
     expect(await (await GET(request("/api/data?key=groups"))).json()).toEqual({ value: null });
   });
 
+  it("saves jobs with long ids, and skips only a change it can't save", async () => {
+    // Google Jobs ids are long encoded strings.
+    const longId = `google-jobs:${"eyJqb2JfdGl0bGUiOiJEYXRhIEFuYWx5c3Qi".repeat(20)}`;
+    expect(longId.length).toBeGreaterThan(500);
+    const response = await POST(
+      request("/api/data", {
+        method: "POST",
+        body: JSON.stringify({
+          ops: [
+            { key: "saved", items: { [longId]: job("Data Analyst", "1") } },
+            { key: "nope", value: 1 },
+            { key: "cv", value: { text: "Alex" } },
+          ],
+        }),
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect((await response.json()).skipped).toBe(1);
+    expect((await (await GET(request("/api/data?key=saved&cursor=0"))).json()).items[longId]).toEqual(job("Data Analyst", "1"));
+    expect(await (await GET(request("/api/data?key=cv"))).json()).toEqual({ value: { text: "Alex" } });
+  });
+
   it("says why it's off", async () => {
     delete process.env.JOBSCRATCH_DATA_FILE;
     expect(await (await GET(request("/api/data"))).json()).toEqual({ enabled: false, reason: "not-configured" });
