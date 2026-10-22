@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { extractCvText, CvParseError } from "@/lib/cv-parse";
 import { markdownToDocx } from "@/lib/export-docx";
-import { blocksToHtml, parseInline, parseMarkdown, printableHtml } from "@/lib/markdown";
+import { blocksToHtml, hasProjectSections, parseInline, parseMarkdown, printableHtml, removeProjectSections } from "@/lib/markdown";
 
 const CV = `# Jane Doe
 jane@example.com | London | linkedin.com/in/janedoe
@@ -111,3 +111,44 @@ function minimalPdf(line: string): Uint8Array {
   pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
   return new TextEncoder().encode(pdf);
 }
+
+describe("removeProjectSections", () => {
+  const TAILORED = `# Jane Doe
+jane@example.com
+
+## Profile
+Data analyst who builds dashboards.
+
+## Experience
+### Analyst, Projects Ltd (2020–2025)
+- Built dashboards
+
+## Key projects
+### [Sales dashboard](https://github.com/jane/sales)
+- Power BI and Python
+
+### Churn model
+- scikit-learn
+
+## Education
+BSc Maths`;
+
+  it("takes out the Projects section and everything under it", () => {
+    expect(hasProjectSections(TAILORED)).toBe(true);
+    const removed = removeProjectSections(TAILORED);
+    expect(removed).not.toContain("Key projects");
+    expect(removed).not.toContain("Sales dashboard");
+    expect(removed).not.toContain("Churn model");
+    // A job at a company called "Projects Ltd" stays, and so does what follows the section.
+    expect(removed).toContain("### Analyst, Projects Ltd (2020–2025)\n- Built dashboards\n\n## Education\nBSc Maths");
+    expect(hasProjectSections(removed)).toBe(false);
+  });
+
+  it("recognises other ways of naming the section", () => {
+    for (const heading of ["## Projects", "## **Personal Projects:**", "### Projects & open source", "## Project experience"]) {
+      expect(hasProjectSections(`# Jane\n\n${heading}\n- thing`)).toBe(true);
+    }
+    expect(hasProjectSections("# Projects\n\n## Experience")).toBe(false);
+    expect(removeProjectSections("# Jane\n\n## Experience\n- led projects")).toBe("# Jane\n\n## Experience\n- led projects");
+  });
+});

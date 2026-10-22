@@ -10,6 +10,8 @@ export const TailorOptionsSchema = z.object({
   tone: ToneSchema.default("professional"),
   length: LengthSchema.default("two-pages"),
   extraInstructions: z.string().max(2000).default(""),
+  /** false: leave projects out of the CV (and the cover letter). */
+  projects: z.boolean().default(true),
 });
 
 export type TailorOptions = z.infer<typeof TailorOptionsSchema>;
@@ -220,10 +222,13 @@ export function cvInstruction(options: TailorOptions, withProfile = false): stri
     ? "then one line of contact details as they appear in the CV, plus the website and GitHub links from candidate_links if the CV doesn't already include them (leave out anything missing), with web addresses embedded as links as described below"
     : "then one line of contact details as they appear in the CV (leave out any that are missing), with web addresses embedded as links as described below";
   const skills = withProfile ? "skills evidenced in the CV or the online profile" : "skills evidenced in the CV";
-  const projects = withProfile
+  const projects = !options.projects
     ? `
+- Leave out projects entirely: no projects section (even if the original CV has one), and don't mention personal or side projects elsewhere in the CV.`
+    : withProfile
+      ? `
 - If the online profile shows projects relevant to this job, add a short "Projects" section after experience: for each, its name linked to the repository or live site (e.g. **[Sales dashboard](https://github.com/…)**), what it does and the technologies used, based only on what the repository or site shows. Leave out projects that don't help this application.`
-    : "";
+      : "";
   return `Rewrite the candidate's CV so it is tailored to this job.
 
 - Start with the candidate's name as a level-1 heading ("# Name"), ${contact}.
@@ -240,9 +245,11 @@ Reply with only the CV in Markdown: no introduction, notes, or code fences.`;
 }
 
 export function coverLetterInstruction(options: TailorOptions, withProfile = false): string {
-  const project = withProfile
-    ? " If a project from the online profile is especially relevant, you may mention it as a project."
-    : "";
+  const project = !options.projects
+    ? " Don't mention personal or side projects."
+    : withProfile
+      ? " If a project from the online profile is especially relevant, you may mention it as a project."
+      : "";
   return `Write a cover letter for this application.
 
 - 250–400 words in 3–5 short paragraphs, addressed to the hiring team at the company (use a person's name only if the job posting gives one).

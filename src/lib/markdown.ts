@@ -107,6 +107,41 @@ export function inlinesToText(inlines: Inline[]): string {
   return inlines.map((inline) => inline.text).join("");
 }
 
+const HEADING_LINE = /^\s*(#{1,6})\s+(.*?)\s*#*\s*$/;
+
+/**
+ * A section heading such as "Projects", "Key projects", "Personal projects:" or "Projects & open source",
+ * but not a job heading that happens to contain the word (e.g. "Analyst, Projects Ltd").
+ */
+function isProjectsHeading(text: string): boolean {
+  const plain = inlinesToText(parseInline(text)).replace(/:$/, "").trim();
+  return /^(?:[a-z-]+\s+){0,2}projects?(?:\s+(?:&|and)\s+.+|\s+experience)?$/i.test(plain);
+}
+
+/** Whether a document has a Projects section (below the level-1 name heading). */
+export function hasProjectSections(markdown: string): boolean {
+  return markdown.split(/\r?\n/).some((line) => {
+    const heading = HEADING_LINE.exec(line);
+    return Boolean(heading && heading[1].length > 1 && isProjectsHeading(heading[2]));
+  });
+}
+
+/** Removes each Projects section: its heading and everything under it, up to the next heading at the same or a higher level. */
+export function removeProjectSections(markdown: string): string {
+  const out: string[] = [];
+  let skipping = 0;
+  for (const line of markdown.split(/\r?\n/)) {
+    const heading = HEADING_LINE.exec(line);
+    if (heading) {
+      const level = heading[1].length;
+      if (skipping && level > skipping) continue;
+      skipping = level > 1 && isProjectsHeading(heading[2]) ? level : 0;
+    }
+    if (!skipping) out.push(line);
+  }
+  return out.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd();
+}
+
 function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 }

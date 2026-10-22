@@ -93,7 +93,7 @@ export const DEFAULT_SETTINGS: Settings = {
   saveMatchesFrom: 70,
   saveUndescribed: true,
   useJobNotes: true,
-  tailor: { style: "uk-cv", tone: "professional", length: "two-pages", extraInstructions: "" },
+  tailor: { style: "uk-cv", tone: "professional", length: "two-pages", extraInstructions: "", projects: true },
   jobspy: { search: [], location: [], sites: ["indeed", "linkedin"], results: 25, hours: null, remote: false, linkedinDescriptions: false, distance: 50, linkedinPace: 2 },
 };
 

@@ -5,7 +5,7 @@ const REQUEST: TailorRequest = {
   kind: "cv",
   cv: "Alex Test\nData analyst with four years of SQL and Power BI.",
   job: { title: "Data Analyst", company: "CBRE", location: "", url: "", description: "SQL and Power BI." },
-  options: { style: "uk-cv", tone: "professional", length: "two-pages", extraInstructions: "" },
+  options: { style: "uk-cv", tone: "professional", length: "two-pages", extraInstructions: "", projects: true },
 };
 
 const fetchMock = vi.fn<typeof fetch>();

@@ -11,7 +11,7 @@ const JOB: TailorJob = {
   url: "https://example.com/job",
   description: "We need SQL, Power BI and stakeholder management.",
 };
-const OPTIONS: TailorOptions = { style: "uk-cv", tone: "professional", length: "two-pages", extraInstructions: "" };
+const OPTIONS: TailorOptions = { style: "uk-cv", tone: "professional", length: "two-pages", extraInstructions: "", projects: true };
 
 const fetchMock = vi.fn<typeof fetch>();
 let originalKey: string | undefined;
@@ -190,6 +190,20 @@ describe("streamDocument", () => {
     expect(materials.text).not.toContain("<candidate_links>");
     expect(materials.text).not.toContain("<online_profile>");
     expect(instruction.text).not.toContain("Projects");
+  });
+
+  it("leaves projects out when asked, even with an online profile", async () => {
+    fetchMock.mockResolvedValueOnce(streamOf(["ok"]));
+    const profile = { website: "https://jane.dev", github: "", evidence: "## Site\n- sales-dashboard" };
+    await collect(streamDocument("cv", { cv: CV, job: JOB, profile }, { ...OPTIONS, projects: false }, ENV));
+    const [, instruction] = lastRequest().body.messages[0].content;
+    expect(instruction.text).toContain("Leave out projects entirely");
+    expect(instruction.text).not.toContain('"Projects" section');
+
+    fetchMock.mockResolvedValueOnce(streamOf(["ok"]));
+    await collect(streamDocument("cover-letter", { cv: CV, job: JOB, profile }, { ...OPTIONS, projects: false }, ENV));
+    const [, letter] = lastRequest().body.messages[0].content;
+    expect(letter.text).toContain("Don't mention personal or side projects.");
   });
 
   it("doesn't ask for a fallback on Haiku, which has none", async () => {
