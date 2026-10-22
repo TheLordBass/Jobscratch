@@ -151,4 +151,10 @@ BSc Maths`;
     expect(hasProjectSections("# Projects\n\n## Experience")).toBe(false);
     expect(removeProjectSections("# Jane\n\n## Experience\n- led projects")).toBe("# Jane\n\n## Experience\n- led projects");
   });
+
+  it("keeps work projects listed under a job", () => {
+    const cv = "# Jane\n\n## Experience\n### Analyst, Globex\n#### Key projects\n- Data warehouse\n### Intern, Acme\n- Reports\n\n## Projects\n- Side app";
+    expect(removeProjectSections(cv)).toBe("# Jane\n\n## Experience\n### Analyst, Globex\n#### Key projects\n- Data warehouse\n### Intern, Acme\n- Reports");
+    expect(hasProjectSections(cv.replace("\n\n## Projects\n- Side app", ""))).toBe(false);
+  });
 });
