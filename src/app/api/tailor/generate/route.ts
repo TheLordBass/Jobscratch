@@ -22,6 +22,7 @@ const Body = z.object({
     tone: "professional",
     length: "two-pages",
     extraInstructions: "",
+    projects: true,
   }),
 });
 

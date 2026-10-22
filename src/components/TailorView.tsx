@@ -15,7 +15,7 @@ import { canMatch, candidateFor, hasFullDescription, matchKey } from "@/lib/cand
 import { dismissTask, startAnalysis, startDocument, stopJobTasks, stopTask, useJobTask, type JobTask } from "@/lib/job-tasks";
 import { jobKeys } from "@/lib/import";
 import { downloadBlob, formatPosted, slugify } from "@/lib/format";
-import { inlinesToText, parseMarkdown, printableHtml } from "@/lib/markdown";
+import { hasProjectSections, inlinesToText, parseMarkdown, printableHtml, removeProjectSections } from "@/lib/markdown";
 import {
   APPLICATION_STATUSES,
   useCv,
@@ -276,6 +276,8 @@ function DocumentPanel({
 }) {
   const [editing, setEditing] = useState(false);
   const [copied, setCopied] = useState(false);
+  // The CV as it was before "Remove projects", for Undo.
+  const [beforeRemoval, setBeforeRemoval] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const streaming = generation.status === "streaming";
   const label = kind === "cv" ? "tailored CV" : "cover letter";
@@ -288,6 +290,8 @@ function DocumentPanel({
 
   const content = streaming ? generation.text : (markdown ?? "");
   const elapsed = generation.startedAt ? Math.max(0, Math.round((now - generation.startedAt) / 1000)) : 0;
+  // Undo is offered only until the CV changes in some other way.
+  const canUndoRemoval = beforeRemoval !== null && content === removeProjectSections(beforeRemoval);
   const lastThought = generation.thinking.trim().split("\n").filter(Boolean).at(-1);
 
   const fileBase = () => {
@@ -374,6 +378,26 @@ function DocumentPanel({
           >
             .md
           </button>
+          {kind === "cv" &&
+            (canUndoRemoval ? (
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => onEdit(beforeRemoval)}>
+                <RotateCcw size={13} aria-hidden /> Put projects back
+              </button>
+            ) : (
+              hasProjectSections(content) && (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  title="Take the Projects section out of this CV"
+                  onClick={() => {
+                    setBeforeRemoval(content);
+                    onEdit(removeProjectSections(content));
+                  }}
+                >
+                  <X size={13} aria-hidden /> Remove projects
+                </button>
+              )
+            ))}
           <button
             type="button"
             className="btn btn-ghost btn-sm ml-auto"
@@ -851,6 +875,27 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
                   </select>
                 </div>
               </div>
+              <fieldset>
+                <legend className="label">Projects</legend>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+                  {(
+                    [
+                      [true, "Include relevant ones"],
+                      [false, "Leave them out"],
+                    ] as const
+                  ).map(([value, text]) => (
+                    <label key={text} className="flex cursor-pointer items-center gap-2">
+                      <input
+                        type="radio"
+                        name="projects"
+                        checked={options.projects === value}
+                        onChange={() => setOptions({ projects: value })}
+                      />
+                      {text}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
               <div>
                 <label htmlFor="extra" className="label">
                   Anything else? (optional)
