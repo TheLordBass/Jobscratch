@@ -34,6 +34,8 @@ interface StoreAccess {
   read: (key: SyncKey) => unknown;
   /** Write a value that came from the server, without sending it back. */
   apply: (key: SyncKey, value: unknown) => void;
+  /** Resolves once this browser's data has loaded (it's read from IndexedDB when the page opens). */
+  ready: () => Promise<void>;
 }
 
 const DEBOUNCE_MS = 1000;
@@ -357,6 +359,8 @@ export function startSync() {
     enabled = true;
     loadPending();
     try {
+      // Merge with the data in this browser, not with the empty state before it has loaded.
+      await store?.ready();
       await pull(status.updatedAt);
     } catch (error) {
       setState({ status: "error", message: (error as Error).message });

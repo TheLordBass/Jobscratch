@@ -40,7 +40,7 @@ async function visit(local: Record<string, unknown>) {
   vi.resetModules();
   const sync = await import("@/lib/sync");
   const data = new Map<string, unknown>(Object.entries(local));
-  sync.connectStore({ read: (key) => data.get(key) ?? null, apply: (key, value) => void data.set(key, value) });
+  sync.connectStore({ read: (key) => data.get(key) ?? null, apply: (key, value) => void data.set(key, value), ready: async () => {} });
   sync.startSync();
   await vi.waitFor(() => expect(sync.getSyncState().status).not.toBe("checking"));
   return { sync, data };

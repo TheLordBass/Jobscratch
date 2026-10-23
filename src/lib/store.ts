@@ -8,8 +8,8 @@ import { connectStore, queueChange } from "@/lib/sync";
 import type { CompanyBoards, Job, SearchSourceId } from "@/lib/types";
 
 /*
- * Everything personal (CV, saved jobs, groups, settings) lives in this
- * browser's localStorage. Nothing is stored on the server.
+ * Everything personal (CV, saved jobs, groups, settings) lives in this browser (in IndexedDB, see
+ * below), and on the server too when server storage is set up (lib/sync.ts).
  */
 
 export interface SearchGroup {
@@ -129,7 +129,27 @@ const EMPTY_SAVED: Record<string, SavedJob> = {};
 const EMPTY_TAILORED: Record<string, TailoredDocs> = {};
 
 const PREFIX = "jobscratch:";
-type Key = "groups" | "saved" | "cv" | "profile" | "settings" | "tailored" | "matches" | "dismissed";
+const KEYS = ["groups", "saved", "cv", "profile", "settings", "tailored", "matches", "dismissed"] as const;
+type Key = (typeof KEYS)[number];
+
+/*
+ * Where the data lives. IndexedDB can hold far more than localStorage's ~5 MB (browsers let a site
+ * use a good share of the free disk), but it can't be read synchronously, so its contents are kept in
+ * memory once loaded and each change is written back. Data saved by earlier versions in localStorage is
+ * moved across on the first load. Where IndexedDB isn't available, localStorage is used as before.
+ */
+let mode: "loading" | "indexeddb" | "local" =
+  typeof window === "undefined" || typeof indexedDB === "undefined" ? "local" : "loading";
+const memory = new Map<Key, unknown>();
+let db: IDBDatabase | null = null;
+/** Changes asked for before the data had loaded, made once it has (so they start from the real data). */
+const afterLoad: Array<() => void> = [];
+let markReady: () => void = () => {};
+const ready = mode === "loading" ? new Promise<void>((resolve) => (markReady = resolve)) : Promise.resolve();
+const DB_NAME = "jobscratch";
+const DB_STORE = "data";
+/** Tells this site's other tabs which keys changed, as the "storage" event does for localStorage. */
+const channel = mode === "loading" && typeof BroadcastChannel !== "undefined" ? new BroadcastChannel("jobscratch-store") : null;
 
 const listeners = new Set<() => void>();
 const parsed = new Map<string, { raw: string | null; value: unknown }>();
@@ -141,7 +161,7 @@ function notify() {
 function subscribe(listener: () => void) {
   listeners.add(listener);
   const onStorage = (event: StorageEvent) => {
-    if (!event.key || event.key.startsWith(PREFIX)) listener();
+    if (mode === "local" && (!event.key || event.key.startsWith(PREFIX))) listener();
   };
   window.addEventListener("storage", onStorage);
   return () => {
@@ -150,7 +170,96 @@ function subscribe(listener: () => void) {
   };
 }
 
+function request<T>(req: IDBRequest<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function openDb(): Promise<IDBDatabase> {
+  const req = indexedDB.open(DB_NAME, 1);
+  req.onupgradeneeded = () => req.result.createObjectStore(DB_STORE);
+  return request(req);
+}
+
+/** Reads keys from IndexedDB into memory (all of them when none are given). */
+async function loadFromDb(keys: readonly Key[] = KEYS) {
+  if (!db) return;
+  const objects = db.transaction(DB_STORE, "readonly").objectStore(DB_STORE);
+  const values = await Promise.all(keys.map((key) => request(objects.get(key))));
+  keys.forEach((key, i) => {
+    if (values[i] === undefined) memory.delete(key);
+    else memory.set(key, values[i]);
+  });
+}
+
+function storageFull() {
+  window.alert("Your browser's storage is full. Remove some saved jobs and try again.");
+}
+
+/** Writes keys to IndexedDB (removing those without a value); resolves once they're saved. */
+function persist(keys: readonly Key[]): Promise<void> {
+  if (!db) return Promise.resolve();
+  const tx = db.transaction(DB_STORE, "readwrite");
+  const objects = tx.objectStore(DB_STORE);
+  for (const key of keys) {
+    const value = memory.get(key);
+    if (value === undefined || value === null) objects.delete(key);
+    else objects.put(value, key);
+  }
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => {
+      channel?.postMessage(keys);
+      resolve();
+    };
+    tx.onabort = () => {
+      if (tx.error?.name === "QuotaExceededError") storageFull();
+      reject(tx.error);
+    };
+  });
+}
+
+async function init() {
+  try {
+    db = await openDb();
+    await loadFromDb();
+    // Move across anything earlier versions kept in localStorage (newer than what's here, if both are).
+    const moved: Key[] = [];
+    for (const key of KEYS) {
+      const raw = window.localStorage.getItem(PREFIX + key);
+      if (raw === null) continue;
+      try {
+        memory.set(key, JSON.parse(raw));
+        moved.push(key);
+      } catch {
+        // Unreadable: left where it is.
+      }
+    }
+    if (moved.length) {
+      await persist(moved);
+      for (const key of moved) window.localStorage.removeItem(PREFIX + key);
+    }
+    mode = "indexeddb";
+    if (channel) {
+      channel.onmessage = (event: MessageEvent<Key[]>) => {
+        void loadFromDb(event.data.filter((key) => KEYS.includes(key))).then(notify);
+      };
+    }
+  } catch {
+    // No IndexedDB here (blocked, or a private window in some browsers): localStorage it is.
+    db = null;
+    memory.clear();
+    mode = "local";
+  }
+  markReady();
+  notify();
+  for (const run of afterLoad.splice(0)) run();
+}
+if (mode === "loading") void init();
+
 function read<T>(key: Key, fallback: T): T {
+  if (mode !== "local") return memory.has(key) ? (memory.get(key) as T) : fallback;
   const storageKey = PREFIX + key;
   let raw: string | null;
   try {
@@ -172,45 +281,57 @@ function read<T>(key: Key, fallback: T): T {
   return value;
 }
 
-function write<T>(key: Key, value: T) {
-  const storageKey = PREFIX + key;
-  const previous = read<unknown>(key, null);
-  const raw = JSON.stringify(value);
+/** What's actually stored: null when nothing is, rather than a page's default. */
+function stored(key: Key): unknown {
+  if (mode !== "local") return memory.get(key) ?? null;
   try {
-    window.localStorage.setItem(storageKey, raw);
+    return window.localStorage.getItem(PREFIX + key) === null ? null : read<unknown>(key, null);
   } catch {
-    window.alert("Your browser's storage is full. Remove some saved jobs and try again.");
-    return;
+    return null;
   }
-  parsed.set(storageKey, { raw, value });
-  notify();
-  queueChange(key, previous, value);
 }
 
-/** A value from server storage: saved here without being sent back. */
-function applyRemote(key: Key, value: unknown) {
+/** Saves a value. False if the browser's storage is full (known straight away only for localStorage; see persist). */
+function save(key: Key, value: unknown): boolean {
+  if (mode !== "local") {
+    if (value === null || value === undefined) memory.delete(key);
+    else memory.set(key, value);
+    void persist([key]).catch(() => {});
+    return true;
+  }
   const storageKey = PREFIX + key;
   try {
     if (value === null || value === undefined) window.localStorage.removeItem(storageKey);
     else window.localStorage.setItem(storageKey, JSON.stringify(value));
   } catch {
-    return;
+    return false;
   }
   parsed.delete(storageKey);
-  notify();
+  return true;
 }
 
-connectStore({
-  // What's actually stored: null when nothing is, rather than a page's default.
-  read: (key) => {
-    try {
-      return window.localStorage.getItem(PREFIX + key) === null ? null : read<unknown>(key, null);
-    } catch {
-      return null;
-    }
-  },
-  apply: applyRemote,
-});
+/** Changes a stored value; waits for the data to load first if it hasn't yet. */
+function update<T>(key: Key, fallback: T, change: (previous: T) => T) {
+  if (mode === "loading") {
+    afterLoad.push(() => update(key, fallback, change));
+    return;
+  }
+  const previous = stored(key);
+  const next = change(read(key, fallback));
+  if (!save(key, next)) {
+    storageFull();
+    return;
+  }
+  notify();
+  queueChange(key, previous, next);
+}
+
+/** A value from server storage: saved here without being sent back. */
+function applyRemote(key: Key, value: unknown) {
+  if (save(key, value)) notify();
+}
+
+connectStore({ read: stored, apply: applyRemote, ready: () => ready });
 
 function useStored<T>(key: Key, fallback: T): [T, (update: T | ((previous: T) => T)) => void] {
   const value = useSyncExternalStore(
@@ -219,20 +340,18 @@ function useStored<T>(key: Key, fallback: T): [T, (update: T | ((previous: T) =>
     () => fallback,
   );
   const set = useCallback(
-    (update: T | ((previous: T) => T)) => {
-      const previous = read(key, fallback);
-      write(key, typeof update === "function" ? (update as (p: T) => T)(previous) : update);
-    },
+    (next: T | ((previous: T) => T)) =>
+      update(key, fallback, typeof next === "function" ? (next as (p: T) => T) : () => next),
     [key, fallback],
   );
   return [value, set];
 }
 
-/** True after hydration, so pages can avoid flashing "empty" states. */
+/** True once this browser's data has loaded, so pages can avoid flashing "empty" states. */
 export function useHydrated(): boolean {
   return useSyncExternalStore(
-    () => () => {},
-    () => true,
+    subscribe,
+    () => mode !== "loading",
     () => false,
   );
 }
@@ -454,23 +573,43 @@ export function isSavedJob(id: string): boolean {
 
 /** Saves a job's tailored documents or analysis outside React, e.g. when one finishes in the background. */
 export function updateTailoredDocs(id: string, patch: Partial<TailoredDocs>) {
-  const previous = read("tailored", EMPTY_TAILORED);
-  write("tailored", { ...previous, [id]: { ...previous[id], ...patch, updatedAt: new Date().toISOString() } });
+  update("tailored", EMPTY_TAILORED, (previous) => ({
+    ...previous,
+    [id]: { ...previous[id], ...patch, updatedAt: new Date().toISOString() },
+  }));
 }
 
 /** Saves a job's match score outside React (see lib/job-tasks.ts). */
 export function updateStoredMatch(id: string, match: StoredMatch) {
-  write("matches", { ...read("matches", EMPTY_MATCHES), [id]: match });
+  update("matches", EMPTY_MATCHES, (previous) => ({ ...previous, [id]: match }));
 }
 
-/** Removes everything JobScratch keeps in this browser (not on the server). */
-export function clearLocalData() {
-  try {
-    for (const key of Object.keys(window.localStorage)) if (key.startsWith(PREFIX)) window.localStorage.removeItem(key);
-  } catch {
-    return;
+/** Everything JobScratch keeps in this browser, keyed as in a backup file ("jobscratch:saved" and so on). */
+export async function exportLocalData(): Promise<Record<string, unknown>> {
+  await ready;
+  const data: Record<string, unknown> = {};
+  for (const key of KEYS) {
+    const value = stored(key);
+    if (value !== null) data[PREFIX + key] = value;
   }
-  parsed.clear();
+  return data;
+}
+
+/** Whether a backup file holds any JobScratch data. */
+export function isBackup(data: Record<string, unknown>): boolean {
+  return KEYS.some((key) => PREFIX + key in data);
+}
+
+/**
+ * Replaces what's in this browser with a backup (keys as exportLocalData gives them), or with nothing
+ * (Delete all data). Resolves once it's saved, so the page can be reloaded straight after.
+ */
+export async function replaceLocalData(data: Record<string, unknown> = {}): Promise<void> {
+  await ready;
+  for (const key of KEYS) {
+    if (!save(key, data[PREFIX + key] ?? null)) throw new Error("your browser's storage is full");
+  }
+  await persist(KEYS);
   notify();
 }
 

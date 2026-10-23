@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { clearLocalData } from "@/lib/store";
+import { replaceLocalData } from "@/lib/store";
 import { flush, getSyncState, syncEnabled } from "@/lib/sync";
 
 export interface SessionInfo {
@@ -42,7 +42,7 @@ export function useSession(): SessionInfo | null {
 export async function signOut(): Promise<void> {
   if (syncEnabled()) {
     await flush();
-    if (getSyncState().status !== "error") clearLocalData();
+    if (getSyncState().status !== "error") await replaceLocalData();
   }
   await fetch("/api/auth/logout", { method: "POST" });
   window.location.replace("/login");

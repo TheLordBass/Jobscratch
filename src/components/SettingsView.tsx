@@ -1,12 +1,12 @@
 "use client";
 
 import { ArrowUpRight } from "lucide-react";
-import { useState, type ChangeEvent } from "react";
+import { useEffect, useState, type ChangeEvent } from "react";
 import { PROFILE_TABS, SectionTabs } from "@/components/Nav";
 import { useSources } from "@/components/useSources";
 import { COUNTRIES, downloadBlob } from "@/lib/format";
 import { parseBoardToken } from "@/lib/sources/boards";
-import { useDismissed, useHydrated, useSettings } from "@/lib/store";
+import { exportLocalData, isBackup, replaceLocalData, useDismissed, useHydrated, useSettings } from "@/lib/store";
 import { clearServerData, replaceServerData, useSyncState } from "@/lib/sync";
 import type { CompanyBoards, SourceCategory } from "@/lib/types";
 
@@ -23,7 +23,6 @@ const BOARD_HELP: Record<keyof CompanyBoards, { name: string; example: string }>
   ashby: { name: "Ashby", example: "https://jobs.ashbyhq.com/ramp  or  ramp" },
 };
 
-const STORAGE_PREFIX = "jobscratch:";
 
 function BoardEditor({ provider, values, onChange }: { provider: keyof CompanyBoards; values: string[]; onChange: (values: string[]) => void }) {
   const [text, setText] = useState(values.join("\n"));
@@ -108,6 +107,74 @@ function HiddenJobs() {
   );
 }
 
+function formatBytes(bytes: number): string {
+  if (bytes < 1e6) return `${Math.max(1, Math.round(bytes / 1e3))} KB`;
+  if (bytes < 1e9) return `${(bytes / 1e6).toFixed(1)} MB`;
+  return `${(bytes / 1e9).toFixed(1)} GB`;
+}
+
+interface Space {
+  usage: number;
+  quota: number;
+  persisted: boolean;
+}
+
+async function readSpace(): Promise<Space | null> {
+  try {
+    const [{ usage = 0, quota = 0 }, persisted] = await Promise.all([navigator.storage.estimate(), navigator.storage.persisted()]);
+    return { usage, quota, persisted };
+  } catch {
+    return null; // Not supported here: nothing to show.
+  }
+}
+
+/** How much room this browser gives the app, and whether it may clear the data to free up disk space. */
+function StorageSpace() {
+  const [space, setSpace] = useState<Space | null>(null);
+  const [refused, setRefused] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void readSpace().then((result) => active && setSpace(result));
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  if (!space || !space.quota) return null;
+  return (
+    <div className="space-y-1.5 rounded-lg bg-zinc-50 px-3 py-2.5 text-sm dark:bg-zinc-900">
+      <p>
+        Using <strong>{formatBytes(space.usage)}</strong> of the {formatBytes(space.quota)} this browser allows the app.
+      </p>
+      {space.persisted ? (
+        <p className="muted text-xs">Kept safe: the browser won’t clear it to free up disk space.</p>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="muted min-w-0 flex-1 text-xs">
+            {refused
+              ? "The browser didn’t agree (some only do once you use the site often, or add it to your home screen). Keep a backup, or turn on server storage."
+              : "If the disk gets very full, the browser may clear sites’ data to make room. Ask it to keep yours:"}
+          </p>
+          {!refused && (
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={async () => {
+                const granted = await navigator.storage.persist().catch(() => false);
+                setRefused(!granted);
+                setSpace(await readSpace());
+              }}
+            >
+              Keep my data safe
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function SettingsView() {
   const [settings, setSettings] = useSettings();
   const sources = useSources();
@@ -122,12 +189,8 @@ export function SettingsView() {
     setSettings({ ...settings, disabledSources: [...disabled] });
   }
 
-  function exportData() {
-    const data: Record<string, unknown> = {};
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key?.startsWith(STORAGE_PREFIX)) data[key] = JSON.parse(localStorage.getItem(key) ?? "null");
-    }
+  async function exportData() {
+    const data = await exportLocalData();
     const stamp = new Date().toISOString().slice(0, 10);
     downloadBlob(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }), `jobscratch-backup-${stamp}.json`);
   }
@@ -138,10 +201,9 @@ export function SettingsView() {
     if (!file) return;
     try {
       const data = JSON.parse(await file.text()) as Record<string, unknown>;
-      const entries = Object.entries(data).filter(([key]) => key.startsWith(STORAGE_PREFIX));
-      if (entries.length === 0) throw new Error("No JobScratch data in that file");
+      if (!isBackup(data)) throw new Error("No JobScratch data in that file");
       if (!window.confirm("Replace your current CV, saved jobs, groups and settings with this backup?")) return;
-      for (const [key, value] of entries) localStorage.setItem(key, JSON.stringify(value));
+      await replaceLocalData(data);
       // With server storage on, the server gets exactly the backup too, or it would merge the old data back.
       await replaceServerData();
       window.location.reload();
@@ -326,6 +388,7 @@ export function SettingsView() {
             </p>
           )}
         </div>
+        <StorageSpace />
         <div className="flex flex-wrap gap-2">
           <button type="button" className="btn btn-secondary" onClick={exportData}>
             Download backup
@@ -346,9 +409,7 @@ export function SettingsView() {
                 window.alert((error as Error).message);
                 return;
               }
-              Object.keys(localStorage)
-                .filter((key) => key.startsWith(STORAGE_PREFIX))
-                .forEach((key) => localStorage.removeItem(key));
+              await replaceLocalData();
               window.location.reload();
             }}
           >
