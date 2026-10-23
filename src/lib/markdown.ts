@@ -118,25 +118,34 @@ function isProjectsHeading(text: string): boolean {
   return /^(?:[a-z-]+\s+){0,2}projects?(?:\s+(?:&|and)\s+.+|\s+experience)?$/i.test(plain);
 }
 
-/** Whether a document has a Projects section (below the level-1 name heading). */
-export function hasProjectSections(markdown: string): boolean {
-  return markdown.split(/\r?\n/).some((line) => {
+/**
+ * Each line with its heading level (0 if it isn't one), and the level of the document's sections: the
+ * highest heading level below the level-1 name. Only headings at that level count as a Projects section,
+ * so a "Key projects" heading inside a job (work projects) is left alone.
+ */
+function headingLines(markdown: string) {
+  const lines = markdown.split(/\r?\n/).map((line) => {
     const heading = HEADING_LINE.exec(line);
-    return Boolean(heading && heading[1].length > 1 && isProjectsHeading(heading[2]));
+    return { line, level: heading ? heading[1].length : 0, text: heading?.[2] ?? "" };
   });
+  const sectionLevel = Math.min(...lines.map(({ level }) => (level > 1 ? level : Infinity)));
+  return { lines, sectionLevel };
 }
 
-/** Removes each Projects section: its heading and everything under it, up to the next heading at the same or a higher level. */
+/** Whether a document has a Projects section. */
+export function hasProjectSections(markdown: string): boolean {
+  const { lines, sectionLevel } = headingLines(markdown);
+  return lines.some(({ level, text }) => level === sectionLevel && isProjectsHeading(text));
+}
+
+/** Removes each Projects section: its heading and everything under it, up to the next section. */
 export function removeProjectSections(markdown: string): string {
+  const { lines, sectionLevel } = headingLines(markdown);
   const out: string[] = [];
-  let skipping = 0;
-  for (const line of markdown.split(/\r?\n/)) {
-    const heading = HEADING_LINE.exec(line);
-    if (heading) {
-      const level = heading[1].length;
-      if (skipping && level > skipping) continue;
-      skipping = level > 1 && isProjectsHeading(heading[2]) ? level : 0;
-    }
+  let skipping = false;
+  for (const { line, level, text } of lines) {
+    // A heading at section level (or above) starts a new section; deeper ones belong to the current one.
+    if (level && level <= sectionLevel) skipping = level === sectionLevel && isProjectsHeading(text);
     if (!skipping) out.push(line);
   }
   return out.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd();
