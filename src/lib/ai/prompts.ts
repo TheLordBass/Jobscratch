@@ -202,19 +202,23 @@ export function analysisInstruction(withProfile = false): string {
 
 - matchScore: an integer from 0 to 100 for how well the CV, as currently written, evidences the job's key requirements.
 - verdict: one or two sentences on the overall fit.
-- strengths: the candidate's strongest matches to the job's requirements, each naming the evidence in the CV.
-- gaps: requirements the CV doesn't evidence, most important first.
-- keywordsPresent / keywordsMissing: the important skills, tools, qualifications and terms from the job posting that do / don't appear in the CV, for ATS keyword matching.
-- suggestions: specific, honest edits the candidate could make for this job. Only suggest adding things the candidate could truthfully claim; anything that would need new experience is a gap, not a suggestion.`;
+- strengths: up to 4 of the candidate's strongest matches to the job's requirements, each naming the evidence in the CV.
+- gaps: up to 5 requirements the CV doesn't evidence, most important first.
+- keywordsPresent / keywordsMissing: up to 10 each of the important skills, tools, qualifications and terms from the job posting that do / don't appear in the CV, for ATS keyword matching. Single words or short phrases.
+- suggestions: up to 3 specific, honest edits the candidate could make for this job. Only suggest adding things the candidate could truthfully claim; anything that would need new experience is a gap, not a suggestion.
+
+Keep each item to one short sentence.`;
   }
   return `Assess how well the candidate matches this job, the way a recruiter screening applications would, using their CV and their online profile (website and GitHub).
 
 - matchScore: an integer from 0 to 100 for how well the candidate's materials (CV plus online profile) evidence the job's key requirements. Weigh professional experience in the CV above personal projects.
 - verdict: one or two sentences on the overall fit.
-- strengths: the candidate's strongest matches to the job's requirements, each naming the evidence and where it comes from (CV, website or GitHub).
-- gaps: requirements neither the CV nor the online profile evidences, most important first.
-- keywordsPresent / keywordsMissing: the important skills, tools, qualifications and terms from the job posting that do / don't appear in the CV text itself, for ATS keyword matching.
-- suggestions: specific, honest edits the candidate could make to the CV for this job. Point out relevant projects, skills or links from the online profile that the CV leaves out. Only suggest adding things the candidate could truthfully claim; anything that would need new experience is a gap, not a suggestion.`;
+- strengths: up to 4 of the candidate's strongest matches to the job's requirements, each naming the evidence and where it comes from (CV, website or GitHub).
+- gaps: up to 5 requirements neither the CV nor the online profile evidences, most important first.
+- keywordsPresent / keywordsMissing: up to 10 each of the important skills, tools, qualifications and terms from the job posting that do / don't appear in the CV text itself, for ATS keyword matching. Single words or short phrases.
+- suggestions: up to 3 specific, honest edits the candidate could make to the CV for this job. Point out relevant projects, skills or links from the online profile that the CV leaves out. Only suggest adding things the candidate could truthfully claim; anything that would need new experience is a gap, not a suggestion.
+
+Keep each item to one short sentence.`;
 }
 
 export function cvInstruction(options: TailorOptions, withProfile = false): string {

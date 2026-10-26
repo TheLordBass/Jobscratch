@@ -120,6 +120,8 @@ Results stream in as they're written. You can edit them and download as **Word (
 
 **Model:** the default is `claude-opus-5-5`; set `ANTHROPIC_MODEL` to use another. If Claude's safety checks ever decline a request, the API automatically retries it on Anthropic's recommended fallback model. Set `ANTHROPIC_FALLBACKS=off` to disable that.
 
+**Cost of matching:** your CV is cached between jobs, so matching a list pays full price for it only once every few minutes. To spend less on matches, set `ANTHROPIC_MATCH_MODEL` (for example `claude-haiku-5-5`, much cheaper) or `ANTHROPIC_MATCH_EFFORT` (`low`). Both apply to match analyses only, not to tailored CVs and cover letters. Compare a few scores before and after: a cheaper setting can score less carefully. Each request's token use (input, cache reads and writes, output) is written to the server log (Vercel → Logs).
+
 ## Your data
 
 By default, everything personal lives in your browser's local storage, not on the server. Use **Settings → Download backup** to move it to another browser or computer, and **Restore backup** to load it.

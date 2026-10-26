@@ -4,10 +4,12 @@ import {
   MatchAnalysisSchema,
   SYSTEM_PROMPT,
   analysisInstruction,
+  candidateBlock,
   coverLetterInstruction,
   cvInstruction,
   hasProfile,
-  materialsBlock,
+  jobBlock,
+  notesBlock,
   type MatchAnalysis,
   type TailorMaterials,
   type TailorOptions,
@@ -46,11 +48,21 @@ function getClient(env: Env): Anthropic {
  * decline a request, the API retries it on Anthropic's recommended model for
  * that case instead of failing. Set ANTHROPIC_FALLBACKS=off to disable.
  * Haiku models have no fallback model, so the parameter is left off for them.
+ * Match analyses can use their own model (ANTHROPIC_MATCH_MODEL), e.g. a cheaper one for long lists.
  */
-function modelParams(env: Env) {
-  const model = env.ANTHROPIC_MODEL?.trim() || DEFAULT_MODEL;
+function modelParams(env: Env, task: "match" | "document") {
+  const model = (task === "match" && env.ANTHROPIC_MATCH_MODEL?.trim()) || env.ANTHROPIC_MODEL?.trim() || DEFAULT_MODEL;
   if (env.ANTHROPIC_FALLBACKS === "off" || model.startsWith("claude-haiku")) return { model };
   return { model, betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const };
+}
+
+const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
+type Effort = (typeof EFFORTS)[number];
+
+/** How hard Claude thinks about a match: ANTHROPIC_MATCH_EFFORT, or medium. Lower is cheaper and faster. */
+function matchEffort(env: Env): Effort {
+  const effort = env.ANTHROPIC_MATCH_EFFORT?.trim() as Effort | undefined;
+  return effort && EFFORTS.includes(effort) ? effort : "medium";
 }
 
 function buildMessages(materials: TailorMaterials, instruction: string): Anthropic.Beta.BetaMessageParam[] {
@@ -58,12 +70,29 @@ function buildMessages(materials: TailorMaterials, instruction: string): Anthrop
     {
       role: "user",
       content: [
-        // The CV + profile + job prefix is identical for analysis, CV and cover letter, so cache it.
-        { type: "text", text: materialsBlock(materials), cache_control: { type: "ephemeral" } },
+        // Two cache breakpoints. The system prompt and candidate (CV, skills, profile) are the same for
+        // every job, so matching a list reads them from the cache after the first job. The job is the same
+        // for its analysis, CV and cover letter.
+        { type: "text", text: candidateBlock(materials).trimEnd(), cache_control: { type: "ephemeral" } },
+        {
+          type: "text",
+          text: `${jobBlock(materials.job)}${notesBlock(materials.notes)}`,
+          cache_control: { type: "ephemeral" },
+        },
         { type: "text", text: instruction },
       ],
     },
   ];
+}
+
+/** One line per request in the server log (Vercel: Logs), to see where the tokens go and that the cache is read. */
+function logUsage(task: string, message: { model: string; usage: Anthropic.Beta.BetaUsage }) {
+  if (process.env.NODE_ENV === "test") return;
+  const { usage } = message;
+  console.info(
+    `claude ${task} ${message.model}: input ${usage.input_tokens}, cache write ${usage.cache_creation_input_tokens ?? 0}, ` +
+      `cache read ${usage.cache_read_input_tokens ?? 0}, output ${usage.output_tokens}`,
+  );
 }
 
 /** Turn SDK errors into messages a user can act on. */
@@ -101,14 +130,15 @@ export async function analyzeMatch(materials: TailorMaterials, env: Env, signal?
   const client = getClient(env);
   const response = await client.beta.messages.parse(
     {
-      ...modelParams(env),
+      ...modelParams(env, "match"),
       max_tokens: 16000,
       system: SYSTEM_PROMPT,
       messages: buildMessages(materials, analysisInstruction(hasProfile(materials.profile))),
-      output_config: { effort: "medium", format: betaZodOutputFormat(MatchAnalysisSchema) },
+      output_config: { effort: matchEffort(env), format: betaZodOutputFormat(MatchAnalysisSchema) },
     },
     { signal },
   );
+  logUsage("match", response);
   if (response.stop_reason === "refusal") throw new AiError(REFUSAL_MESSAGE, 422);
   if (response.stop_reason === "max_tokens") throw new AiError("The analysis was cut off. Try again.", 502);
   const analysis = response.parsed_output;
@@ -140,7 +170,7 @@ export async function* streamDocument(
       kind === "cv" ? cvInstruction(options, withProfile) : coverLetterInstruction(options, withProfile);
     const stream = client.beta.messages.stream(
       {
-        ...modelParams(env),
+        ...modelParams(env, "document"),
         max_tokens: 64000,
         thinking: { type: "adaptive", display: "summarized" },
         output_config: { effort: kind === "cv" ? "high" : "medium" },
@@ -158,6 +188,7 @@ export async function* streamDocument(
       }
     }
     const final = await stream.finalMessage();
+    logUsage(kind, final);
     if (final.stop_reason === "refusal") {
       yield { type: "error", message: REFUSAL_MESSAGE, status: 422 };
     } else if (final.stop_reason === "max_tokens") {
