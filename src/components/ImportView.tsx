@@ -9,6 +9,7 @@ import { JobCard } from "@/components/JobCard";
 import { JobFilters } from "@/components/JobFilters";
 import { JobspyHelperPanel } from "@/components/JobspyHelper";
 import { MatchAllButton, useCurrentMatches } from "@/components/MatchAll";
+import { MorningRunBanner } from "@/components/MorningRun";
 import { SaveByMatch } from "@/components/SaveByMatch";
 import { FIND_TABS, SectionTabs } from "@/components/Nav";
 import { formatPosted } from "@/lib/format";
@@ -146,9 +147,16 @@ function JobspyImporter() {
         </h2>
         <p className="muted text-sm">
           Search LinkedIn, Indeed, Glassdoor and more with JobSpy, which runs on your own computer through a small helper.
-          Those sites don’t allow scraping, so use it at your own risk. The README explains how to set it up.
+          Those sites don’t allow scraping, so use it at your own risk. The README explains how to set it up, and how to
+          have it search by itself every morning.
         </p>
       </div>
+      <MorningRunBanner
+        onShow={(jobs, run) => {
+          setError(null);
+          show({ jobs, query: run.query, createdAt: run.startedAt, skipped: 0 });
+        }}
+      />
       <JobspyHelperPanel
         onResult={(file) => {
           setError(null);

@@ -140,21 +140,25 @@ export function parseJobspyFile(raw: string): JobspyImport {
     throw new Error("That isn't a JobSpy results file. Make one with scripts/jobspy/search.py (see the README).");
   }
 
+  return { ...parseJobspyRows(file.data.jobs), query: describeQuery(file.data.query), createdAt: file.data.createdAt };
+}
+
+/** JobSpy's rows as jobs, without repeats; rows without a title or link are counted as skipped. */
+export function parseJobspyRows(rows: unknown[]): { jobs: Job[]; skipped: number } {
   const byId = new Map<string, Job>();
   let skipped = 0;
-  for (const value of file.data.jobs) {
+  for (const value of rows) {
     // A missing field is read as empty, like pandas' null.
     const row = RecordSchema.safeParse(value && typeof value === "object" ? { ...BLANK_ROW, ...value } : value);
     const job = row.success ? toJob(row.data) : undefined;
     if (!job) skipped++;
     else if (!byId.has(job.id)) byId.set(job.id, job);
   }
+  return { jobs: [...byId.values()], skipped };
+}
 
-  const { search = [], location = [] } = file.data.query ?? {};
-  return {
-    jobs: [...byId.values()],
-    query: search.length ? `${search.join(", ")}${location.length ? ` in ${location.join(", ")}` : ""}` : undefined,
-    createdAt: file.data.createdAt,
-    skipped,
-  };
+/** "data analyst, BI analyst in Manchester". */
+export function describeQuery(query: { search?: string[]; location?: string[] } | undefined): string | undefined {
+  const { search = [], location = [] } = query ?? {};
+  return search.length ? `${search.join(", ")}${location.length ? ` in ${location.join(", ")}` : ""}` : undefined;
 }

@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import type { ExtraSkill, MatchAnalysis, TailorOptions } from "@/lib/ai/prompts";
 import { dismissKeys, findSavedCopy, mergeJobs } from "@/lib/import";
-import type { HelperSearch } from "@/lib/jobspy-helper";
+import { DEFAULT_JOBSPY_SEARCH, type HelperSearch } from "@/lib/jobspy-helper";
 import { connectStore, queueChange } from "@/lib/sync";
 import type { CompanyBoards, Job, SearchSourceId } from "@/lib/types";
 
@@ -94,7 +94,7 @@ export const DEFAULT_SETTINGS: Settings = {
   saveUndescribed: true,
   useJobNotes: true,
   tailor: { style: "uk-cv", tone: "professional", length: "two-pages", extraInstructions: "", projects: true },
-  jobspy: { search: [], location: [], sites: ["indeed", "linkedin"], results: 25, hours: null, remote: false, linkedinDescriptions: false, distance: 50, linkedinPace: 2 },
+  jobspy: DEFAULT_JOBSPY_SEARCH,
 };
 
 export const EMPTY_PROFILE: StoredProfile = { website: "", github: "", evidence: "", enabled: true };
