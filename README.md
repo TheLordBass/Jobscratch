@@ -100,7 +100,7 @@ Expect sites to block it from time to time, LinkedIn especially, after a page or
 
 Your computer can run your JobSpy search every morning without you, and the jobs are waiting in JobScratch on any device, including your phone. It runs on your computer rather than on Vercel because LinkedIn and Glassdoor turn away searches from cloud servers. It needs [server storage](#your-data) to be on.
 
-1. Search once from the app (**Find jobs → Add a job → From JobSpy**). The morning run searches whatever you searched last there: the same job titles, places and sites, for jobs posted in the last two days (or less, if you picked less).
+1. Tell it what to search, in **Find jobs → Add a job → From JobSpy**. Either make **title lists** there (see below), or just search once: without lists, the morning run repeats your last search, with the same job titles and places. Either way, it uses the sites and other options from the search form, for jobs posted in the last two days (or less, if you picked less).
 2. In PowerShell, in the JobScratch folder, run:
 
    ```powershell
@@ -112,6 +112,8 @@ Your computer can run your JobSpy search every morning without you, and the jobs
 4. To try it straight away, run the same command with `-RunNow` instead of `-At 07:00`.
 
 Each morning, Find jobs shows **The morning JobSpy run today at 07:02 found 48 jobs**, and **Show them** lists them in Add a job, ready to match, filter and save as usual (jobs you've already saved, or marked Not interested, are left out as usual). Only the latest run is kept. What the run did is written to `scripts\jobspy\scheduled.log`.
+
+**Title lists** (in **From JobSpy → Title lists for the morning run**) are for searching a wide range of jobs: group the job titles you're after, such as "Data roles" in Manchester and "Operations" in Leeds and Remote, each with its own places (up to 20 lists, 100 titles and 10 places each). Switch a list off to leave it out of the morning run without deleting it. They're saved with your settings, so you can change them on your phone. With lists, the morning's jobs can be filtered by **Title list**, and a job found by two lists' searches is in both. A morning run makes at most 100 searches, about what LinkedIn puts up with from one connection when they're spaced out. When your lists add up to more, it takes turns: say 250 searches are split over 3 mornings, so every title is searched every third morning, and each run then looks back far enough (4 days) that nothing is missed in between. The lists say how many searches they add up to, and how many mornings that takes.
 
 Windows runs it while you're signed in. A computer that's asleep wakes up for it, if wake timers are allowed (Control Panel → Power Options → Change plan settings → Change advanced power settings → Sleep → Allow wake timers); one that's off runs it the next time it's on. To change the time, run the command again with another `-At`. To stop the morning runs, run it with `-Remove`.
 

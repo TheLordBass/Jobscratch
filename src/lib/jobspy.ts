@@ -85,6 +85,8 @@ export interface JobspyImport {
   createdAt?: string;
   /** Rows without a title or link, or that couldn't be read. */
   skipped: number;
+  /** From the morning run: for each job id, the title lists whose searches found it. */
+  lists?: Record<string, string[]>;
 }
 
 const isHttp = (value: string) => /^https?:\/\//i.test(value);
@@ -143,18 +145,31 @@ export function parseJobspyFile(raw: string): JobspyImport {
   return { ...parseJobspyRows(file.data.jobs), query: describeQuery(file.data.query), createdAt: file.data.createdAt };
 }
 
-/** JobSpy's rows as jobs, without repeats; rows without a title or link are counted as skipped. */
-export function parseJobspyRows(rows: unknown[]): { jobs: Job[]; skipped: number } {
+/**
+ * JobSpy's rows as jobs, without repeats; rows without a title or link are counted as skipped. And
+ * for each job, the title lists whose searches found it (a row's `lists`, from the morning run).
+ */
+export function parseJobspyRows(rows: unknown[]): { jobs: Job[]; skipped: number; lists: Record<string, string[]> } {
   const byId = new Map<string, Job>();
+  const lists: Record<string, string[]> = {};
   let skipped = 0;
   for (const value of rows) {
     // A missing field is read as empty, like pandas' null.
     const row = RecordSchema.safeParse(value && typeof value === "object" ? { ...BLANK_ROW, ...value } : value);
     const job = row.success ? toJob(row.data) : undefined;
-    if (!job) skipped++;
-    else if (!byId.has(job.id)) byId.set(job.id, job);
+    if (!job) {
+      skipped++;
+      continue;
+    }
+    if (!byId.has(job.id)) byId.set(job.id, job);
+    const names = (value as { lists?: unknown }).lists;
+    for (const name of Array.isArray(names) ? names : []) {
+      if (typeof name === "string" && name.trim() && !(lists[job.id] ??= []).includes(name.trim())) {
+        lists[job.id].push(name.trim().slice(0, 60));
+      }
+    }
   }
-  return { jobs: [...byId.values()], skipped };
+  return { jobs: [...byId.values()], skipped, lists };
 }
 
 /** "data analyst, BI analyst in Manchester". */

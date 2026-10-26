@@ -25,6 +25,16 @@ export interface JobspyRun {
   /** Searches that failed or that LinkedIn turned away. */
   failed: string[];
   count: number;
+  /** The title lists searched (lib/jobspy-lists.ts), when it searched lists. */
+  lists?: string[];
+  /** Which part of the title lists this was, when they take several mornings to get through. */
+  batch?: { index: number; count: number };
+}
+
+/** A job the run found, and the title lists whose searches found it. */
+export interface RunJob {
+  job: Job;
+  lists: string[];
 }
 
 /** The token the helper sends (JOBSCRATCH_HELPER_TOKEN), long enough not to be guessed. */
@@ -48,7 +58,16 @@ export async function readRun(backend: DataBackend): Promise<JobspyRun | null> {
  */
 export async function saveRunPart(
   backend: DataBackend,
-  part: { id: string; startedAt: string; query?: string; failed: string[]; jobs: Job[]; done: boolean },
+  part: {
+    id: string;
+    startedAt: string;
+    query?: string;
+    failed: string[];
+    jobs: RunJob[];
+    done: boolean;
+    lists?: string[];
+    batch?: { index: number; count: number };
+  },
   now = new Date().toISOString(),
 ): Promise<JobspyRun> {
   const previous = await readRun(backend);
@@ -60,8 +79,10 @@ export async function saveRunPart(
     query: part.query,
     failed: part.failed,
     count: (sameRun ? previous.count : 0) + part.jobs.length,
+    ...(part.lists?.length && { lists: part.lists }),
+    ...(part.batch && { batch: part.batch }),
   };
-  const fields = part.jobs.flatMap((job) => [job.id, JSON.stringify(job)]);
+  const fields = part.jobs.flatMap((found) => [found.job.id, JSON.stringify(found)]);
   await backend.run([
     ...(sameRun ? [] : [["DEL", RUN_JOBS_KEY]]),
     ...(fields.length ? [["HSET", RUN_JOBS_KEY, ...fields]] : []),
@@ -71,10 +92,14 @@ export async function saveRunPart(
 }
 
 /** One page of the run's jobs; keep asking with the returned cursor until it's "0". */
-export async function readRunJobs(backend: DataBackend, cursor = "0"): Promise<{ jobs: Job[]; cursor: string }> {
+export async function readRunJobs(backend: DataBackend, cursor = "0"): Promise<{ jobs: RunJob[]; cursor: string }> {
   const [result] = await backend.run([["HSCAN", RUN_JOBS_KEY, cursor, "COUNT", String(PAGE_SIZE)]]);
   const [next, flat] = result as [string, string[]];
-  const jobs: Job[] = [];
-  for (let i = 1; i < flat.length; i += 2) jobs.push(JSON.parse(flat[i]) as Job);
+  const jobs: RunJob[] = [];
+  for (let i = 1; i < flat.length; i += 2) {
+    const value = JSON.parse(flat[i]) as RunJob | Job;
+    // Runs from before title lists stored the job on its own.
+    jobs.push("job" in value ? value : { job: value, lists: [] });
+  }
   return { jobs, cursor: String(next) };
 }

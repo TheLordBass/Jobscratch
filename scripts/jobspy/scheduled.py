@@ -102,7 +102,7 @@ def parts(jobs):
     yield group  # Always at least one, so even "nothing found" is reported.
 
 
-def upload(config, document, failed, started_at, upload_call=call):
+def upload(config, document, failed, started_at, upload_call=call, batch=None):
     run_id = uuid.uuid4().hex
     groups = list(parts(document["jobs"]))
     total = 0
@@ -114,6 +114,8 @@ def upload(config, document, failed, started_at, upload_call=call):
                 "id": run_id,
                 "startedAt": started_at,
                 "query": document["query"],
+                # Which part of the title lists this was, when they take several mornings to get through.
+                "batch": batch,
                 "failed": failed[:200],
                 "jobs": group,
                 "done": index == len(groups) - 1,
@@ -133,15 +135,17 @@ def run(config, scrape_jobs, keep_awake=lambda on: None, upload_call=call):
         options = helper.search_options(saved)
     except helper.BadRequest as error:
         raise RunError(f"The saved search can't run: {error}") from None
-    terms, locations, searches = search.plan(options.search, options.location)
+    terms, locations, searches = search.plan(options.search, options.location, options.pairs)
     where = f" in {', '.join(place for place in locations if place)}" if any(locations) else ""
-    search.log(f"Searching {', '.join(options.sites)} for {len(terms)} job titles{where} ({len(searches)} searches)…")
+    batch = saved.get("batch") or {}
+    part = f", part {batch['index'] + 1} of {batch['count']} of your title lists" if batch.get("count", 1) > 1 else ""
+    search.log(f"Searching {', '.join(options.sites)} for {len(terms)} job titles{where} ({len(searches)} searches{part})…")
     keep_awake(True)
     try:
         document, failed = search.run_searches(scrape_jobs, options)
     finally:
         keep_awake(False)
-    total = upload(config, document, failed, started_at, upload_call)
+    total = upload(config, document, failed, started_at, upload_call, saved.get("batch"))
     search.log(f"Sent {total} jobs to JobScratch." + (f" Failed searches: {'; '.join(failed)}" if failed else ""))
     return total
 

@@ -34,12 +34,21 @@ function summary(run: JobspyRun): string {
     : `The morning JobSpy run ${runTime(run.startedAt)} is still sending its jobs (${found} so far)`;
 }
 
+/** "Part 2 of 3 of your title lists", when they take several mornings to get through. */
+function batchText(run: JobspyRun): string | undefined {
+  return run.batch && run.batch.count > 1 ? `part ${run.batch.index + 1} of ${run.batch.count} of your title lists` : undefined;
+}
+
 /**
  * In Add a job > From JobSpy: the latest morning run, and a button to look through its jobs (with
  * the usual Match all, filters and saving). Opens them straight away when the address ends in
  * #morning-run, e.g. from the notice on Find jobs.
  */
-export function MorningRunBanner({ onShow }: { onShow: (jobs: Job[], run: JobspyRun) => void }) {
+export function MorningRunBanner({
+  onShow,
+}: {
+  onShow: (jobs: Job[], run: JobspyRun, lists: Record<string, string[]>) => void;
+}) {
   const { run } = useLatestRun();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -53,7 +62,8 @@ export function MorningRunBanner({ onShow }: { onShow: (jobs: Job[], run: Jobspy
     setLoading(true);
     setError(null);
     try {
-      deliver.current(await fetchRunJobs(), latest);
+      const { jobs, lists } = await fetchRunJobs();
+      deliver.current(jobs, latest, lists);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -76,7 +86,8 @@ export function MorningRunBanner({ onShow }: { onShow: (jobs: Job[], run: Jobspy
         <Sunrise size={16} className="shrink-0 text-indigo-600 dark:text-indigo-300" aria-hidden />
         <p className="min-w-0 flex-1">
           {summary(run)}
-          {run.query && <span className="muted"> for “{run.query}”</span>}.
+          {run.query && <span className="muted"> for “{run.query}”</span>}
+          {batchText(run) && <span className="muted"> ({batchText(run)})</span>}.
         </p>
         {run.count > 0 && (
           <button type="button" className="btn btn-secondary btn-sm" disabled={loading} onClick={() => void show(run)}>

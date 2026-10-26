@@ -93,6 +93,29 @@ class Run(unittest.TestCase):
         self.assertEqual({job["site"] for job in part["jobs"]}, {"indeed", "linkedin"})
         self.assertRegex(part["id"], r"^[0-9a-f]{32}$")
 
+    def test_runs_title_lists_each_in_its_own_places_and_labels_the_jobs(self):
+        lists_search = {
+            **{key: value for key, value in SAVED_SEARCH.items() if key not in ("search", "location")},
+            "searches": [
+                {"term": "data analyst", "location": "Manchester", "list": "Data roles"},
+                {"term": "BI analyst", "location": "Manchester", "list": "Data roles"},
+                {"term": "operations analyst", "location": "Leeds", "list": "Operations"},
+                # The same search in two lists runs once, and its jobs carry both names.
+                {"term": "Data Analyst", "location": "manchester", "list": "Operations"},
+            ],
+            "batch": {"index": 1, "count": 3},
+        }
+        app = FakeJobScratch(lists_search)
+        jobspy = FakeJobSpy()
+        scheduled.run(CONFIG, jobspy, upload_call=app)
+        self.assertEqual([term for _, term in jobspy.calls], ["data analyst", "BI analyst", "operations analyst"])
+        [part] = app.parts
+        self.assertEqual(part["batch"], {"index": 1, "count": 3})
+        self.assertEqual(part["query"]["lists"], ["Data roles", "Operations"])
+        lists = {job["title"]: job["lists"] for job in part["jobs"]}
+        self.assertEqual(lists["data analyst"], ["Data roles", "Operations"])
+        self.assertEqual(lists["operations analyst"], ["Operations"])
+
     def test_a_bad_saved_search_stops_with_a_reason(self):
         app = FakeJobScratch({**SAVED_SEARCH, "sites": ["myspace"]})
         with self.assertRaisesRegex(scheduled.RunError, "can't run"):
