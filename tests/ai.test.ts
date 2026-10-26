@@ -80,6 +80,12 @@ function lastRequest() {
   return { url: String(url), headers, body: JSON.parse(String(init?.body)) };
 }
 
+/** The last request's user content: the cached materials (candidate, then job), then the instruction. */
+function requestParts() {
+  const content = lastRequest().body.messages[0].content as Array<{ text: string }>;
+  return { materials: content.slice(0, -1).map((block) => block.text).join("\n\n"), instruction: content.at(-1)! };
+}
+
 describe("streamDocument", () => {
   it("streams a tailored CV with the right request shape", async () => {
     fetchMock.mockResolvedValueOnce(streamOf(["# Jane Doe\n", "Tailored CV"]));
@@ -104,10 +110,13 @@ describe("streamDocument", () => {
       output_config: { effort: "high" },
     });
     expect(body.system).toContain("Be truthful");
-    const [materials, instruction] = body.messages[0].content;
-    expect(materials.cache_control).toEqual({ type: "ephemeral" });
-    expect(materials.text).toContain("<candidate_cv>");
-    expect(materials.text).toContain("Title: Senior Data Analyst");
+    // The candidate and the job are cached separately, so matching a list reuses the candidate part.
+    const [candidate, job, instruction] = body.messages[0].content;
+    expect(candidate.cache_control).toEqual({ type: "ephemeral" });
+    expect(candidate.text).toContain("<candidate_cv>");
+    expect(candidate.text).not.toContain("<job_posting>");
+    expect(job.cache_control).toEqual({ type: "ephemeral" });
+    expect(job.text).toContain("Title: Senior Data Analyst");
     expect(instruction.text).toContain("Keep every employer, job title and date exactly as written");
     expect(instruction.text).toContain("UK/European CV conventions");
   });
@@ -117,8 +126,8 @@ describe("streamDocument", () => {
     await collect(streamDocument("cover-letter", { cv: CV, job: JOB }, { ...OPTIONS, extraInstructions: "Mention I can start in May" }, ENV));
     const { body } = lastRequest();
     expect(body.output_config).toEqual({ effort: "medium" });
-    expect(body.messages[0].content[1].text).toContain("cover letter");
-    expect(body.messages[0].content[1].text).toContain("Mention I can start in May");
+    expect(body.messages[0].content[2].text).toContain("cover letter");
+    expect(body.messages[0].content[2].text).toContain("Mention I can start in May");
   });
 
   it("reports refusals and truncation as errors", async () => {
@@ -160,12 +169,12 @@ describe("streamDocument", () => {
     };
     await collect(streamDocument("cv", { cv: CV, job: JOB, profile }, OPTIONS, ENV));
     const { body } = lastRequest();
-    const [materials, instruction] = body.messages[0].content;
-    expect(materials.text).toContain("<candidate_links>\nWebsite: https://jane.dev\nGitHub: https://github.com/janedoe\n</candidate_links>");
-    expect(materials.text).toContain("<online_profile>");
-    expect(materials.text).toContain("sales-dashboard: Power BI and Python sales dashboard");
+    const { materials, instruction } = requestParts();
+    expect(materials).toContain("<candidate_links>\nWebsite: https://jane.dev\nGitHub: https://github.com/janedoe\n</candidate_links>");
+    expect(materials).toContain("<online_profile>");
+    expect(materials).toContain("sales-dashboard: Power BI and Python sales dashboard");
     // The profile sits inside the cached prefix, before the job.
-    expect(materials.text.indexOf("<online_profile>")).toBeLessThan(materials.text.indexOf("<job_posting>"));
+    expect(materials.indexOf("<online_profile>")).toBeLessThan(materials.indexOf("<job_posting>"));
     expect(instruction.text).toContain('"Projects" section');
     expect(instruction.text).toContain("website and GitHub links from candidate_links");
     expect(instruction.text).toContain("Embed every web address as a Markdown link");
@@ -177,8 +186,8 @@ describe("streamDocument", () => {
     fetchMock.mockResolvedValueOnce(streamOf(["ok"]));
     const profile = { website: "jane.dev", github: "@janedoe", evidence: "" };
     await collect(streamDocument("cv", { cv: CV, job: JOB, profile }, OPTIONS, ENV));
-    const [materials] = lastRequest().body.messages[0].content;
-    expect(materials.text).toContain("Website: https://jane.dev\nGitHub: https://github.com/janedoe\n");
+    const { materials } = requestParts();
+    expect(materials).toContain("Website: https://jane.dev\nGitHub: https://github.com/janedoe\n");
   });
 
   it("leaves profile sections out when there is no profile", async () => {
@@ -186,9 +195,9 @@ describe("streamDocument", () => {
     await collect(
       streamDocument("cv", { cv: CV, job: JOB, profile: { website: "", github: "", evidence: " " } }, OPTIONS, ENV),
     );
-    const [materials, instruction] = lastRequest().body.messages[0].content;
-    expect(materials.text).not.toContain("<candidate_links>");
-    expect(materials.text).not.toContain("<online_profile>");
+    const { materials, instruction } = requestParts();
+    expect(materials).not.toContain("<candidate_links>");
+    expect(materials).not.toContain("<online_profile>");
     expect(instruction.text).not.toContain("Projects");
   });
 
@@ -196,13 +205,13 @@ describe("streamDocument", () => {
     fetchMock.mockResolvedValueOnce(streamOf(["ok"]));
     const profile = { website: "https://jane.dev", github: "", evidence: "## Site\n- sales-dashboard" };
     await collect(streamDocument("cv", { cv: CV, job: JOB, profile }, { ...OPTIONS, projects: false }, ENV));
-    const [, instruction] = lastRequest().body.messages[0].content;
+    const { instruction } = requestParts();
     expect(instruction.text).toContain("Leave out projects entirely");
     expect(instruction.text).not.toContain('"Projects" section');
 
     fetchMock.mockResolvedValueOnce(streamOf(["ok"]));
     await collect(streamDocument("cover-letter", { cv: CV, job: JOB, profile }, { ...OPTIONS, projects: false }, ENV));
-    const [, letter] = lastRequest().body.messages[0].content;
+    const { instruction: letter } = requestParts();
     expect(letter.text).toContain("Don't mention personal or side projects.");
   });
 
@@ -278,9 +287,41 @@ describe("analyzeMatch", () => {
       { cv: CV, job: JOB, profile: { website: "", github: "janedoe", evidence: "## GitHub\n- etl-pipeline" } },
       ENV,
     );
-    const [materials, instruction] = lastRequest().body.messages[0].content;
-    expect(materials.text).toContain("etl-pipeline");
+    const { materials, instruction } = requestParts();
+    expect(materials).toContain("etl-pipeline");
     expect(instruction.text).toContain("where it comes from (CV, website or GitHub)");
+  });
+
+  it("can match with its own model and effort, leaving documents on the main model", async () => {
+    const reply = () =>
+      Response.json({
+        id: "msg_5",
+        type: "message",
+        role: "assistant",
+        model: "claude-haiku-5-5",
+        content: [{ type: "text", text: JSON.stringify(analysis) }],
+        stop_reason: "end_turn",
+        stop_sequence: null,
+        usage: { input_tokens: 10, output_tokens: 10 },
+      });
+    const env = { ...ENV, ANTHROPIC_MATCH_MODEL: "claude-haiku-5-5", ANTHROPIC_MATCH_EFFORT: "low" };
+    fetchMock.mockResolvedValueOnce(reply());
+    await analyzeMatch({ cv: CV, job: JOB }, env);
+    let { body } = lastRequest();
+    expect(body.model).toBe("claude-haiku-5-5");
+    expect(body.output_config.effort).toBe("low");
+    expect(body.fallbacks).toBeUndefined();
+    expect(requestParts().instruction.text).toContain("up to 10 each");
+
+    // An effort the API doesn't know falls back to the default.
+    fetchMock.mockResolvedValueOnce(reply());
+    await analyzeMatch({ cv: CV, job: JOB }, { ...env, ANTHROPIC_MATCH_EFFORT: "lowest" });
+    expect(lastRequest().body.output_config.effort).toBe("medium");
+
+    fetchMock.mockResolvedValueOnce(streamOf(["# Jane"]));
+    await collect(streamDocument("cv", { cv: CV, job: JOB }, OPTIONS, env));
+    ({ body } = lastRequest());
+    expect(body.model).toBe("claude-opus-5-5");
   });
 
   it("throws a friendly error on refusal", async () => {
