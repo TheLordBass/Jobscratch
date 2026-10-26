@@ -38,6 +38,19 @@ export interface HelperSearch {
   country: string;
 }
 
+/** A JobSpy search until one is saved (Settings.jobspy). */
+export const DEFAULT_JOBSPY_SEARCH: Omit<HelperSearch, "country"> = {
+  search: [],
+  location: [],
+  sites: ["indeed", "linkedin"],
+  results: 25,
+  hours: null,
+  remote: false,
+  linkedinDescriptions: false,
+  distance: 50,
+  linkedinPace: 2,
+};
+
 /** The most job titles, and searches (titles × places), the helper takes at once. */
 export const MAX_TITLES = 50;
 export const MAX_SEARCHES = 100;

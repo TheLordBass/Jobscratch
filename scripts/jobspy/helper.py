@@ -83,6 +83,23 @@ def whole_number(value, name, low, high, default):
     return int(value)
 
 
+def search_pairs(value):
+    """The morning run's searches: (job title, place, title list) each, at most MAX_SEARCHES."""
+    if not isinstance(value, list) or not value:
+        raise BadRequest("searches must be a list of searches")
+    # The same search can be in several lists, so the limit (below) is on searches once repeats are merged.
+    if len(value) > MAX_SEARCHES * 20:
+        raise BadRequest(f"That's {len(value)} searches; at most {MAX_SEARCHES} at once")
+    pairs = []
+    for item in value:
+        item = item if isinstance(item, dict) else {}
+        term, place, name = item.get("term"), item.get("location") or "", item.get("list") or ""
+        if not isinstance(term, str) or not term.strip() or not isinstance(place, str) or not isinstance(name, str):
+            raise BadRequest("Each search needs a job title, and a place and title list as text")
+        pairs.append((term.strip()[:100], place.strip()[:100], name.strip()[:60]))
+    return pairs
+
+
 def search_options(body):
     """The app's request as search.py's options, checked."""
     if not isinstance(body, dict):
@@ -100,9 +117,14 @@ def search_options(body):
     except ValueError:
         raise BadRequest(f"JobSpy can't search Indeed or Glassdoor in “{country}”") from None
 
+    # Either every combination of `search` and `location` (the app's search form), or exactly the
+    # searches listed in `searches` (the morning run's title lists, each with its own places).
+    pairs = search_pairs(body["searches"]) if "searches" in body else None
+    terms, places, _ = search.plan([], [], pairs) if pairs else (None, None, None)
     options = SimpleNamespace(
-        search=text_list(body.get("search"), "keywords", MAX_TERMS, allow_empty=False),
-        location=text_list(body.get("location"), "locations", MAX_LOCATIONS, allow_empty=True) or [""],
+        search=terms or text_list(body.get("search"), "keywords", MAX_TERMS, allow_empty=False),
+        location=places or text_list(body.get("location"), "locations", MAX_LOCATIONS, allow_empty=True) or [""],
+        pairs=pairs,
         sites=list(dict.fromkeys(sites)),
         distance=whole_number(body.get("distance"), "distance", 1, 200, 50),
         results=whole_number(body.get("results"), "results", 1, 100, 25),
@@ -114,7 +136,7 @@ def search_options(body):
         country=country.strip().lower(),
         pause=3,
     )
-    _, _, searches = search.plan(options.search, options.location)
+    _, _, searches = search.plan(options.search, options.location, pairs)
     if len(searches) > MAX_SEARCHES:
         raise BadRequest(f"That's {len(searches)} searches; at most {MAX_SEARCHES} at once (keywords × locations)")
     return options
@@ -168,7 +190,7 @@ class Helper:
                 "waitingUntil": None,
                 "waitingFor": None,
                 "done": 0,
-                "total": len(search.plan(options.search, options.location)[2]),
+                "total": len(search.plan(options.search, options.location, options.pairs)[2]),
                 "current": None,
                 "found": 0,
                 "failed": [],

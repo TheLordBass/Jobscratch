@@ -159,25 +159,52 @@ def search_once(scrape_jobs, args, term, location, sites=None):
     return [{field: row.get(field) for field in FIELDS} for row in rows], watch.blocked
 
 
-def plan(search, location):
-    """The keywords, locations and every (keyword, location) search to run."""
+def plan(search, location, pairs=None):
+    """
+    The keywords, locations and every (keyword, location) search to run: every combination of
+    `search` and `location`, or exactly the (keyword, location, list name) searches in `pairs`
+    (the morning run's title lists, each with its own places), once each.
+    """
+    if pairs:
+        seen, searches = set(), []
+        for term, place, _ in pairs:
+            key = (term.strip().lower(), place.strip().lower())
+            if key[0] and key not in seen:
+                seen.add(key)
+                searches.append((term.strip(), place.strip()))
+        terms = unique(term for term, _ in searches)
+        locations = [place for place in unique(place for _, place in searches) if place] or [""]
+        return terms, locations, searches
     terms = [term for term in unique(search) if term]
     # An empty location means "anywhere"; keep it only if it's the only one.
     locations = [place for place in unique(location) if place] or [""]
     return terms, locations, [(term, place) for term in terms for place in locations]
 
 
+def list_names(pairs):
+    """For each (keyword, location) search in `pairs`, the names of the title lists it came from."""
+    names = {}
+    for term, place, name in pairs or []:
+        key = (term.strip().lower(), place.strip().lower())
+        if name and name not in names.setdefault(key, []):
+            names[key].append(name)
+    return names
+
+
 def log(message):
     print(message, file=sys.stderr, flush=True)
 
 
-def results_file(terms, locations, records):
-    """What JobScratch loads: the jobs found, and what was searched for."""
+def results_file(terms, locations, records, lists=None):
+    """What JobScratch loads: the jobs found, and what was searched for (and from which title lists)."""
+    query = {"search": terms, "location": [location for location in locations if location]}
+    if lists:
+        query["lists"] = lists
     return {
         "format": "jobscratch-jobspy",
         "version": 1,
         "createdAt": datetime.now(timezone.utc).isoformat(),
-        "query": {"search": terms, "location": [location for location in locations if location]},
+        "query": query,
         "jobs": records,
     }
 
@@ -202,7 +229,11 @@ def run_searches(scrape_jobs, args, on_progress=None, should_stop=None, on_found
     should_stop() is checked between searches and during waits. Returns (file contents, failed
     searches). Used by this script and by helper.py.
     """
-    terms, locations, searches = plan(args.search, args.location)
+    pairs = getattr(args, "pairs", None)
+    terms, locations, searches = plan(args.search, args.location, pairs)
+    # Each job is labelled with the title lists whose searches found it (the morning run's lists).
+    names_for = list_names(pairs)
+    lists = unique(name for _, _, name in pairs or [] if name)
     pace = max(0.0, float(getattr(args, "linkedin_pace", 0) or 0)) * 60
     cooldowns = getattr(args, "linkedin_cooldowns", LINKEDIN_COOLDOWNS)
     paced = pace > 0 and "linkedin" in args.sites
@@ -283,21 +314,26 @@ def run_searches(scrape_jobs, args, on_progress=None, should_stop=None, on_found
                 break
 
         new = 0
+        names = names_for.get((term.lower(), location.lower()), [])
         for record in records:
             key = record.get("job_url") or f"{record.get('site')}|{record.get('title')}|{record.get('company')}"
             if key not in by_url:
                 by_url[key] = record
                 new += 1
+            kept = by_url[key]
+            for name in names:
+                if name not in kept.setdefault("lists", []):
+                    kept["lists"].append(name)
         log(f"    {len(records)} found, {new} new")
         if on_found:
-            on_found(results_file(terms, locations, list(by_url.values())))
+            on_found(results_file(terms, locations, list(by_url.values()), lists))
         if slow and blocks_in_a_row >= LINKEDIN_MAX_BLOCKS:
             log("LinkedIn keeps turning searches away, so the rest of the LinkedIn searches are skipped.")
 
     if on_progress:
         on_progress(len(steps), len(steps), None, len(by_url))
     status(waitingUntil=None, waitingFor=None, endsAround=None)
-    return results_file(terms, locations, list(by_url.values())), failed
+    return results_file(terms, locations, list(by_url.values()), lists), failed
 
 
 def main():

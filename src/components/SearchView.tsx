@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, type FormEvent } from "react";
 import { GettingStarted } from "@/components/GettingStarted";
+import { MorningRunNotice } from "@/components/MorningRun";
 import { BulkTailor } from "@/components/BulkTailor";
 import { JobCard } from "@/components/JobCard";
 import { JobFilters } from "@/components/JobFilters";
@@ -265,6 +266,7 @@ export function SearchView() {
     <div className="space-y-4">
       <SectionTabs tabs={FIND_TABS} />
       <GettingStarted />
+      <MorningRunNotice />
 
       <form onSubmit={onSubmit} className="card space-y-3 p-4">
         <div className="grid gap-3 md:grid-cols-[1fr_220px_auto] md:items-end">

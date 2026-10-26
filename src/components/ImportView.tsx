@@ -9,6 +9,8 @@ import { JobCard } from "@/components/JobCard";
 import { JobFilters } from "@/components/JobFilters";
 import { JobspyHelperPanel } from "@/components/JobspyHelper";
 import { MatchAllButton, useCurrentMatches } from "@/components/MatchAll";
+import { MorningRunBanner } from "@/components/MorningRun";
+import { TitleLists } from "@/components/TitleLists";
 import { SaveByMatch } from "@/components/SaveByMatch";
 import { FIND_TABS, SectionTabs } from "@/components/Nav";
 import { formatPosted } from "@/lib/format";
@@ -94,6 +96,8 @@ function JobspyImporter() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [order, setOrder] = useState<"match" | "file">("match");
   const [jobFilter, setJobFilter] = useState<JobFilter>(ANY_JOB);
+  /** A title list to narrow the morning run's jobs to (empty for all of them). */
+  const [listFilter, setListFilter] = useState("");
 
   /** A new list starts unfiltered. */
   function show(next: JobspyImport) {
@@ -101,6 +105,7 @@ function JobspyImporter() {
     setShowSaved(false);
     setResult(next);
     setJobFilter(ANY_JOB);
+    setListFilter("");
   }
 
   async function load(event: ChangeEvent<HTMLInputElement>) {
@@ -119,7 +124,10 @@ function JobspyImporter() {
   // A job you've already saved shows as saved, including anything added since, e.g. a LinkedIn
   // description sent with the bookmarklet.
   const findCopy = useMemo(() => savedCopyFinder(saved), [saved]);
-  const found = collapseCopies(result?.jobs ?? [], findCopy);
+  const listNames = [...new Set(Object.values(result?.lists ?? {}).flat())].sort();
+  const found = collapseCopies(result?.jobs ?? [], findCopy).filter(
+    (job) => !listFilter || result?.lists?.[job.id]?.includes(listFilter),
+  );
   const wasSaved = (job: Job) => savedBefore.has(job.id) && Boolean(saved[job.id]);
   const savedCount = found.filter(wasSaved).length;
   const all = showSaved ? found : found.filter((job) => !wasSaved(job));
@@ -146,9 +154,17 @@ function JobspyImporter() {
         </h2>
         <p className="muted text-sm">
           Search LinkedIn, Indeed, Glassdoor and more with JobSpy, which runs on your own computer through a small helper.
-          Those sites don’t allow scraping, so use it at your own risk. The README explains how to set it up.
+          Those sites don’t allow scraping, so use it at your own risk. The README explains how to set it up, and how to
+          have it search by itself every morning.
         </p>
       </div>
+      <MorningRunBanner
+        onShow={(jobs, run, lists) => {
+          setError(null);
+          show({ jobs, query: run.query, createdAt: run.startedAt, skipped: 0, lists });
+        }}
+      />
+      <TitleLists />
       <JobspyHelperPanel
         onResult={(file) => {
           setError(null);
@@ -198,6 +214,19 @@ function JobspyImporter() {
               )}
             </div>
           </div>
+          {listNames.length > 1 && (
+            <label className="flex flex-wrap items-center gap-2 text-sm">
+              <span className="muted">Title list</span>
+              <select className="input w-auto py-1 text-xs" value={listFilter} onChange={(e) => setListFilter(e.target.value)}>
+                <option value="">All lists</option>
+                {listNames.map((name) => (
+                  <option key={name} value={name}>
+                    {name} ({Object.values(result?.lists ?? {}).filter((names) => names.includes(name)).length})
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <JobFilters
             items={notHidden}
             jobOf={(job) => job}

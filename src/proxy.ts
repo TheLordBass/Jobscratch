@@ -21,6 +21,8 @@ export function proxy(request: NextRequest) {
 
   // The sign-in page and the routes it uses.
   if (pathname === "/login" || pathname.startsWith("/api/auth/")) return NextResponse.next();
+  // The scheduled JobSpy run on your computer: these routes check its own token instead (lib/helper-request.ts).
+  if (pathname.startsWith("/api/helper/")) return NextResponse.next();
 
   if (verifySession(env, request.cookies.get(SESSION_COOKIE)?.value) || checkBasicAuth(env, request.headers.get("authorization"))) {
     return NextResponse.next();

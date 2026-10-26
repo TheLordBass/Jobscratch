@@ -3,7 +3,8 @@
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import type { ExtraSkill, MatchAnalysis, TailorOptions } from "@/lib/ai/prompts";
 import { dismissKeys, findSavedCopy, mergeJobs } from "@/lib/import";
-import type { HelperSearch } from "@/lib/jobspy-helper";
+import { DEFAULT_JOBSPY_SEARCH, type HelperSearch } from "@/lib/jobspy-helper";
+import type { JobspyList } from "@/lib/jobspy-lists";
 import { connectStore, queueChange } from "@/lib/sync";
 import type { CompanyBoards, Job, SearchSourceId } from "@/lib/types";
 
@@ -72,8 +73,10 @@ export interface Settings {
   /** Send each job's notes with tailoring and analysis, as extra experience and guidance. */
   useJobNotes: boolean;
   tailor: TailorOptions;
-  /** The last JobSpy search, so the form starts with it. */
+  /** The last JobSpy search, so the form starts with it. The morning run uses its sites and other options too. */
   jobspy: Omit<HelperSearch, "country">;
+  /** Job titles for the morning JobSpy run, in named lists with their own places (lib/jobspy-lists.ts). */
+  jobspyLists: JobspyList[];
 }
 
 export interface TailoredDocs {
@@ -94,7 +97,8 @@ export const DEFAULT_SETTINGS: Settings = {
   saveUndescribed: true,
   useJobNotes: true,
   tailor: { style: "uk-cv", tone: "professional", length: "two-pages", extraInstructions: "", projects: true },
-  jobspy: { search: [], location: [], sites: ["indeed", "linkedin"], results: 25, hours: null, remote: false, linkedinDescriptions: false, distance: 50, linkedinPace: 2 },
+  jobspy: DEFAULT_JOBSPY_SEARCH,
+  jobspyLists: [],
 };
 
 export const EMPTY_PROFILE: StoredProfile = { website: "", github: "", evidence: "", enabled: true };

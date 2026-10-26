@@ -48,6 +48,8 @@ next-env.d.ts
 # JobSpy results (scripts/jobspy/search.py)
 jobspy-results*.json
 scripts/jobspy/.venv/
+# The morning run's log (scripts/jobspy/scheduled.py)
+scripts/jobspy/scheduled.log
 __pycache__/
 
 # Local server-storage file (JOBSCRATCH_DATA_FILE)
