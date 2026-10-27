@@ -15,6 +15,11 @@ const INTERRUPTED: SearchState = { status: "error", message: "The search was sto
 
 let latest = 0;
 
+/** Whether the search finished (or failed) while you were on another page, for the note in the navigation. */
+export function useSearchUnseen() {
+  return useSessionState("search:unseen", false);
+}
+
 export function useSearchState(): [SearchState, (value: SearchState | ((previous: SearchState) => SearchState)) => void] {
   const [search, setSearch] = useSessionState<SearchState>("search:state", IDLE);
   // Kept from before a reload, which stopped it: nothing will finish it now.

@@ -9,7 +9,7 @@ import { signOut, useSession } from "@/components/useSession";
 import { startSync, useSyncState } from "@/lib/sync";
 import { markBatchSeen, useBatches, type BatchRun } from "@/lib/batch-runs";
 import { dismissTask, useJobTasks, type TaskKind } from "@/lib/job-tasks";
-import { useSearchState } from "@/lib/search-session";
+import { useSearchState, useSearchUnseen } from "@/lib/search-session";
 
 /** Three sections; each covers the pages listed in `paths`. */
 const SECTIONS = [
@@ -184,8 +184,18 @@ function JobTasksBar() {
   // A run on the page you're on shows there.
   const batches = useBatches().filter((run) => run.status !== "seen" && run.page !== pathname);
   const [search] = useSearchState();
-  const searching = search.status === "loading" && pathname !== "/" ? search.label : null;
-  if (tasks.length === 0 && batches.length === 0 && !searching) return null;
+  const [unseen, setUnseen] = useSearchUnseen();
+  const elsewhere = pathname !== "/";
+  const searching = search.status === "loading" && elsewhere ? search.label : null;
+  const searched =
+    unseen && elsewhere
+      ? search.status === "done"
+        ? `Search done: ${search.response.jobs.length} ${search.response.jobs.length === 1 ? "job" : "jobs"} for ${search.label}`
+        : search.status === "error"
+          ? "Search failed"
+          : null
+      : null;
+  if (tasks.length === 0 && batches.length === 0 && !searching && !searched) return null;
   return (
     <div className="mx-auto flex max-w-6xl flex-wrap gap-2 px-4 pb-2 sm:px-6" aria-live="polite">
       {searching && (
@@ -194,6 +204,19 @@ function JobTasksBar() {
           <Link href="/" className="hover:underline">
             Searching: {searching}
           </Link>
+        </span>
+      )}
+      {searched && (
+        <span
+          className={`chip gap-2 py-1 ${search.status === "done" ? "bg-emerald-50 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200" : "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300"}`}
+        >
+          {search.status === "done" ? <Check size={13} aria-hidden /> : <X size={13} aria-hidden />}
+          <Link href="/" className="hover:underline">
+            {searched}
+          </Link>
+          <button type="button" className="cursor-pointer opacity-70 hover:opacity-100" onClick={() => setUnseen(false)} aria-label="Dismiss">
+            <X size={13} aria-hidden />
+          </button>
         </span>
       )}
       {batches.map((run) => (

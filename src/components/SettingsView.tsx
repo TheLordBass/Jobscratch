@@ -2,6 +2,7 @@
 
 import { ArrowUpRight } from "lucide-react";
 import { useEffect, useState, type ChangeEvent } from "react";
+import { useFieldDraft } from "@/components/useFieldDraft";
 import { PROFILE_TABS, SectionTabs } from "@/components/Nav";
 import { useSources } from "@/components/useSources";
 import { COUNTRIES, downloadBlob } from "@/lib/format";
@@ -25,8 +26,9 @@ const BOARD_HELP: Record<keyof CompanyBoards, { name: string; example: string }>
 
 
 function BoardEditor({ provider, values, onChange }: { provider: keyof CompanyBoards; values: string[]; onChange: (values: string[]) => void }) {
-  const [text, setText] = useState(values.join("\n"));
-  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  const toLines = (text: string) => text.split("\n").map((l) => l.trim()).filter(Boolean);
+  const draft = useFieldDraft(values.join("\n"), (text) => onChange(toLines(text)));
+  const lines = toLines(draft.value);
   const help = BOARD_HELP[provider];
   return (
     <div>
@@ -37,9 +39,7 @@ function BoardEditor({ provider, values, onChange }: { provider: keyof CompanyBo
         id={`board-${provider}`}
         className="input min-h-24 font-mono text-xs"
         placeholder={help.example}
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onBlur={() => onChange(lines)}
+        {...draft}
       />
       {lines.length > 0 && (
         <div className="mt-1 flex flex-wrap gap-1">

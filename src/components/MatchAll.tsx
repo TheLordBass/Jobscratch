@@ -6,7 +6,7 @@ import { useEffect } from "react";
 import { useSources } from "@/components/useSources";
 import { canMatch, candidateFor, matchKey, type Candidate } from "@/lib/candidate";
 import type { MatchAnalysis } from "@/lib/ai/prompts";
-import { beginBatch, markBatchSeen, stopBatch, useBatch } from "@/lib/batch-runs";
+import { beginBatch, markBatchSeen, pausedInBackground, stopBatch, useBatch } from "@/lib/batch-runs";
 import { siteJobKey } from "@/lib/import";
 import { matchFromAnalysis } from "@/lib/job-tasks";
 import { isSavedJob, updateStoredMatch, updateTailoredDocs, useCv, useMatches, useProfile, useSavedJobs, useSettings, useTailored, type StoredMatch } from "@/lib/store";
@@ -126,6 +126,11 @@ export function MatchAllButton({ jobs, onMatched }: MatchAllProps) {
           }
         } catch {
           if (run.signal.aborted) return;
+          // Dropped while the phone had the app in the background: tried again once you're back.
+          if (await pausedInBackground(run.signal)) {
+            queue.unshift(job);
+            continue;
+          }
           failed++;
         }
         done++;

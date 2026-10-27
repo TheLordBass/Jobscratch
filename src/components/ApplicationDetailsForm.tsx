@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useFieldDraft } from "@/components/useFieldDraft";
 import { APPLICATION_DETAIL_LABELS, type ApplicationDetails } from "@/lib/ai/prompts";
 import { useHydrated, useProfile } from "@/lib/store";
 
@@ -52,18 +52,16 @@ export function ApplicationDetailsForm() {
 
 /** Saved when you leave the box. */
 function DetailField({ id, value, onSave }: { id: keyof ApplicationDetails; value: string; onSave: (value: string) => void }) {
-  const [text, setText] = useState(value);
+  const draft = useFieldDraft(value, (text) => {
+    if (text.trim() !== value) onSave(text.trim());
+  });
   const long = id === "other";
   const props = {
+    ...draft,
     id: `detail-${id}`,
     className: `input text-sm ${long ? "min-h-20" : ""}`,
-    value: text,
     placeholder: PLACEHOLDERS[id],
     maxLength: long ? 2000 : 300,
-    onChange: (e: { target: { value: string } }) => setText(e.target.value),
-    onBlur: () => {
-      if (text.trim() !== value) onSave(text.trim());
-    },
   };
   return (
     <div className={long ? "sm:col-span-2" : ""}>

@@ -47,6 +47,29 @@ if (typeof window !== "undefined") {
   });
 }
 
+/**
+ * Whether a request that just failed probably failed only because the page was in the background:
+ * phones pause a page when you switch to another app, which can drop its requests. If so, this waits
+ * until you're back (or `signal` stops the run) so the job can be tried again rather than counted
+ * as failed.
+ */
+export async function pausedInBackground(signal: AbortSignal): Promise<boolean> {
+  if (typeof document === "undefined" || document.visibilityState !== "hidden" || signal.aborted) return false;
+  await new Promise<void>((resolve) => {
+    const done = () => {
+      document.removeEventListener("visibilitychange", onChange);
+      signal.removeEventListener("abort", done);
+      resolve();
+    };
+    const onChange = () => {
+      if (document.visibilityState === "visible") done();
+    };
+    document.addEventListener("visibilitychange", onChange);
+    signal.addEventListener("abort", done);
+  });
+  return !signal.aborted;
+}
+
 export interface BatchHandle {
   signal: AbortSignal;
   /** Stops the run, e.g. when every job would fail the same way. */
