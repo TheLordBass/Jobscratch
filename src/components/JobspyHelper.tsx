@@ -6,6 +6,7 @@ import { COUNTRIES } from "@/lib/format";
 import {
   JOBSPY_SITES,
   MAX_SEARCHES,
+  MIN_LINKEDIN_PACE,
   MAX_TITLES,
   cancelHelperSearch,
   getHelperPartial,
@@ -29,15 +30,12 @@ const POSTED = [
 ] as const;
 
 const DISTANCES = [10, 25, 50, 100] as const;
-/** Above this many searches, LinkedIn is likely to start blocking them. */
-const LINKEDIN_LOTS = 20;
-/** Minutes between LinkedIn searches; 0 searches LinkedIn alongside the other sites. */
+/** Minutes between LinkedIn searches: never less than MIN_LINKEDIN_PACE, as closer together LinkedIn blocks many more. */
 const LINKEDIN_PACES = [
-  { minutes: 0, label: "All together (fastest)" },
-  { minutes: 1, label: "1 minute apart" },
-  { minutes: 2, label: "2 minutes apart" },
-  { minutes: 5, label: "5 minutes apart" },
   { minutes: 10, label: "10 minutes apart" },
+  { minutes: 15, label: "15 minutes apart" },
+  { minutes: 20, label: "20 minutes apart" },
+  { minutes: 30, label: "30 minutes apart" },
 ] as const;
 
 const splitList = (text: string) => [...new Set(text.split(/[,;\n]/).map((item) => item.trim()).filter(Boolean))];
@@ -269,7 +267,8 @@ function SearchForm({ search }: { search: ReturnType<typeof useHelperSearch> }) 
   const [distance, setDistance] = useState(saved.distance);
   const [remote, setRemote] = useState(saved.remote);
   const [linkedinDescriptions, setLinkedinDescriptions] = useState(saved.linkedinDescriptions);
-  const [linkedinPace, setLinkedinPace] = useState(saved.linkedinPace);
+  // Searches saved with a shorter gap, from before it had a minimum, use the minimum.
+  const [linkedinPace, setLinkedinPace] = useState(Math.max(MIN_LINKEDIN_PACE, saved.linkedinPace));
 
   const country = COUNTRIES.find((c) => c.code === settings.country)?.name ?? "United Kingdom";
   const keywords = splitList(terms);
@@ -506,12 +505,6 @@ function SearchForm({ search }: { search: ReturnType<typeof useHelperSearch> }) 
           {sites.length > 1 ? "The other sites are searched first, then " : ""}LinkedIn one search at a time,{" "}
           {linkedinPace} {linkedinPace === 1 ? "minute" : "minutes"} apart, so it’s less likely to block. If it blocks anyway,
           the helper waits 10 minutes and tries again. Keep the computer on until it’s done.
-        </p>
-      )}
-      {!tooMany && !paced && count > LINKEDIN_LOTS && withLinkedIn && (
-        <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-200">
-          LinkedIn usually starts blocking after a few dozen searches from one connection. Space the LinkedIn searches out
-          (above) to make that less likely; otherwise the other sites keep going, and any blocked searches are listed at the end.
         </p>
       )}
 

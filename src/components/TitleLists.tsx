@@ -13,6 +13,7 @@ import {
   uniqueListName,
   type JobspyList,
 } from "@/lib/jobspy-lists";
+import { MIN_LINKEDIN_PACE } from "@/lib/jobspy-helper";
 import { newId, useHydrated, useSettings } from "@/lib/store";
 
 const plural = (count: number, one: string, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
@@ -30,9 +31,15 @@ export function TitleLists() {
     setSettings((previous) => ({ ...previous, jobspyLists: update(previous.jobspyLists ?? []) }));
 
   const mornings = planMornings(lists);
-  const searches = mornings.reduce((sum, morning) => sum + new Set(morning.map((s) => `${s.term}\n${s.location}`.toLowerCase())).size, 0);
+  const sizes = mornings.map((morning) => new Set(morning.map((s) => `${s.term}\n${s.location}`.toLowerCase())).size);
+  const searches = sizes.reduce((sum, size) => sum + size, 0);
   const on = lists.filter((list) => list.enabled && list.titles.length).length;
   const fromForm = settings.jobspy.search;
+  // LinkedIn is searched one search at a time, at least MIN_LINKEDIN_PACE minutes apart, so it sets how long a morning takes.
+  const longest = Math.max(0, ...sizes);
+  const linkedInHours = settings.jobspy.sites.includes("linkedin")
+    ? (longest * Math.max(MIN_LINKEDIN_PACE, settings.jobspy.linkedinPace)) / 60
+    : 0;
 
   function add(list?: Partial<JobspyList>) {
     setLists((previous) => [
@@ -113,6 +120,14 @@ export function TitleLists() {
               </>
             ) : (
               "All of them run every morning."
+            )}
+            {linkedInHours >= 1 && (
+              <>
+                {" "}
+                With LinkedIn searched {Math.max(MIN_LINKEDIN_PACE, settings.jobspy.linkedinPace)} minutes apart, a morning takes about{" "}
+                {Math.round(linkedInHours)} {Math.round(linkedInHours) === 1 ? "hour" : "hours"}
+                {linkedInHours > 8 && ": fewer titles would have it done sooner"}.
+              </>
             )}
           </p>
         )}

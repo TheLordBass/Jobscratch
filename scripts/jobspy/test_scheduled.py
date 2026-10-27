@@ -12,6 +12,7 @@ import unittest
 import urllib.error
 from pathlib import Path
 
+import helper
 import scheduled
 import search
 from test_search import FakeJobSpy
@@ -88,6 +89,12 @@ class Parts(unittest.TestCase):
 class Run(unittest.TestCase):
     def setUp(self):
         search.log = lambda message: None
+        # The real 10 minutes between LinkedIn searches would hold the tests up.
+        self.min_pace = helper.MIN_LINKEDIN_PACE
+        helper.MIN_LINKEDIN_PACE = 0
+
+    def tearDown(self):
+        helper.MIN_LINKEDIN_PACE = self.min_pace
 
     def test_runs_the_saved_search_and_uploads_it(self):
         app = FakeJobScratch()
@@ -195,6 +202,13 @@ class Call(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LinkedInPace(unittest.TestCase):
+    def test_linkedin_searches_are_never_closer_than_ten_minutes(self):
+        for asked, used in [(0, 10), (2, 10), (5, 10), (10, 10), (15, 15), (None, 10)]:
+            options = helper.search_options({**SAVED_SEARCH, "linkedinPace": asked})
+            self.assertEqual(options.linkedin_pace, used, f"asked for {asked}")
 
 
 class Preparing(unittest.TestCase):
