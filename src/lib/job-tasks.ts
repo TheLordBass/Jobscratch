@@ -2,8 +2,8 @@
 
 import { useSyncExternalStore } from "react";
 import type { MatchAnalysis } from "@/lib/ai/prompts";
-import { isSavedJob, updateStoredMatch, updateTailoredDocs, type StoredMatch } from "@/lib/store";
-import { streamTailored, type TailorRequest } from "@/lib/tailor-client";
+import { isSavedJob, saveAnswers, updateStoredMatch, updateTailoredDocs, type StoredMatch } from "@/lib/store";
+import { requestAnswers, streamTailored, type AnswersRequest, type TailorRequest } from "@/lib/tailor-client";
 
 /*
  * Match analysis, tailored CVs and cover letters for one job, run outside the
@@ -12,7 +12,7 @@ import { streamTailored, type TailorRequest } from "@/lib/tailor-client";
  * reload or closing the tab still does, so the app warns before that.
  */
 
-export type TaskKind = "analysis" | "cv" | "coverLetter";
+export type TaskKind = "analysis" | "cv" | "coverLetter" | "answers";
 
 export interface JobTask {
   jobId: string;
@@ -138,6 +138,23 @@ export function startDocument(jobId: string, label: string, kind: "cv" | "coverL
   })();
 }
 
+/** Drafts application answers; `add` keeps the job's other answers (a new question) rather than replacing them. */
+export function startAnswers(jobId: string, label: string, request: AnswersRequest, add = false) {
+  const controller = begin(jobId, "answers", label);
+  void (async () => {
+    try {
+      const answers = await requestAnswers(request, controller.signal);
+      if (isSavedJob(jobId)) saveAnswers(jobId, answers, add);
+      set(jobId, "answers", { status: "done" });
+    } catch (error) {
+      if (controller.signal.aborted) set(jobId, "answers", { status: "stopped" });
+      else set(jobId, "answers", { status: "error", error: (error as Error).message });
+    } finally {
+      finish(jobId, "answers", controller);
+    }
+  })();
+}
+
 /** A job's match score, as kept for lists, from its full analysis. */
 export function matchFromAnalysis(analysis: MatchAnalysis, key: string): StoredMatch {
   return {
@@ -156,7 +173,7 @@ export function stopTask(jobId: string, kind: TaskKind) {
 
 /** Stops everything for a job and forgets it (when the job is removed). */
 export function stopJobTasks(jobId: string) {
-  for (const kind of ["analysis", "cv", "coverLetter"] as const) {
+  for (const kind of ["analysis", "cv", "coverLetter", "answers"] as const) {
     stopTask(jobId, kind);
     tasks.delete(keyOf(jobId, kind));
   }

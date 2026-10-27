@@ -107,6 +107,19 @@ export function inlinesToText(inlines: Inline[]): string {
   return inlines.map((inline) => inline.text).join("");
 }
 
+/** A document as plain text, for pasting into a form's text box: paragraphs, "• " bullets, link text only. */
+export function markdownToPlainText(markdown: string): string {
+  return parseMarkdown(markdown)
+    .map((block) => {
+      if (block.type === "list") {
+        return block.items.map((item, i) => `${block.ordered ? `${i + 1}.` : "•"} ${inlinesToText(item)}`).join("\n");
+      }
+      return block.type === "rule" ? "" : inlinesToText(block.inlines);
+    })
+    .filter(Boolean)
+    .join("\n\n");
+}
+
 const HEADING_LINE = /^\s*(#{1,6})\s+(.*?)\s*#*\s*$/;
 
 /**

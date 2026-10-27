@@ -3,7 +3,8 @@
 import { ArrowLeft, Check, RotateCcw, Sparkles, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { AnswersPanel } from "@/components/AnswersPanel";
 import { ApplyButton, CompanyMark, OtherApplyLinks } from "@/components/JobCard";
 import { useCurrentMatches } from "@/components/MatchAll";
 import { MarkdownView } from "@/components/MarkdownView";
@@ -12,7 +13,7 @@ import { useSources } from "@/components/useSources";
 import type { MatchAnalysis, TailorOptions } from "@/lib/ai/prompts";
 import { markdownToDocx } from "@/lib/export-docx";
 import { canMatch, candidateFor, hasFullDescription, matchKey } from "@/lib/candidate";
-import { dismissTask, startAnalysis, startDocument, stopJobTasks, stopTask, useJobTask, type JobTask } from "@/lib/job-tasks";
+import { dismissTask, startAnalysis, startAnswers, startDocument, stopJobTasks, stopTask, useJobTask, type JobTask } from "@/lib/job-tasks";
 import { jobKeys } from "@/lib/import";
 import { downloadBlob, formatPosted, slugify } from "@/lib/format";
 import { hasProjectSections, inlinesToText, parseMarkdown, printableHtml, removeProjectSections } from "@/lib/markdown";
@@ -32,7 +33,8 @@ import {
 import type { Job } from "@/lib/types";
 
 type DocKind = "cv" | "coverLetter";
-type Tab = "job" | "analysis" | DocKind;
+type Tab = "job" | "analysis" | DocKind | "answers";
+const TABS: Tab[] = ["job", "analysis", "cv", "coverLetter", "answers"];
 
 interface Generation {
   status: "idle" | "streaming" | "error";
@@ -433,7 +435,7 @@ function DocumentPanel({
   );
 }
 
-function TailorWorkspace({ entry }: { entry: SavedJob }) {
+function TailorWorkspace({ entry, initialTab }: { entry: SavedJob; initialTab?: Tab }) {
   const job = entry.job;
   const { updateJob, removeJob } = useSavedJobs();
   const router = useRouter();
@@ -453,7 +455,12 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
   const staleAnalysis = !docs?.analysis && Boolean(listMatch?.analysis) && !currentMatch;
 
   // Open on what there is: the tailored CV, else the match analysis, else the job itself.
-  const [tab, setTab] = useState<Tab>(docs?.cv ? "cv" : analysis ? "analysis" : "job");
+  const [tab, setTab] = useState<Tab>(initialTab ?? (docs?.cv ? "cv" : analysis ? "analysis" : "job"));
+  // On a phone the tabs scroll sideways: keep the open one in view (e.g. Answers, opened from Apply).
+  const tabButtons = useRef<Partial<Record<Tab, HTMLButtonElement | null>>>({});
+  useEffect(() => {
+    tabButtons.current[tab]?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [tab]);
   // Open for editing when there is only a snippet, which is worth replacing with the full text.
   const [editingDescription, setEditingDescription] = useState(
     () => !hasFullDescription(docs?.jobDescription ?? job.description),
@@ -462,6 +469,7 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
   const analysisTask = useJobTask(job.id, "analysis");
   const cvTask = useJobTask(job.id, "cv");
   const letterTask = useJobTask(job.id, "coverLetter");
+  const answersTask = useJobTask(job.id, "answers");
   const analysisState =
     analysisTask?.status === "running"
       ? { status: "loading" as const }
@@ -471,8 +479,8 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
   const generations: Record<DocKind, Generation> = { cv: toGeneration(cvTask), coverLetter: toGeneration(letterTask) };
   // Anything that finished while you were elsewhere has now been seen.
   useEffect(() => {
-    for (const task of [analysisTask, cvTask, letterTask]) if (task?.status === "done") dismissTask(task.jobId, task.kind);
-  }, [analysisTask, cvTask, letterTask]);
+    for (const task of [analysisTask, cvTask, letterTask, answersTask]) if (task?.status === "done") dismissTask(task.jobId, task.kind);
+  }, [analysisTask, cvTask, letterTask, answersTask]);
   const label = `${job.title} at ${job.company}`;
 
   const description = docs?.jobDescription ?? job.description;
@@ -528,6 +536,17 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
   function generate(kind: DocKind) {
     setTab(kind);
     startDocument(job.id, label, kind, { cv: cvText, job: payloadJob, profile: payloadProfile, skills: payloadSkills, notes: payloadNotes, options });
+  }
+
+  /** Drafts application answers in the background; `add` keeps the job's other answers. */
+  function draftAnswersFor(questions: string[], add: boolean) {
+    setTab("answers");
+    startAnswers(
+      job.id,
+      label,
+      { cv: cvText, job: payloadJob, profile: payloadProfile, skills: payloadSkills, notes: payloadNotes, questions, details: profile.application },
+      add,
+    );
   }
 
   /** Adds a line to the job's notes (from "Have you done any of these?"), and makes sure tailoring uses them. */
@@ -624,6 +643,7 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
                 ],
                 ["cv", "Tailored CV", Boolean(docs?.cv)],
                 ["coverLetter", "Cover letter", Boolean(docs?.coverLetter)],
+                ["answers", "Answers", Boolean(docs?.answers?.length)],
               ] as const
             ).map(([id, label, done]) => (
               <button
@@ -631,6 +651,9 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
                 type="button"
                 role="tab"
                 aria-selected={tab === id}
+                ref={(button) => {
+                  tabButtons.current[id] = button;
+                }}
                 onClick={() => {
                   // Clicking Match on a job with its full description but no full analysis yet runs one.
                   if (id === "analysis" && canAnalyse() && !analysis && analysisState.status !== "loading") analyse();
@@ -639,10 +662,12 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
                 className={`btn btn-sm shrink-0 ${tab === id ? "bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-white" : "btn-ghost"}`}
               >
                 {label}
-                {(id === "cv" || id === "coverLetter") && done && (
+                {(id === "cv" || id === "coverLetter" || id === "answers") && done && (
                   <Check size={13} className="text-emerald-600 dark:text-emerald-400" aria-label="(written)" />
                 )}
-                {(id === "cv" || id === "coverLetter") && generations[id].status === "streaming" && (
+                {(id === "cv" || id === "coverLetter"
+                  ? generations[id].status === "streaming"
+                  : id === "answers" && answersTask?.status === "running") && (
                   <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-indigo-500" />
                 )}
               </button>
@@ -768,6 +793,18 @@ function TailorWorkspace({ entry }: { entry: SavedJob }) {
                 {job.postedAt && <span className="muted text-xs">Posted {formatPosted(job.postedAt)}</span>}
               </div>
             </div>
+          )}
+
+          {tab === "answers" && (
+            <AnswersPanel
+              answers={docs?.answers}
+              task={answersTask}
+              blocker={blocker}
+              detailsMissing={!Object.values(profile.application ?? {}).some((value) => value.trim())}
+              onDraft={draftAnswersFor}
+              onChange={(answers) => updateDocs({ answers })}
+              onStop={() => stopTask(job.id, "answers")}
+            />
           )}
 
           {(tab === "cv" || tab === "coverLetter") && (
@@ -959,5 +996,6 @@ export function TailorView() {
       </div>
     );
   }
-  return <TailorWorkspace key={jobId} entry={entry} />;
+  const tab = params.get("tab");
+  return <TailorWorkspace key={jobId} entry={entry} initialTab={TABS.includes(tab as Tab) ? (tab as Tab) : undefined} />;
 }

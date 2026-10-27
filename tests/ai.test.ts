@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { analyzeMatch, isAiConfigured, streamDocument, type StreamEvent } from "@/lib/ai/claude";
+import { analyzeMatch, draftAnswers, isAiConfigured, streamDocument, type StreamEvent } from "@/lib/ai/claude";
 import type { TailorJob, TailorOptions } from "@/lib/ai/prompts";
 
 const ENV = { ANTHROPIC_API_KEY: "sk-ant-test" };
@@ -339,5 +339,64 @@ describe("analyzeMatch", () => {
       }),
     );
     await expect(analyzeMatch({ cv: CV, job: JOB }, ENV)).rejects.toMatchObject({ status: 422 });
+  });
+});
+
+describe("draftAnswers", () => {
+  it("asks for answers to the questions, with the candidate's details, and keeps them with the questions asked", async () => {
+    fetchMock.mockResolvedValueOnce(
+      Response.json({
+        id: "msg_6",
+        type: "message",
+        role: "assistant",
+        model: "claude-opus-5-5",
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              answers: [
+                { question: "why us", answer: " I've followed Initech's analytics work. " },
+                { question: "Notice?", answer: "One month." },
+                { question: "Empty", answer: "  " },
+              ],
+            }),
+          },
+        ],
+        stop_reason: "end_turn",
+        stop_sequence: null,
+        usage: { input_tokens: 10, output_tokens: 10 },
+      }),
+    );
+    const questions = ["Why do you want to work for us?", "What is your notice period?", "Anything else?"];
+    const details = { rightToWork: "British citizen", noticePeriod: "One month", salary: "", location: "", other: "" };
+    const answers = await draftAnswers({ cv: CV, job: JOB }, questions, details, ENV);
+    expect(answers).toEqual([
+      { question: "Why do you want to work for us?", answer: "I've followed Initech's analytics work." },
+      { question: "What is your notice period?", answer: "One month." },
+    ]);
+    const { body } = lastRequest();
+    expect(body.output_config).toMatchObject({ effort: "medium", format: { type: "json_schema" } });
+    const { materials, instruction } = requestParts();
+    expect(materials).toContain("<candidate_cv>");
+    expect(instruction.text).toContain("1. Why do you want to work for us?\n2. What is your notice period?");
+    expect(instruction.text).toContain("Right to work: British citizen\nNotice period or start date: One month");
+    expect(instruction.text).not.toContain("Salary expectations:");
+  });
+
+  it("says to leave a gap for practical answers it hasn't been given", async () => {
+    fetchMock.mockResolvedValueOnce(
+      Response.json({
+        id: "msg_7",
+        type: "message",
+        role: "assistant",
+        model: "claude-opus-5-5",
+        content: [{ type: "text", text: JSON.stringify({ answers: [{ question: "q", answer: "a" }] }) }],
+        stop_reason: "end_turn",
+        stop_sequence: null,
+        usage: { input_tokens: 10, output_tokens: 10 },
+      }),
+    );
+    await draftAnswers({ cv: CV, job: JOB }, ["Tell us about yourself."], undefined, ENV);
+    expect(requestParts().instruction.text).toContain("write [add your answer] where the candidate's own answer belongs");
   });
 });

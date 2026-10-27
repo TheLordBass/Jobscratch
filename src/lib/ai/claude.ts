@@ -1,15 +1,19 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import {
+  AnswersSchema,
   MatchAnalysisSchema,
   SYSTEM_PROMPT,
   analysisInstruction,
+  answersInstruction,
   candidateBlock,
   coverLetterInstruction,
   cvInstruction,
   hasProfile,
   jobBlock,
   notesBlock,
+  type ApplicationAnswer,
+  type ApplicationDetails,
   type MatchAnalysis,
   type TailorMaterials,
   type TailorOptions,
@@ -144,6 +148,36 @@ export async function analyzeMatch(materials: TailorMaterials, env: Env, signal?
   const analysis = response.parsed_output;
   if (!analysis) throw new AiError("Claude's analysis couldn't be read. Try again.", 502);
   return { ...analysis, matchScore: Math.min(100, Math.max(0, Math.round(analysis.matchScore))) };
+}
+
+/** Answers to questions from a job's application form (DEFAULT_QUESTIONS, or the candidate's own). */
+export async function draftAnswers(
+  materials: TailorMaterials,
+  questions: string[],
+  details: ApplicationDetails | undefined,
+  env: Env,
+  signal?: AbortSignal,
+): Promise<ApplicationAnswer[]> {
+  const client = getClient(env);
+  const response = await client.beta.messages.parse(
+    {
+      ...modelParams(env, "document"),
+      max_tokens: 16000,
+      system: SYSTEM_PROMPT,
+      messages: buildMessages(materials, answersInstruction(questions, details)),
+      output_config: { effort: "medium", format: betaZodOutputFormat(AnswersSchema) },
+    },
+    { signal },
+  );
+  logUsage("answers", response);
+  if (response.stop_reason === "refusal") throw new AiError(REFUSAL_MESSAGE, 422);
+  if (response.stop_reason === "max_tokens") throw new AiError("The answers were cut off. Try again.", 502);
+  const drafted = response.parsed_output?.answers;
+  if (!drafted) throw new AiError("Claude's answers couldn't be read. Try again.", 502);
+  // Kept with the questions as asked, in order, whatever Claude repeated back.
+  return questions
+    .map((question, i) => ({ question, answer: (drafted[i]?.answer ?? "").trim() }))
+    .filter((entry) => entry.answer);
 }
 
 export type DocumentKind = "cv" | "cover-letter";
