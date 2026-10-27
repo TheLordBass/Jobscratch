@@ -16,6 +16,8 @@ import { FIND_TABS, SectionTabs } from "@/components/Nav";
 import { COUNTRIES } from "@/lib/format";
 import { collapseCopies, savedCopyFinder } from "@/lib/import";
 import { ANY_JOB, filterJobs, type JobFilter } from "@/lib/job-filters";
+import { nextSearch, useSearchState } from "@/lib/search-session";
+import { useSessionState } from "@/lib/session-state";
 import { newId, useDismissed, useGroups, useHydrated, useSavedJobs, useSettings, type SearchGroup } from "@/lib/store";
 import { SOURCE_IDS, type Job, type SearchRequest, type SearchResponse, type SourceResult } from "@/lib/types";
 
@@ -41,11 +43,7 @@ const EXAMPLE_GROUPS: Array<Omit<SearchGroup, "id">> = [
   },
 ];
 
-type SearchState =
-  | { status: "idle" }
-  | { status: "loading"; label: string }
-  | { status: "done"; label: string; response: SearchResponse }
-  | { status: "error"; message: string };
+const NO_TERMS: string[] = [];
 
 interface Query {
   keywords: string[];
@@ -112,30 +110,33 @@ export function SearchView() {
   const [groups, setGroups] = useGroups();
   const { saved, saveJob, removeJob } = useSavedJobs();
 
-  const [keywords, setKeywords] = useState<string[]>([]);
-  const [keywordDraft, setKeywordDraft] = useState("");
-  const [exclude, setExclude] = useState<string[]>([]);
-  const [excludeDraft, setExcludeDraft] = useState("");
-  const [location, setLocation] = useState("");
-  const [remoteOnly, setRemoteOnly] = useState(false);
-  const [postedWithinDays, setPostedWithinDays] = useState(0);
-  const [showMore, setShowMore] = useState(false);
-  const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
+  // The search, its results and how they're shown are kept for the session (lib/session-state.ts), so
+  // going to a job and back finds them as you left them, and a search still running when you leave carries on.
+  const [keywords, setKeywords] = useSessionState("search:keywords", NO_TERMS);
+  const [keywordDraft, setKeywordDraft] = useSessionState("search:keywordDraft", "");
+  const [exclude, setExclude] = useSessionState("search:exclude", NO_TERMS);
+  const [excludeDraft, setExcludeDraft] = useSessionState("search:excludeDraft", "");
+  const [location, setLocation] = useSessionState("search:location", "");
+  const [remoteOnly, setRemoteOnly] = useSessionState("search:remoteOnly", false);
+  const [postedWithinDays, setPostedWithinDays] = useSessionState("search:postedWithinDays", 0);
+  const [showMore, setShowMore] = useSessionState("search:showMore", false);
+  const [activeGroupId, setActiveGroupId] = useSessionState<string | null>("search:group", null);
   const [groupName, setGroupName] = useState("");
   const [naming, setNaming] = useState(false);
 
-  const [search, setSearch] = useState<SearchState>({ status: "idle" });
-  const [sort, setSort] = useState<"relevance" | "newest" | "match">("relevance");
-  const [showHidden, setShowHidden] = useState(false);
+  const [search, setSearch] = useSearchState();
+  const [sort, setSort] = useSessionState<"relevance" | "newest" | "match">("search:sort", "relevance");
+  const [showHidden, setShowHidden] = useSessionState("search:showHidden", false);
   // Jobs already saved when the search ran are left out; ones saved from its results stay, marked saved.
-  const [savedBefore, setSavedBefore] = useState<Set<string>>(() => new Set());
-  const [showSaved, setShowSaved] = useState(false);
+  const [savedBeforeIds, setSavedBefore] = useSessionState("search:savedBefore", NO_TERMS);
+  const savedBefore = useMemo(() => new Set(savedBeforeIds), [savedBeforeIds]);
+  const [showSaved, setShowSaved] = useSessionState("search:showSaved", false);
   const { isDismissed, dismiss, restore } = useDismissed();
   const { matchFor } = useCurrentMatches();
-  const [filter, setFilter] = useState("");
-  const [visible, setVisible] = useState(PAGE_SIZE);
-  const [jobFilter, setJobFilter] = useState<JobFilter>(ANY_JOB);
-  const [expanded, setExpanded] = useState<string | null>(null);
+  const [filter, setFilter] = useSessionState("search:filter", "");
+  const [visible, setVisible] = useSessionState("search:visible", PAGE_SIZE);
+  const [jobFilter, setJobFilter] = useSessionState<JobFilter>("search:jobFilter", ANY_JOB);
+  const [expanded, setExpanded] = useSessionState<string | null>("search:expanded", null);
 
   const activeGroup = groups.find((g) => g.id === activeGroupId) ?? null;
 
@@ -152,6 +153,7 @@ export function SearchView() {
       setSearch({ status: "error", message: "Add at least one keyword or job title." });
       return;
     }
+    const stillLatest = nextSearch();
     setSearch({ status: "loading", label });
     setVisible(PAGE_SIZE);
     setExpanded(null);
@@ -176,11 +178,12 @@ export function SearchView() {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error ?? `Search failed (HTTP ${response.status})`);
-      setSavedBefore(new Set(Object.keys(saved)));
+      if (!stillLatest()) return;
+      setSavedBefore(Object.keys(saved));
       setShowSaved(false);
       setSearch({ status: "done", label, response: data as SearchResponse });
     } catch (error) {
-      setSearch({ status: "error", message: (error as Error).message });
+      if (stillLatest()) setSearch({ status: "error", message: (error as Error).message });
     }
   }
 

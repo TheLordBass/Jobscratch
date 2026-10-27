@@ -25,8 +25,11 @@ import {
 } from "@/lib/import";
 import { ANY_JOB, filterJobs, isFiltering, type JobFilter } from "@/lib/job-filters";
 import { parseJobspyFile, type JobspyImport } from "@/lib/jobspy";
+import { useSessionState } from "@/lib/session-state";
 import { useDismissed, useSavedJobs } from "@/lib/store";
 import type { Job } from "@/lib/types";
+
+const NO_IDS: string[] = [];
 
 type Extract = (doc: Document, href: string) => ImportPayload;
 
@@ -87,21 +90,24 @@ function JobspyImporter() {
   const { saved, saveJob, saveJobs, removeJob } = useSavedJobs();
   const { matchFor } = useCurrentMatches();
   const { isDismissed, dismiss, restore } = useDismissed();
-  const [showHidden, setShowHidden] = useState(false);
+  // The jobs and how they're shown are kept for the session (lib/session-state.ts), so going to one
+  // to apply and coming back finds the list as you left it.
+  const [showHidden, setShowHidden] = useSessionState("jobspy:showHidden", false);
   // Jobs already saved when the results came in are left out; ones saved from them stay, marked saved.
-  const [savedBefore, setSavedBefore] = useState<Set<string>>(() => new Set());
-  const [showSaved, setShowSaved] = useState(false);
-  const [result, setResult] = useState<JobspyImport | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState<string | null>(null);
-  const [order, setOrder] = useState<"match" | "file">("match");
-  const [jobFilter, setJobFilter] = useState<JobFilter>(ANY_JOB);
+  const [savedBeforeIds, setSavedBefore] = useSessionState("jobspy:savedBefore", NO_IDS);
+  const savedBefore = useMemo(() => new Set(savedBeforeIds), [savedBeforeIds]);
+  const [showSaved, setShowSaved] = useSessionState("jobspy:showSaved", false);
+  const [result, setResult] = useSessionState<JobspyImport | null>("jobspy:result", null);
+  const [error, setError] = useSessionState<string | null>("jobspy:error", null);
+  const [expanded, setExpanded] = useSessionState<string | null>("jobspy:expanded", null);
+  const [order, setOrder] = useSessionState<"match" | "file">("jobspy:order", "match");
+  const [jobFilter, setJobFilter] = useSessionState<JobFilter>("jobspy:jobFilter", ANY_JOB);
   /** A title list to narrow the morning run's jobs to (empty for all of them). */
-  const [listFilter, setListFilter] = useState("");
+  const [listFilter, setListFilter] = useSessionState("jobspy:listFilter", "");
 
   /** A new list starts unfiltered. */
   function show(next: JobspyImport) {
-    setSavedBefore(new Set(Object.keys(saved)));
+    setSavedBefore(Object.keys(saved));
     setShowSaved(false);
     setResult(next);
     setJobFilter(ANY_JOB);
@@ -293,13 +299,14 @@ function JobspyImporter() {
 export function ImportView() {
   const router = useRouter();
   const { saved, saveJob, mergeJob } = useSavedJobs();
-  const [draft, setDraft] = useState<ImportPayload | null>(null);
-  const [origin, setOrigin] = useState<"extension" | "url" | "paste" | null>(null);
-  const [url, setUrl] = useState("");
+  // A job being added is kept for the session, so you can look something up elsewhere and come back to it.
+  const [draft, setDraft] = useSessionState<ImportPayload | null>("import:draft", null);
+  const [origin, setOrigin] = useSessionState<"extension" | "url" | "paste" | null>("import:origin", null);
+  const [url, setUrl] = useSessionState("import:url", "");
   const [fetching, setFetching] = useState(false);
-  const [urlError, setUrlError] = useState<{ message: string; blockedSite?: string } | null>(null);
-  const [savedId, setSavedId] = useState<string | null>(null);
-  const [mergedInto, setMergedInto] = useState<string | null>(null);
+  const [urlError, setUrlError] = useSessionState<{ message: string; blockedSite?: string } | null>("import:urlError", null);
+  const [savedId, setSavedId] = useSessionState<string | null>("import:savedId", null);
+  const [mergedInto, setMergedInto] = useSessionState<string | null>("import:mergedInto", null);
 
   useEffect(() => {
     const take = () => {
@@ -314,7 +321,7 @@ export function ImportView() {
     take();
     window.addEventListener("hashchange", take);
     return () => window.removeEventListener("hashchange", take);
-  }, []);
+  }, [setDraft, setOrigin, setSavedId]);
 
   async function importUrl(event: FormEvent) {
     event.preventDefault();

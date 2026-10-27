@@ -2,7 +2,7 @@
 
 import { ArrowRight, BriefcaseBusiness, Download, FileText, Mail, StickyNote, Trash2, X } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { BulkTailor } from "@/components/BulkTailor";
 import { CompanyMark, MatchBadge } from "@/components/JobCard";
 import { JobFilters } from "@/components/JobFilters";
@@ -10,6 +10,7 @@ import { MatchAllButton, useCurrentMatches } from "@/components/MatchAll";
 import { MY_JOBS_TABS, SectionTabs } from "@/components/Nav";
 import { downloadBlob, formatPosted, formatSalary } from "@/lib/format";
 import { ANY_JOB, filterJobs, type JobFilter } from "@/lib/job-filters";
+import { useSessionState } from "@/lib/session-state";
 import {
   APPLICATION_STATUSES,
   useHydrated,
@@ -72,10 +73,11 @@ export function SavedView() {
   const hydrated = useHydrated();
   const { saved, updateJob, removeJob, removeJobs } = useSavedJobs();
   const [tailored, setTailored] = useTailored();
-  const [statusFilter, setStatusFilter] = useState<ApplicationStatus | "all">("all");
+  // How the list is shown is kept for the session, so coming back from a job finds it as you left it.
+  const [statusFilter, setStatusFilter] = useSessionState<ApplicationStatus | "all">("saved:status", "all");
   const { matchFor } = useCurrentMatches();
-  const [order, setOrder] = useState<"saved" | "match" | "unmatched">("saved");
-  const [jobFilter, setJobFilter] = useState<JobFilter>(ANY_JOB);
+  const [order, setOrder] = useSessionState<"saved" | "match" | "unmatched">("saved:order", "saved");
+  const [jobFilter, setJobFilter] = useSessionState<JobFilter>("saved:jobFilter", ANY_JOB);
 
   // Newest saved first. Not by last update, or a job would jump to the top as soon as you change its status or notes.
   const entries = useMemo(
