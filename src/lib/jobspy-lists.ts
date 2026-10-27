@@ -66,6 +66,17 @@ export function morningHours(mornings: number, chosen: number | null): number {
   return chosen && chosen < needed ? chosen : needed;
 }
 
+/**
+ * `name`, or "name 2", "name 3"… if another list already has it: jobs are labelled by list name, so
+ * two lists with one name couldn't be told apart.
+ */
+export function uniqueListName(name: string, others: JobspyList[]): string {
+  const taken = new Set(others.map((list) => list.name.trim().toLowerCase()));
+  const base = name.trim().slice(0, 60);
+  if (!taken.has(base.toLowerCase())) return base;
+  for (let n = 2; ; n++) if (!taken.has(`${base} ${n}`.toLowerCase())) return `${base} ${n}`;
+}
+
 /** Text from a textarea or input: one item per line or comma, trimmed, without repeats. */
 export function splitItems(text: string, limit: number): string[] {
   const seen = new Set<string>();

@@ -15,8 +15,9 @@ import { markdownToDocx } from "@/lib/export-docx";
 import { canMatch, candidateFor, hasFullDescription, matchKey } from "@/lib/candidate";
 import { dismissTask, startAnalysis, startAnswers, startDocument, stopJobTasks, stopTask, useJobTask, type JobTask } from "@/lib/job-tasks";
 import { jobKeys } from "@/lib/import";
-import { downloadBlob, formatPosted, slugify } from "@/lib/format";
-import { hasProjectSections, inlinesToText, parseMarkdown, printableHtml, removeProjectSections } from "@/lib/markdown";
+import { documentFileName } from "@/lib/apply";
+import { downloadBlob, formatPosted } from "@/lib/format";
+import { hasProjectSections, printableHtml, removeProjectSections } from "@/lib/markdown";
 import {
   APPLICATION_STATUSES,
   useCv,
@@ -296,11 +297,7 @@ function DocumentPanel({
   const canUndoRemoval = beforeRemoval !== null && content === removeProjectSections(beforeRemoval);
   const lastThought = generation.thinking.trim().split("\n").filter(Boolean).at(-1);
 
-  const fileBase = () => {
-    const first = parseMarkdown(content).find((b) => b.type === "heading");
-    const name = first?.type === "heading" && kind === "cv" ? inlinesToText(first.inlines) : "";
-    return [name, kind === "cv" ? "cv" : "cover-letter", job.company].filter(Boolean).map(slugify).join("-");
-  };
+  const fileBase = () => documentFileName(content, kind === "cv" ? "cv" : "cover-letter", job.company);
 
   const print = () => {
     const win = window.open("", "_blank");

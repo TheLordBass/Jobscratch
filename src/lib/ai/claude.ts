@@ -174,9 +174,14 @@ export async function draftAnswers(
   if (response.stop_reason === "max_tokens") throw new AiError("The answers were cut off. Try again.", 502);
   const drafted = response.parsed_output?.answers;
   if (!drafted) throw new AiError("Claude's answers couldn't be read. Try again.", 502);
-  // Kept with the questions as asked, in order, whatever Claude repeated back.
+  // Matched to the questions by the question Claude repeated back, so a skipped or reordered one
+  // can't put an answer under the wrong question. By position only when it repeated them differently
+  // but answered them all.
+  const plain = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const byQuestion = new Map(drafted.map((entry) => [plain(entry.question), entry.answer]));
+  const inOrder = drafted.length === questions.length;
   return questions
-    .map((question, i) => ({ question, answer: (drafted[i]?.answer ?? "").trim() }))
+    .map((question, i) => ({ question, answer: (byQuestion.get(plain(question)) ?? (inOrder ? drafted[i].answer : "")).trim() }))
     .filter((entry) => entry.answer);
 }
 

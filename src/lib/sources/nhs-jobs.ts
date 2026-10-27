@@ -24,13 +24,25 @@ function tags(xml: string, name: string): string[] {
   return [...xml.matchAll(new RegExp(`<${name}>([\\s\\S]*?)</${name}>`, "g"))].map((m) => decodeEntities(m[1]).trim()).filter(Boolean);
 }
 
-/** "£49387.00 to £56515.00", "£31,049 a year" or "Negotiable". */
+/** "£49387.00 to £56515.00", "£31,049 a year", "£450 a day" or "Negotiable". */
 export function nhsSalary(text: string): Salary | undefined {
   if (!text) return undefined;
   const [min, max] = (text.match(/£\s?[\d,]+(?:\.\d+)?/g) ?? []).map(toNumber);
   if (!min) return { text };
-  const hourly = /hour/i.test(text);
-  return { min, max: max && max !== min ? max : undefined, currency: "GBP", period: hourly || min < 200 ? "hour" : "year" };
+  const said = /hour/i.test(text)
+    ? "hour"
+    : /\bday\b|daily|per diem|session/i.test(text)
+      ? "day"
+      : /week/i.test(text)
+        ? "week"
+        : /month/i.test(text)
+          ? "month"
+          : /year|annum|annual/i.test(text)
+            ? "year"
+            : undefined;
+  // Bands are usually yearly; an amount this small with no period said is an hourly rate.
+  const period = said ?? (min < 200 ? "hour" : "year");
+  return { min, max: max && max !== min ? max : undefined, currency: "GBP", period };
 }
 
 /** One page of NHS Jobs' XML as jobs, and how many pages there are. */

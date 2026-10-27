@@ -102,27 +102,71 @@ def parts(jobs):
     yield group  # Always at least one, so even "nothing found" is reported.
 
 
-def upload(config, document, failed, started_at, upload_call=call, batch=None):
-    run_id = uuid.uuid4().hex
-    groups = list(parts(document["jobs"]))
-    total = 0
-    for index, group in enumerate(groups):
-        answer = upload_call(
-            config,
-            "/api/helper/results",
-            {
-                "id": run_id,
-                "startedAt": started_at,
-                "query": document["query"],
-                # Which part of the title lists this was, when they take several mornings to get through.
-                "batch": batch,
-                "failed": failed[:200],
-                "jobs": group,
-                "done": index == len(groups) - 1,
-            },
-        )
-        total = answer.get("count", total)
-    return total
+def job_key(row):
+    """How a run tells its rows apart (search.py keeps one row per link)."""
+    return row.get("job_url") or f"{row.get('site')}|{row.get('title')}|{row.get('company')}"
+
+
+class Uploader:
+    """
+    Sends a run's jobs to JobScratch as they're found, not just at the end: so they're on your phone
+    while LinkedIn is still being searched, and a run stopped early (Task Scheduler's time limit, the
+    computer shutting down) has still sent what it found. Each row is sent once, or again if it has
+    since been found by another title list.
+    """
+
+    # How often to send during a run, at most, and how many new jobs are worth sending sooner.
+    EVERY_SECONDS = 120
+    ENOUGH_NEW = 300
+
+    def __init__(self, config, started_at, batch, upload_call=call, clock=time.monotonic):
+        self.config, self.started_at, self.batch = config, started_at, batch
+        self.upload_call, self.clock = upload_call, clock
+        self.id = uuid.uuid4().hex
+        self.sent = {}
+        self.last = clock()
+        self.total = 0
+
+    def unsent(self, document):
+        return [row for row in document["jobs"] if self.sent.get(job_key(row)) != tuple(row.get("lists", []))]
+
+    def maybe_send(self, document):
+        """During the run: send what's new, if it's been a while or there's plenty of it. Never stops the run."""
+        new = self.unsent(document)
+        if not new or (self.clock() - self.last < self.EVERY_SECONDS and len(new) < self.ENOUGH_NEW):
+            return
+        try:
+            self.send(document["query"], new, [], done=False)
+        except RunError as error:
+            # Tried again with the next batch, and at the end.
+            print(f"    Couldn't send the jobs so far ({error}); trying again later.", file=sys.stderr)
+
+    def finish(self, document, failed):
+        """At the end: everything not sent yet, marked as the last part."""
+        return self.send(document["query"], self.unsent(document), failed, done=True)
+
+    def send(self, query, rows, failed, done):
+        groups = list(parts(rows))
+        for index, group in enumerate(groups):
+            answer = self.upload_call(
+                self.config,
+                "/api/helper/results",
+                {
+                    "id": self.id,
+                    "startedAt": self.started_at,
+                    "query": query,
+                    # Which part of the title lists this was, when they take several mornings to get through.
+                    "batch": self.batch,
+                    "failed": failed[:200],
+                    "jobs": group,
+                    "done": done and index == len(groups) - 1,
+                },
+            )
+            for row in group:
+                self.sent[job_key(row)] = tuple(row.get("lists", []))
+            self.total = answer.get("count", self.total)
+        self.last = self.clock()
+        return self.total
 
 
 def run(config, scrape_jobs, keep_awake=lambda on: None, upload_call=call):
@@ -140,12 +184,13 @@ def run(config, scrape_jobs, keep_awake=lambda on: None, upload_call=call):
     batch = saved.get("batch") or {}
     part = f", part {batch['index'] + 1} of {batch['count']} of your title lists" if batch.get("count", 1) > 1 else ""
     search.log(f"Searching {', '.join(options.sites)} for {len(terms)} job titles{where} ({len(searches)} searches{part})…")
+    uploader = Uploader(config, started_at, saved.get("batch"), upload_call)
     keep_awake(True)
     try:
-        document, failed = search.run_searches(scrape_jobs, options)
+        document, failed = search.run_searches(scrape_jobs, options, on_found=uploader.maybe_send)
     finally:
         keep_awake(False)
-    total = upload(config, document, failed, started_at, upload_call, saved.get("batch"))
+    total = uploader.finish(document, failed)
     search.log(f"Sent {total} jobs to JobScratch." + (f" Failed searches: {'; '.join(failed)}" if failed else ""))
     return total
 

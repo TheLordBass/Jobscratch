@@ -86,6 +86,8 @@ export function fileBackend(path: string): DataBackend {
           changed = true;
           return args.length / 2;
         }
+        case "HLEN":
+          return Object.keys(data.hashes[key] ?? {}).length;
         case "HSCAN": {
           const fields = Object.keys(data.hashes[key] ?? {}).sort();
           const start = Number(args[0]) || 0;

@@ -125,8 +125,10 @@ function JobspyImporter() {
   // description sent with the bookmarklet.
   const findCopy = useMemo(() => savedCopyFinder(saved), [saved]);
   const listNames = [...new Set(Object.values(result?.lists ?? {}).flat())].sort();
-  const found = collapseCopies(result?.jobs ?? [], findCopy).filter(
-    (job) => !listFilter || result?.lists?.[job.id]?.includes(listFilter),
+  // By title list first: a job shown as its saved copy has the saved copy's id, which the run doesn't know.
+  const found = collapseCopies(
+    (result?.jobs ?? []).filter((job) => !listFilter || result?.lists?.[job.id]?.includes(listFilter)),
+    findCopy,
   );
   const wasSaved = (job: Job) => savedBefore.has(job.id) && Boolean(saved[job.id]);
   const savedCount = found.filter(wasSaved).length;

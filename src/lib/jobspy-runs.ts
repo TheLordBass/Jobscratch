@@ -72,22 +72,26 @@ export async function saveRunPart(
 ): Promise<JobspyRun> {
   const previous = await readRun(backend);
   const sameRun = previous?.id === part.id;
+  const fields = part.jobs.flatMap((found) => [found.job.id, JSON.stringify(found)]);
+  // Counted from what's stored, so a part sent twice (a retry after a timeout) or a job sent again
+  // (found by another title list) isn't counted twice.
+  const results = await backend.run([
+    ...(sameRun ? [] : [["DEL", RUN_JOBS_KEY]]),
+    ...(fields.length ? [["HSET", RUN_JOBS_KEY, ...fields]] : []),
+    ["HLEN", RUN_JOBS_KEY],
+  ]);
   const run: JobspyRun = {
     id: part.id,
     startedAt: part.startedAt,
     finishedAt: part.done ? now : null,
     query: part.query,
-    failed: part.failed,
-    count: (sameRun ? previous.count : 0) + part.jobs.length,
+    // Failed searches are only known at the end; parts sent during the run have none yet.
+    failed: part.failed.length || !sameRun ? part.failed : previous.failed,
+    count: Number(results.at(-1)) || 0,
     ...(part.lists?.length && { lists: part.lists }),
     ...(part.batch && { batch: part.batch }),
   };
-  const fields = part.jobs.flatMap((found) => [found.job.id, JSON.stringify(found)]);
-  await backend.run([
-    ...(sameRun ? [] : [["DEL", RUN_JOBS_KEY]]),
-    ...(fields.length ? [["HSET", RUN_JOBS_KEY, ...fields]] : []),
-    ["SET", RUN_KEY, JSON.stringify(run)],
-  ]);
+  await backend.run([["SET", RUN_KEY, JSON.stringify(run)]]);
   return run;
 }
 

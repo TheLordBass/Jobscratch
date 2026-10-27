@@ -41,6 +41,10 @@ describe("NHS Jobs", () => {
   it("reads its salaries", () => {
     expect(nhsSalary("£31,049 a year")).toEqual({ min: 31049, max: undefined, currency: "GBP", period: "year" });
     expect(nhsSalary("£14.50 an hour")).toMatchObject({ min: 14.5, period: "hour" });
+    expect(nhsSalary("£450 a day")).toMatchObject({ min: 450, period: "day" });
+    expect(nhsSalary("£650 per week")).toMatchObject({ min: 650, period: "week" });
+    expect(nhsSalary("£3,000 a month")).toMatchObject({ min: 3000, period: "month" });
+    expect(nhsSalary("£16.20")).toMatchObject({ min: 16.2, period: "hour" });
     expect(nhsSalary("")).toBeUndefined();
   });
 });

@@ -8,7 +8,7 @@ vi.mock("next/server", async (original) => ({ ...(await original<typeof import("
 import { GET as getSearches } from "@/app/api/helper/searches/route";
 import { POST as postResults } from "@/app/api/helper/results/route";
 import { GET as getRun } from "@/app/api/jobspy-run/route";
-import { morningHours, morningIndex, planMornings, splitItems, type JobspyList } from "@/lib/jobspy-lists";
+import { morningHours, morningIndex, planMornings, splitItems, uniqueListName, type JobspyList } from "@/lib/jobspy-lists";
 import { checkHelperToken, readRun, readRunJobs, saveRunPart } from "@/lib/jobspy-runs";
 import { applyOps, clearAll, fileBackend } from "@/lib/server-data";
 
@@ -70,6 +70,22 @@ describe("a morning run", () => {
     await clearAll(backend);
     run = (await readRun(backend))!;
     expect(run).toBeNull();
+  });
+
+  it("counts the jobs stored, so a part sent twice isn't counted twice, and keeps the failed searches", async () => {
+    const backend = fileBackend(join(folder, "count.json"));
+    const job = (id: string, lists: string[] = []) => ({ job: { id } as never, lists });
+    const part = { id: "run-three-3", startedAt: "2026-10-27T10:00:00Z", failed: [] as string[], done: false };
+    await saveRunPart(backend, { ...part, jobs: [job("a"), job("b")] });
+    // The same part again (a retry), and a job found again by another list.
+    await saveRunPart(backend, { ...part, jobs: [job("a"), job("b", ["Operations"])] });
+    let run = await saveRunPart(backend, { ...part, jobs: [job("c")], failed: ["LinkedIn: “x”"], done: true });
+    expect(run.count).toBe(3);
+    expect(run.failed).toEqual(["LinkedIn: “x”"]);
+    expect((await readRunJobs(backend)).jobs.find((found) => found.job.id === "b")?.lists).toEqual(["Operations"]);
+    // A part sent during a run doesn't know the failed searches yet, so it keeps the ones there.
+    run = await saveRunPart(backend, { ...part, jobs: [], done: true });
+    expect(run.failed).toEqual(["LinkedIn: “x”"]);
   });
 
   it("goes in and comes back out through the routes", async () => {
@@ -195,6 +211,12 @@ describe("title lists", () => {
     expect(morningHours(3, null)).toBe(96);
     expect(morningHours(3, 24)).toBe(24);
     expect(morningHours(1, 720)).toBe(48);
+  });
+
+  it("get a name of their own", () => {
+    const lists = [list("Data roles", []), list("Data roles 2", [])];
+    expect(uniqueListName("Operations", lists)).toBe("Operations");
+    expect(uniqueListName(" data ROLES ", lists)).toBe("data ROLES 3");
   });
 
   it("read titles and places from text, without blanks or repeats", () => {
