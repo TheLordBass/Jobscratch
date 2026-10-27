@@ -9,6 +9,9 @@ const jakarta = Plus_Jakarta_Sans({ subsets: ["latin"], variable: "--font-jakart
 export const metadata: Metadata = {
   title: { default: "JobScratch", template: "%s · JobScratch" },
   description: "Search jobs across major portals, import from LinkedIn, and tailor your CV with AI.",
+  // Added to an iPhone's home screen, it opens like an app (and can get notifications).
+  appleWebApp: { capable: true, title: "JobScratch", statusBarStyle: "default" },
+  icons: { apple: "/icons/apple-touch-icon.png" },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

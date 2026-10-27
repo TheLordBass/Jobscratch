@@ -33,15 +33,23 @@ SAVED_SEARCH = {
 
 
 class FakeJobScratch:
-    """Answers the two helper routes and records what was sent."""
+    """Answers the helper routes and records what was sent. Preparing is off unless `prepare` says otherwise."""
 
-    def __init__(self, saved=SAVED_SEARCH):
+    def __init__(self, saved=SAVED_SEARCH, prepare=None):
         self.saved = saved
         self.parts = []
+        self.prepare = list(prepare or [{"state": "off"}])
+        self.prepared = []
 
-    def __call__(self, config, path, body=None):
+    def __call__(self, config, path, body=None, **options):
         if path == "/api/helper/searches":
             return self.saved
+        if path == "/api/helper/prepare":
+            self.prepared.append(body)
+            answer = self.prepare.pop(0) if len(self.prepare) > 1 else self.prepare[0]
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
         self.parts.append(body)
         return {"count": sum(len(part["jobs"]) for part in self.parts)}
 
@@ -187,3 +195,56 @@ class Call(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Preparing(unittest.TestCase):
+    def preparer(self, answers):
+        app = FakeJobScratch(prepare=answers)
+        logged = []
+        preparer = scheduled.Preparer(CONFIG, "run-1234567890", app, log=logged.append, sleep=lambda seconds: None)
+        return preparer, app, logged
+
+    def test_keeps_asking_until_its_done_and_logs_the_summary(self):
+        preparer, app, logged = self.preparer(
+            [{"state": "working"}, {"state": "working"}, {"state": "done", "message": "214 jobs found, 48 matched"}]
+        )
+        preparer.searching_done.set()
+        preparer.loop()
+        self.assertEqual(len(app.prepared), 3)
+        self.assertEqual(app.prepared[0], {"id": "run-1234567890"})
+        self.assertEqual(preparer.result["state"], "done")
+        self.assertIn("Prepared: 214 jobs found, 48 matched", logged)
+
+    def test_waits_while_the_run_is_still_searching(self):
+        preparer, app, _ = self.preparer([{"state": "idle"}, {"state": "done"}])
+        waits = []
+        preparer.searching_done.wait = lambda seconds: waits.append(seconds)
+        preparer.loop()
+        self.assertEqual(waits, [scheduled.Preparer.IDLE_SECONDS])
+        self.assertEqual(len(app.prepared), 2)
+
+    def test_an_older_jobscratch_without_it_is_skipped(self):
+        preparer, app, logged = self.preparer([scheduled.RunError("Not found", 404)])
+        preparer.loop()
+        self.assertEqual(len(app.prepared), 1)
+        self.assertIn("update it", logged[0])
+
+    def test_gives_up_after_errors_in_a_row(self):
+        preparer, app, logged = self.preparer([scheduled.RunError("JobScratch answered 502", 502)])
+        preparer.searching_done.set()
+        preparer.loop()
+        self.assertEqual(len(app.prepared), scheduled.Preparer.MAX_ERRORS)
+        self.assertIn("Stopped matching", logged[-1])
+
+    def test_stops_waiting_once_the_run_is_over_if_nothing_comes(self):
+        preparer, app, logged = self.preparer([{"state": "idle", "message": "Waiting for the run's jobs."}])
+        preparer.searching_done.set()
+        preparer.loop()
+        self.assertEqual(len(app.prepared), scheduled.Preparer.MAX_WAITS_AFTER + 1)
+        self.assertIn("Stopped waiting", logged[-1])
+
+    def test_the_run_asks_for_its_own_jobs_to_be_prepared(self):
+        app = FakeJobScratch(prepare=[{"state": "done", "message": "ok"}])
+        scheduled.run(CONFIG, FakeJobSpy(), upload_call=app)
+        self.assertTrue(app.prepared)
+        self.assertEqual({body["id"] for body in app.prepared}, {app.parts[0]["id"]})

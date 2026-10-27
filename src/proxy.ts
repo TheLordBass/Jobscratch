@@ -21,6 +21,9 @@ export function proxy(request: NextRequest) {
 
   // The sign-in page and the routes it uses.
   if (pathname === "/login" || pathname.startsWith("/api/auth/")) return NextResponse.next();
+  // What a phone needs to add JobScratch to its home screen and show notifications. Browsers fetch the
+  // manifest without cookies, and none of these hold anything personal.
+  if (pathname === "/sw.js" || pathname === "/manifest.webmanifest" || pathname.startsWith("/icons/")) return NextResponse.next();
   // The scheduled JobSpy run on your computer: these routes check its own token instead (lib/helper-request.ts).
   if (pathname.startsWith("/api/helper/")) return NextResponse.next();
 

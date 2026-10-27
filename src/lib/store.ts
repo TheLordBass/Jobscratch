@@ -5,6 +5,7 @@ import type { ApplicationAnswer, ApplicationDetails, ExtraSkill, MatchAnalysis, 
 import { dismissKeys, findSavedCopy, mergeJobs } from "@/lib/import";
 import { DEFAULT_JOBSPY_SEARCH, type HelperSearch } from "@/lib/jobspy-helper";
 import type { JobspyList } from "@/lib/jobspy-lists";
+import { DEFAULT_MORNING_PREP, type MorningPrepSettings } from "@/lib/morning-prep";
 import { connectStore, queueChange } from "@/lib/sync";
 import type { CompanyBoards, Job, SearchSourceId } from "@/lib/types";
 
@@ -79,6 +80,8 @@ export interface Settings {
   jobspy: Omit<HelperSearch, "country">;
   /** Job titles for the morning JobSpy run, in named lists with their own places (lib/jobspy-lists.ts). */
   jobspyLists: JobspyList[];
+  /** What the morning run does with its jobs before you're up (lib/morning-prep.ts). */
+  morningPrep: MorningPrepSettings;
 }
 
 export interface TailoredDocs {
@@ -103,6 +106,7 @@ export const DEFAULT_SETTINGS: Settings = {
   tailor: { style: "uk-cv", tone: "professional", length: "two-pages", extraInstructions: "", projects: true },
   jobspy: DEFAULT_JOBSPY_SEARCH,
   jobspyLists: [],
+  morningPrep: DEFAULT_MORNING_PREP,
 };
 
 export const EMPTY_PROFILE: StoredProfile = { website: "", github: "", evidence: "", enabled: true };
@@ -444,6 +448,7 @@ function mergeSettings(stored: Settings): Settings {
       companyBoards: { ...DEFAULT_SETTINGS.companyBoards, ...stored.companyBoards },
       tailor: { ...DEFAULT_SETTINGS.tailor, ...stored.tailor },
       jobspy: { ...DEFAULT_SETTINGS.jobspy, ...stored.jobspy },
+      morningPrep: { ...DEFAULT_SETTINGS.morningPrep, ...stored.morningPrep },
     };
     mergedSettings.set(stored, merged);
   }

@@ -10,6 +10,7 @@ import { JobFilters } from "@/components/JobFilters";
 import { JobspyHelperPanel } from "@/components/JobspyHelper";
 import { MatchAllButton, useCurrentMatches } from "@/components/MatchAll";
 import { MorningRunBanner } from "@/components/MorningRun";
+import { MorningPrep } from "@/components/MorningPrep";
 import { TitleLists } from "@/components/TitleLists";
 import { SaveByMatch } from "@/components/SaveByMatch";
 import { FIND_TABS, SectionTabs } from "@/components/Nav";
@@ -173,6 +174,7 @@ function JobspyImporter() {
         }}
       />
       <TitleLists />
+      <MorningPrep />
       <JobspyHelperPanel
         onResult={(file) => {
           setError(null);

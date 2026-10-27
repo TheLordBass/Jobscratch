@@ -12,6 +12,9 @@ and two settings in scripts/jobspy/.env (schedule-morning-run.ps1 writes them):
     JOBSCRATCH_URL=https://jobscratch.vercel.app
     JOBSCRATCH_HELPER_TOKEN=a long random value, the same as JOBSCRATCH_HELPER_TOKEN in Vercel
 
+While it searches, and once it's done, it asks JobScratch to match the jobs against your CV and get
+the best ones ready to apply, if that's switched on (Add a job > From JobSpy > Before you're up).
+
 What it does is written to scripts/jobspy/scheduled.log. The same caveat as search.py applies:
 these sites' terms forbid scraping, so use it at your own risk.
 """
@@ -19,6 +22,7 @@ these sites' terms forbid scraping, so use it at your own risk.
 import json
 import os
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -39,6 +43,10 @@ RETRY_SECONDS = 30
 
 class RunError(Exception):
     """Something the log should explain in plain words."""
+
+    def __init__(self, message, code=None):
+        super().__init__(message)
+        self.code = code
 
 
 def read_config(path=HERE / ".env", environ=os.environ):
@@ -61,7 +69,7 @@ def read_config(path=HERE / ".env", environ=os.environ):
     return {"url": url, "token": token}
 
 
-def call(config, path, body=None, opener=urllib.request.urlopen, sleep=time.sleep):
+def call(config, path, body=None, opener=urllib.request.urlopen, sleep=time.sleep, timeout=60):
     """JSON to and from JobScratch, trying again a couple of times if the network or server stumbles."""
     data = None if body is None else json.dumps(body).encode("utf-8")
     for attempt in range(1, TRIES + 1):
@@ -72,7 +80,7 @@ def call(config, path, body=None, opener=urllib.request.urlopen, sleep=time.slee
             headers={"Authorization": f"Bearer {config['token']}", "Content-Type": "application/json", "User-Agent": "JobScratch-JobSpy-helper"},
         )
         try:
-            with opener(request, timeout=60) as response:
+            with opener(request, timeout=timeout) as response:
                 return json.loads(response.read() or b"{}")
         except urllib.error.HTTPError as error:
             try:
@@ -81,7 +89,7 @@ def call(config, path, body=None, opener=urllib.request.urlopen, sleep=time.slee
                 message = None
             # Wrong token, nothing saved and the like won't fix themselves.
             if error.code < 500 or attempt == TRIES:
-                raise RunError(message or f"JobScratch answered {error.code}") from None
+                raise RunError(message or f"JobScratch answered {error.code}", error.code) from None
         except (urllib.error.URLError, TimeoutError, ConnectionError) as error:
             if attempt == TRIES:
                 raise RunError(f"Couldn't reach JobScratch ({getattr(error, 'reason', error)}). Is the computer online?") from None
@@ -169,7 +177,80 @@ class Uploader:
         return self.total
 
 
-def run(config, scrape_jobs, keep_awake=lambda on: None, upload_call=call):
+class Preparer:
+    """
+    Asks JobScratch to work on the run's jobs (/api/helper/prepare): matching them against your CV
+    while the run searches, then getting the best ready to apply and sending the summary once it's
+    done. Each request does a little; this keeps asking until JobScratch says it's done (or that it's
+    switched off). Runs alongside the searches, in its own thread.
+    """
+
+    # While there's nothing to do, how long to wait before asking again.
+    IDLE_SECONDS = 180
+    # A step can take a few minutes (it writes a CV, a cover letter and answers at once).
+    STEP_TIMEOUT = 330
+    # Give up after this many failed requests in a row.
+    MAX_ERRORS = 5
+    # Once the run is over: the pause between asks when there's a wait (a rate limit), and how many
+    # waits in a row before giving up (the run was replaced by a newer one, say).
+    AFTER_SECONDS = 30
+    MAX_WAITS_AFTER = 40
+
+    def __init__(self, config, run_id, prepare_call=call, log=print, sleep=time.sleep):
+        self.config, self.run_id, self.prepare_call, self.log, self.sleep = config, run_id, prepare_call, log, sleep
+        self.searching_done = threading.Event()
+        self.thread = None
+        self.result = None
+
+    def start(self):
+        self.thread = threading.Thread(target=self.loop, name="prepare", daemon=True)
+        self.thread.start()
+
+    def finish(self, timeout=None):
+        """After the run has sent its last jobs: carry on until it's all done."""
+        self.searching_done.set()
+        if self.thread:
+            self.thread.join(timeout)
+        return self.result
+
+    def loop(self):
+        errors = waits = 0
+        while True:
+            try:
+                answer = self.prepare_call(
+                    self.config, "/api/helper/prepare", {"id": self.run_id}, timeout=self.STEP_TIMEOUT
+                )
+                errors = 0
+            except RunError as error:
+                if error.code == 404:
+                    self.log("    This JobScratch doesn't match or prepare jobs yet (update it); skipping that.")
+                    return
+                errors += 1
+                if errors >= self.MAX_ERRORS:
+                    self.log(f"    Stopped matching and preparing jobs: {error}")
+                    return
+                self.sleep(60)
+                continue
+            state = answer.get("state")
+            if state in ("done", "off"):
+                self.result = answer
+                if answer.get("message"):
+                    self.log(f"Prepared: {answer['message']}" if state == "done" else f"    {answer['message']}")
+                return
+            if state == "working":
+                waits = 0
+            elif not self.searching_done.is_set():
+                # Wakes early once the searches are done, to get on with the rest.
+                self.searching_done.wait(self.IDLE_SECONDS)
+            else:
+                waits += 1
+                if waits > self.MAX_WAITS_AFTER:
+                    self.log(f"    Stopped waiting to prepare jobs: {answer.get('message') or 'no answer'}")
+                    return
+                self.sleep(self.AFTER_SECONDS)
+
+
+def run(config, scrape_jobs, keep_awake=lambda on: None, upload_call=call, prepare_call=None):
     import helper
     import search
 
@@ -185,13 +266,17 @@ def run(config, scrape_jobs, keep_awake=lambda on: None, upload_call=call):
     part = f", part {batch['index'] + 1} of {batch['count']} of your title lists" if batch.get("count", 1) > 1 else ""
     search.log(f"Searching {', '.join(options.sites)} for {len(terms)} job titles{where} ({len(searches)} searches{part})…")
     uploader = Uploader(config, started_at, saved.get("batch"), upload_call)
+    preparer = Preparer(config, uploader.id, prepare_call or upload_call, log=search.log)
     keep_awake(True)
     try:
+        preparer.start()
         document, failed = search.run_searches(scrape_jobs, options, on_found=uploader.maybe_send)
+        total = uploader.finish(document, failed)
+        search.log(f"Sent {total} jobs to JobScratch." + (f" Failed searches: {'; '.join(failed)}" if failed else ""))
+        # Matching what's left and getting the best ready: well within the task's time limit.
+        preparer.finish(timeout=6 * 3600)
     finally:
         keep_awake(False)
-    total = uploader.finish(document, failed)
-    search.log(f"Sent {total} jobs to JobScratch." + (f" Failed searches: {'; '.join(failed)}" if failed else ""))
     return total
 
 

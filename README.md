@@ -118,6 +118,24 @@ Each morning, Find jobs shows **The morning JobSpy run today at 07:02 found 48 j
 
 Windows runs it while you're signed in. A computer that's asleep wakes up for it, if wake timers are allowed (Control Panel → Power Options → Change plan settings → Change advanced power settings → Sleep → Allow wake timers); one that's off runs it the next time it's on. To change the time, run the command again with another `-At`. To stop the morning runs, run it with `-Remove`.
 
+#### Ready before you're up
+
+The morning run can also do the next steps for you, so you wake up to jobs that are scored and ready to apply. Switch them on in **From JobSpy → Before you're up**:
+
+- **Match the jobs it finds** against your CV, up to a limit each morning (each is one Claude request, as with Match all). It starts while the run is still searching, with the jobs sent so far. Jobs with only a snippet of a description, and ones marked Not interested, are skipped.
+- **Get the best ones ready to apply.** Once the searches are done, the best few matches above a score you pick are saved to My jobs with a tailored CV, and a cover letter and application answers if you tick them. They're waiting on **My jobs → Apply**. Jobs you've already applied to are left alone.
+- **Send me a summary when it's done**, such as "3 jobs ready to apply", to your phone or computer, with a link to Apply.
+
+The matching and writing run on the JobScratch site, with your CV, settings and API key, a few jobs at a time while the run on your computer keeps asking. So the computer only needs to stay on until it's finished. Find jobs and From JobSpy show how far it got.
+
+**Notifications** need two keys, made once. In PowerShell, in the JobScratch folder, run:
+
+```powershell
+npx web-push generate-vapid-keys
+```
+
+In Vercel, add the **Public Key** as `JOBSCRATCH_VAPID_PUBLIC_KEY` and the **Private Key** as `JOBSCRATCH_VAPID_PRIVATE_KEY`, then redeploy. Keep the private one private: it lets whoever has it send notifications as your JobScratch. Then, on each device that should get them, open **From JobSpy → Before you're up** and tap **Turn on for this device**, then **Send a test**. Android phones and computers can turn them on in the browser. On an iPhone, first add JobScratch to your Home Screen (Share → Add to Home Screen), then open it from there and turn them on.
+
 ## AI CV tailoring
 
 Upload your CV once (**My CV**: PDF, Word .docx, Markdown or text). Then choose a job and click **Tailor my CV**. Claude:
