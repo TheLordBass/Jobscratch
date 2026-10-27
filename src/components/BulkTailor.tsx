@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import { useCurrentMatches } from "@/components/MatchAll";
 import { findSavedCopy } from "@/lib/import";
 import { DEFAULT_QUESTIONS } from "@/lib/ai/prompts";
-import { beginBatch, markBatchSeen, stopBatch, useBatch } from "@/lib/batch-runs";
+import { beginBatch, markBatchSeen, pausedInBackground, stopBatch, useBatch } from "@/lib/batch-runs";
 import { useProfile, useSavedJobs, useSettings, useTailored } from "@/lib/store";
 import { requestAnswers, streamTailored } from "@/lib/tailor-client";
 import type { Job } from "@/lib/types";
@@ -125,6 +125,13 @@ export function BulkTailor({ jobs, title = "Tailor CVs for top matches", ready =
           failedInARow = 0;
         } catch (error) {
           if (run.signal.aborted) return;
+          // Dropped while the phone had the app in the background: tried again once you're back.
+          if (await pausedInBackground(run.signal)) {
+            current.delete(label);
+            queue.unshift(job);
+            report();
+            continue;
+          }
           failed++;
           failedInARow++;
           // Two failures in a row usually means a problem every job will hit (key, rate limit).

@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { beginBatch, markBatchSeen, stopBatch } from "@/lib/batch-runs";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { beginBatch, markBatchSeen, pausedInBackground, stopBatch } from "@/lib/batch-runs";
 import { nextSearch } from "@/lib/search-session";
 import { clearSessionState, setSessionValue } from "@/lib/session-state";
 
@@ -41,5 +41,47 @@ describe("page state for the session", () => {
     const second = nextSearch();
     expect(first()).toBe(false);
     expect(second()).toBe(true);
+  });
+});
+
+describe("work dropped while the page is in the background", () => {
+  function fakeDocument(state: "visible" | "hidden") {
+    const listeners = new Set<() => void>();
+    const doc = {
+      visibilityState: state,
+      addEventListener: (_: string, listener: () => void) => listeners.add(listener),
+      removeEventListener: (_: string, listener: () => void) => listeners.delete(listener),
+      show() {
+        doc.visibilityState = "visible";
+        for (const listener of [...listeners]) listener();
+      },
+    };
+    vi.stubGlobal("document", doc);
+    return doc;
+  }
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("isn't tried again when the page was in view (a real failure)", async () => {
+    fakeDocument("visible");
+    expect(await pausedInBackground(new AbortController().signal)).toBe(false);
+  });
+
+  it("waits until the page is back, then tries again", async () => {
+    const doc = fakeDocument("hidden");
+    let settled = false;
+    const retry = pausedInBackground(new AbortController().signal).then((value) => ((settled = true), value));
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    doc.show();
+    expect(await retry).toBe(true);
+  });
+
+  it("gives up when the run is stopped while waiting", async () => {
+    fakeDocument("hidden");
+    const controller = new AbortController();
+    const retry = pausedInBackground(controller.signal);
+    controller.abort();
+    expect(await retry).toBe(false);
   });
 });

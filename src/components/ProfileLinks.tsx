@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import type { ProfileResponse, ProfileSourceResult } from "@/lib/profile";
 import {
   MAX_EVIDENCE_CHARS,
@@ -28,9 +28,8 @@ export function ProfileLinks() {
   const [result, setResult] = useState<ProfileResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showEvidence, setShowEvidence] = useState(false);
+  // Not stopped when you leave the page: what it reads is saved to your profile when it arrives.
   const request = useRef<AbortController | null>(null);
-
-  useEffect(() => () => request.current?.abort(), []);
 
   const hasLinks = Boolean(profile.website.trim() || profile.github.trim());
   const stale = Boolean(profile.evidence) && linksChanged(profile, profile.fetchedFor);

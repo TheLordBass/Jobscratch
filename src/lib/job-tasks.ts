@@ -2,6 +2,7 @@
 
 import { useSyncExternalStore } from "react";
 import type { MatchAnalysis } from "@/lib/ai/prompts";
+import { pausedInBackground } from "@/lib/batch-runs";
 import { isSavedJob, saveAnswers, updateStoredMatch, updateTailoredDocs, type StoredMatch } from "@/lib/store";
 import { requestAnswers, streamTailored, type AnswersRequest, type TailorRequest } from "@/lib/tailor-client";
 
@@ -9,7 +10,8 @@ import { requestAnswers, streamTailored, type AnswersRequest, type TailorRequest
  * Match analysis, tailored CVs and cover letters for one job, run outside the
  * page that started them: leaving the job's page (for My jobs or anywhere else
  * in the app) doesn't stop them, and the result is saved when it arrives. A
- * reload or closing the tab still does, so the app warns before that.
+ * reload or closing the tab still does, so the app warns before that. One dropped while a phone had the
+ * app in the background starts again when you're back.
  */
 
 export type TaskKind = "analysis" | "cv" | "coverLetter" | "answers";
@@ -99,6 +101,7 @@ export function startAnalysis(jobId: string, label: string, body: Omit<TailorReq
       set(jobId, "analysis", { status: "done" });
     } catch (error) {
       if (controller.signal.aborted) set(jobId, "analysis", { status: "stopped" });
+      else if (await pausedInBackground(controller.signal)) startAnalysis(jobId, label, body, matchKey);
       else set(jobId, "analysis", { status: "error", error: (error as Error).message });
     } finally {
       finish(jobId, "analysis", controller);
@@ -129,6 +132,8 @@ export function startDocument(jobId: string, label: string, kind: "cv" | "coverL
       if (controller.signal.aborted) {
         if (text.trim()) save(jobId, { [kind]: text.trim() });
         set(jobId, kind, { status: "stopped", text: "", notice: text ? "Stopped early, so this draft may be incomplete." : undefined });
+      } else if (await pausedInBackground(controller.signal)) {
+        startDocument(jobId, label, kind, request);
       } else {
         set(jobId, kind, { status: "error", text: "", error: (error as Error).message });
       }
@@ -148,6 +153,7 @@ export function startAnswers(jobId: string, label: string, request: AnswersReque
       set(jobId, "answers", { status: "done" });
     } catch (error) {
       if (controller.signal.aborted) set(jobId, "answers", { status: "stopped" });
+      else if (await pausedInBackground(controller.signal)) startAnswers(jobId, label, request, add);
       else set(jobId, "answers", { status: "error", error: (error as Error).message });
     } finally {
       finish(jobId, "answers", controller);

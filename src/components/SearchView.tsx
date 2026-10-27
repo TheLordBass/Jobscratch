@@ -3,7 +3,7 @@
 import { Plus, Search, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { GettingStarted } from "@/components/GettingStarted";
 import { MorningRunNotice } from "@/components/MorningRun";
 import { BulkTailor } from "@/components/BulkTailor";
@@ -16,7 +16,8 @@ import { FIND_TABS, SectionTabs } from "@/components/Nav";
 import { COUNTRIES } from "@/lib/format";
 import { collapseCopies, savedCopyFinder } from "@/lib/import";
 import { ANY_JOB, filterJobs, type JobFilter } from "@/lib/job-filters";
-import { nextSearch, useSearchState } from "@/lib/search-session";
+import { pausedInBackground } from "@/lib/batch-runs";
+import { nextSearch, useSearchState, useSearchUnseen } from "@/lib/search-session";
 import { useSessionState } from "@/lib/session-state";
 import { newId, useDismissed, useGroups, useHydrated, useSavedJobs, useSettings, type SearchGroup } from "@/lib/store";
 import { SOURCE_IDS, type Job, type SearchRequest, type SearchResponse, type SourceResult } from "@/lib/types";
@@ -44,6 +45,8 @@ const EXAMPLE_GROUPS: Array<Omit<SearchGroup, "id">> = [
 ];
 
 const NO_TERMS: string[] = [];
+/** A search isn't stopped part-way, so waiting for the page to come back needs no way to give up. */
+const KEEP_GOING = new AbortController().signal;
 
 interface Query {
   keywords: string[];
@@ -125,6 +128,11 @@ export function SearchView() {
   const [naming, setNaming] = useState(false);
 
   const [search, setSearch] = useSearchState();
+  // A search that finished while you were on another page is noted in the navigation until you're back.
+  const [unseen, setUnseen] = useSearchUnseen();
+  useEffect(() => {
+    if (unseen) setUnseen(false);
+  }, [unseen, setUnseen]);
   const [sort, setSort] = useSessionState<"relevance" | "newest" | "match">("search:sort", "relevance");
   const [showHidden, setShowHidden] = useSessionState("search:showHidden", false);
   // Jobs already saved when the search ran are left out; ones saved from its results stay, marked saved.
@@ -182,8 +190,16 @@ export function SearchView() {
       setSavedBefore(Object.keys(saved));
       setShowSaved(false);
       setSearch({ status: "done", label, response: data as SearchResponse });
+      setUnseen(window.location.pathname !== "/");
     } catch (error) {
-      if (stillLatest()) setSearch({ status: "error", message: (error as Error).message });
+      if (!stillLatest()) return;
+      // Dropped while the phone had the app in the background: searched again once you're back.
+      if (error instanceof TypeError && (await pausedInBackground(KEEP_GOING)) && stillLatest()) {
+        void run(query, label);
+        return;
+      }
+      setSearch({ status: "error", message: (error as Error).message });
+      setUnseen(window.location.pathname !== "/");
     }
   }
 

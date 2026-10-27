@@ -3,6 +3,7 @@
 import { Upload } from "lucide-react";
 import Link from "next/link";
 import { useState, type ChangeEvent, type DragEvent } from "react";
+import { useSessionState } from "@/lib/session-state";
 import { PROFILE_TABS, SectionTabs } from "@/components/Nav";
 import { ApplicationDetailsForm } from "@/components/ApplicationDetailsForm";
 import { SkillsProfile } from "@/components/SkillsProfile";
@@ -12,7 +13,8 @@ import { useCv, useHydrated } from "@/lib/store";
 export function CvView() {
   const hydrated = useHydrated();
   const [cv, setCv] = useCv();
-  const [draft, setDraft] = useState<string | null>(null);
+  // Unsaved edits are kept for the session, so looking something up on another page doesn't lose them.
+  const [draft, setDraft] = useSessionState<string | null>("cv:draft", null);
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
   const [dragging, setDragging] = useState(false);
