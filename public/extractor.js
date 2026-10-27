@@ -235,6 +235,16 @@
       location: ['[data-test="location"]', '[data-test="emp-location"]'],
       description: ['[class*="JobDetails_jobDescription"]', ".jobDescriptionContent", "#JobDescriptionContainer"],
       canonicalUrl: function (url) { return url.href; }
+    },
+    {
+      /* Its description sections are marked by empty anchors, so the general description finder reads it. */
+      name: "NHS Jobs",
+      host: /(^|\.)jobs\.nhs\.uk$/i,
+      title: ["h1#heading"],
+      company: ["#employer_name"],
+      location: ["#employer_town"],
+      description: [],
+      canonicalUrl: function (url) { return url.protocol + "//" + url.host + url.pathname; }
     }
   ];
 

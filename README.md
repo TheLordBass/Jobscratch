@@ -22,7 +22,7 @@ npm run dev
 
 Open http://localhost:3000.
 
-Five job boards work with no keys at all. To unlock the rest, add free API keys to `.env.local`. For AI CV tailoring, add `ANTHROPIC_API_KEY` ([get one here](https://console.anthropic.com/)). **Settings** in the app shows which sources are ready.
+Six job boards work with no keys at all. To unlock the rest, add free API keys to `.env.local`. For AI CV tailoring, add `ANTHROPIC_API_KEY` ([get one here](https://console.anthropic.com/)). **Settings** in the app shows which sources are ready.
 
 ## Where the jobs come from
 
@@ -32,6 +32,7 @@ JobScratch uses official APIs and public job feeds only.
 | --- | --- | --- |
 | Remotive, Remote OK, Himalayas, Jobicy | Remote jobs worldwide | None |
 | Arbeitnow | Europe (mostly Germany) | None |
+| [NHS Jobs](https://www.jobs.nhs.uk) | NHS jobs in England and Wales, from its public search (the descriptions are short: paste a job's link into **Add a job**, or use the bookmark on its page, for the full advert) | None |
 | Greenhouse / Lever / Ashby boards | Careers pages of companies you choose (add them in **Settings**) | None |
 | [Adzuna](https://developer.adzuna.com/signup) | UK, US, EU, Australia, India and 13 more countries | Free |
 | [Reed](https://www.reed.co.uk/developers/jobseeker) | UK | Free |

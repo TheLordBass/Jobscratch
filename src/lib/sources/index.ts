@@ -9,6 +9,7 @@ import { jobicy } from "./jobicy";
 import { jooble } from "./jooble";
 import { jsearch } from "./jsearch";
 import { lever } from "./lever";
+import { nhsJobs } from "./nhs-jobs";
 import { reed } from "./reed";
 import { remoteok } from "./remoteok";
 import { remotive } from "./remotive";
@@ -21,6 +22,7 @@ export const SOURCES: JobSource[] = [
   lever,
   ashby,
   reed,
+  nhsJobs,
   usajobs,
   adzuna,
   remotive,

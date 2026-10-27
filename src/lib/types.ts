@@ -11,6 +11,7 @@ export const SOURCE_IDS = [
   "reed",
   "jooble",
   "usajobs",
+  "nhs-jobs",
   "google-jobs",
   "jsearch",
 ] as const;
