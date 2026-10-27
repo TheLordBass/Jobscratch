@@ -7,7 +7,9 @@ import { useEffect, useState } from "react";
 import { useHydrated, useSavedJobs } from "@/lib/store";
 import { signOut, useSession } from "@/components/useSession";
 import { startSync, useSyncState } from "@/lib/sync";
+import { markBatchSeen, useBatches, type BatchRun } from "@/lib/batch-runs";
 import { dismissTask, useJobTasks, type TaskKind } from "@/lib/job-tasks";
+import { useSearchState } from "@/lib/search-session";
 
 /** Three sections; each covers the pages listed in `paths`. */
 const SECTIONS = [
@@ -124,8 +126,34 @@ export function Nav() {
         </nav>
       )}
       {!onLogin && <JobTasksBar />}
+      <ScrollMemory />
     </header>
   );
+}
+
+/** Lists you scroll through, which come back where you left them. */
+const SCROLL_PAGES = ["/", "/import", "/saved", "/apply", "/progress"];
+const scrolledTo = new Map<string, number>();
+
+/**
+ * Going back to a list from the navigation (not only with the browser's back button) returns to
+ * where you were in it, so after opening a job you carry on from that job rather than the top.
+ */
+function ScrollMemory() {
+  const pathname = usePathname();
+  useEffect(() => {
+    if (!SCROLL_PAGES.includes(pathname)) return;
+    const top = scrolledTo.get(pathname);
+    // After Next.js has scrolled the page it's shown to the top.
+    const frame = top ? window.requestAnimationFrame(() => window.scrollTo({ top })) : 0;
+    const onScroll = () => scrolledTo.set(pathname, window.scrollY);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", onScroll);
+    };
+  }, [pathname]);
+  return null;
 }
 
 const TASK_NAMES: Record<TaskKind, string> = {
@@ -135,12 +163,60 @@ const TASK_NAMES: Record<TaskKind, string> = {
   answers: "Application answers",
 };
 
-/** Analyses and documents being written in the background (lib/job-tasks.ts), and ones just finished. */
+function batchName(run: BatchRun): string {
+  const jobs = (n: number) => `${n} ${n === 1 ? "job" : "jobs"}`;
+  if (run.kind === "match") {
+    return run.status === "running" ? `Matching ${run.done} of ${jobs(run.total)}` : `Matched ${jobs(run.done - run.failed)}`;
+  }
+  return run.status === "running"
+    ? `Writing ${run.what}: ${run.done} of ${jobs(run.total)}`
+    : `Wrote ${run.what} for ${jobs(run.done - run.failed)}`;
+}
+
+/**
+ * What's running in the background while you're on another page, and what's just finished: a search,
+ * Match all and Tailor top matches (lib/batch-runs.ts), and one job's analysis and documents
+ * (lib/job-tasks.ts).
+ */
 function JobTasksBar() {
+  const pathname = usePathname();
   const tasks = useJobTasks().filter((task) => task.status === "running" || task.status === "done");
-  if (tasks.length === 0) return null;
+  // A run on the page you're on shows there.
+  const batches = useBatches().filter((run) => run.status !== "seen" && run.page !== pathname);
+  const [search] = useSearchState();
+  const searching = search.status === "loading" && pathname !== "/" ? search.label : null;
+  if (tasks.length === 0 && batches.length === 0 && !searching) return null;
   return (
     <div className="mx-auto flex max-w-6xl flex-wrap gap-2 px-4 pb-2 sm:px-6" aria-live="polite">
+      {searching && (
+        <span className="chip gap-2 py-1">
+          <Loader2 size={13} className="animate-spin" aria-hidden />
+          <Link href="/" className="hover:underline">
+            Searching: {searching}
+          </Link>
+        </span>
+      )}
+      {batches.map((run) => (
+        <span
+          key={`${run.kind}:${run.page}`}
+          className={`chip gap-2 py-1 ${run.status === "done" ? "bg-emerald-50 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200" : ""}`}
+        >
+          {run.status === "running" ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <Check size={13} aria-hidden />}
+          <Link href={run.page} className="hover:underline">
+            {batchName(run)}
+          </Link>
+          {run.status === "done" && (
+            <button
+              type="button"
+              className="cursor-pointer opacity-70 hover:opacity-100"
+              onClick={() => markBatchSeen(run.kind, run.page)}
+              aria-label="Dismiss"
+            >
+              <X size={13} aria-hidden />
+            </button>
+          )}
+        </span>
+      ))}
       {tasks.map((task) => (
         <span
           key={`${task.jobId}:${task.kind}`}

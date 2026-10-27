@@ -14,7 +14,10 @@ import { applyQueue, documentFileName } from "@/lib/apply";
 import { markdownToDocx } from "@/lib/export-docx";
 import { downloadBlob } from "@/lib/format";
 import { markdownToPlainText } from "@/lib/markdown";
+import { useSessionState } from "@/lib/session-state";
 import { useHydrated, useProfile, useSavedJobs, useTailored, type SavedJob, type TailoredDocs } from "@/lib/store";
+
+const NONE_APPLIED: string[] = [];
 
 /**
  * My jobs → Apply: the saved jobs you haven't applied to yet that have a tailored CV, best match
@@ -30,7 +33,7 @@ export function ApplyView() {
   const details = { ...EMPTY_DETAILS, ...profile.application };
   const hasDetails = Object.values(details).some((value) => value.trim());
   const { ready, notReady } = applyQueue(saved, tailored, (entry) => matchFor(entry.job)?.score);
-  const [applied, setApplied] = useState<string[]>([]);
+  const [applied, setApplied] = useSessionState("apply:applied", NONE_APPLIED);
 
   return (
     <div className="space-y-4">

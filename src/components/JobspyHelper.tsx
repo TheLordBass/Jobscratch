@@ -87,6 +87,9 @@ function useHelperStatus() {
   return [status, setStatus] as const;
 }
 
+/** Helper searches whose jobs have been shown, for the session: coming back to the page doesn't offer them again. */
+const shownSearches = new Set<string>();
+
 /** Runs a search with the helper and follows it until it's done. */
 function useHelperSearch(onResult: (file: unknown) => void) {
   const [state, setState] = useState<HelperSearchState | null>(null);
@@ -96,7 +99,7 @@ function useHelperSearch(onResult: (file: unknown) => void) {
   /** A search that finished while this page wasn't open, to offer its results. */
   const [missed, setMissed] = useState<HelperSearchState | null>(null);
   const following = useRef<string | null>(null);
-  const shown = useRef(new Set<string>());
+
   const deliver = useRef(onResult);
   useEffect(() => {
     deliver.current = onResult;
@@ -116,7 +119,7 @@ function useHelperSearch(onResult: (file: unknown) => void) {
         } else {
           following.current = null;
           if (next.result) {
-            shown.current.add(next.id);
+            shownSearches.add(next.id);
             deliver.current(next.result);
           }
           if (next.status === "failed") setError(next.error ?? "The search failed");
@@ -156,7 +159,7 @@ function useHelperSearch(onResult: (file: unknown) => void) {
       if (current.status === "running") {
         setState(current);
         follow(current.id);
-      } else if (current.result && !shown.current.has(current.id)) {
+      } else if (current.result && !shownSearches.has(current.id)) {
         setMissed(current);
       }
     } catch {
@@ -167,7 +170,7 @@ function useHelperSearch(onResult: (file: unknown) => void) {
   /** Shows the results of the search that finished while the page was closed. */
   const showMissed = useCallback(() => {
     if (!missed?.result) return;
-    shown.current.add(missed.id);
+    shownSearches.add(missed.id);
     deliver.current(missed.result);
     setMissed(null);
   }, [missed]);

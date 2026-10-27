@@ -2,10 +2,12 @@
 
 import { Sparkles, Square } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import { useCurrentMatches } from "@/components/MatchAll";
 import { findSavedCopy } from "@/lib/import";
 import { DEFAULT_QUESTIONS } from "@/lib/ai/prompts";
+import { beginBatch, markBatchSeen, stopBatch, useBatch } from "@/lib/batch-runs";
 import { useProfile, useSavedJobs, useSettings, useTailored } from "@/lib/store";
 import { requestAnswers, streamTailored } from "@/lib/tailor-client";
 import type { Job } from "@/lib/types";
@@ -13,14 +15,6 @@ import type { Job } from "@/lib/types";
 /** CVs written at the same time. Each takes about a minute. */
 const PARALLEL = 2;
 const THRESHOLDS = [90, 80, 70, 60];
-
-interface Progress {
-  done: number;
-  total: number;
-  failed: number;
-  current: string[];
-  stopped?: string;
-}
 
 /**
  * Writes tailored CVs (and, if asked, cover letters and application answers) for every job whose
@@ -36,11 +30,14 @@ export function BulkTailor({ jobs, title = "Tailor CVs for top matches", ready =
   const [threshold, setThreshold] = useState(80);
   const [withLetters, setWithLetters] = useState(ready);
   const [withAnswers, setWithAnswers] = useState(ready);
-  const [running, setRunning] = useState(false);
-  const [progress, setProgress] = useState<Progress | null>(null);
-  const controller = useRef<AbortController | null>(null);
+  // Runs in the background (lib/batch-runs.ts), so going to another page, say to apply, doesn't stop it.
+  const page = usePathname();
+  const progress = useBatch("tailor", page);
+  const running = progress?.status === "running";
 
-  useEffect(() => () => controller.current?.abort(), []);
+  useEffect(() => {
+    if (progress?.status === "done") markBatchSeen("tailor", page);
+  }, [progress?.status, page]);
 
   const scored = jobs.filter((job) => matchFor(job));
   if (scored.length === 0) return null;
@@ -67,17 +64,14 @@ export function BulkTailor({ jobs, title = "Tailor CVs for top matches", ready =
     ) {
       return;
     }
-    const abort = new AbortController();
-    controller.current = abort;
-    setRunning(true);
     const queue = [...todo];
     const total = queue.length;
+    const run = beginBatch("tailor", page, total, what);
     let done = 0;
     let failed = 0;
     let failedInARow = 0;
     const current = new Set<string>();
-    const report = (stopped?: string) => setProgress({ done, total, failed, current: [...current], stopped });
-    report();
+    const report = (stopped?: string) => run.report({ done, failed, current: [...current], stopped });
 
     const materials = (into: Job) => ({
       cv: candidate.cv,
@@ -96,7 +90,7 @@ export function BulkTailor({ jobs, title = "Tailor CVs for top matches", ready =
     const draft = async (into: Job) => {
       const answers = await requestAnswers(
         { ...materials(into), questions: DEFAULT_QUESTIONS, details: profile.application },
-        abort.signal,
+        run.signal,
       );
       setTailored((previous) => ({
         ...previous,
@@ -105,7 +99,7 @@ export function BulkTailor({ jobs, title = "Tailor CVs for top matches", ready =
     };
 
     const write = async (into: Job, kind: "cv" | "cover-letter") => {
-      const text = await streamTailored({ kind, ...materials(into), options: settings.tailor }, { signal: abort.signal });
+      const text = await streamTailored({ kind, ...materials(into), options: settings.tailor }, { signal: run.signal });
       const field = kind === "cv" ? "cv" : "coverLetter";
       setTailored((previous) => ({
         ...previous,
@@ -114,7 +108,7 @@ export function BulkTailor({ jobs, title = "Tailor CVs for top matches", ready =
     };
 
     const worker = async () => {
-      while (!abort.signal.aborted) {
+      while (!run.signal.aborted) {
         const job = queue.shift();
         if (!job) return;
         const found = target(job);
@@ -130,12 +124,12 @@ export function BulkTailor({ jobs, title = "Tailor CVs for top matches", ready =
           if (withAnswers && !docs?.answers?.length) await draft(into);
           failedInARow = 0;
         } catch (error) {
-          if (abort.signal.aborted) return;
+          if (run.signal.aborted) return;
           failed++;
           failedInARow++;
           // Two failures in a row usually means a problem every job will hit (key, rate limit).
           if (failedInARow >= 2) {
-            abort.abort();
+            run.abort();
             current.delete(label);
             report(`Stopped: ${(error as Error).message}`);
             return;
@@ -148,9 +142,7 @@ export function BulkTailor({ jobs, title = "Tailor CVs for top matches", ready =
     };
 
     await Promise.all(Array.from({ length: Math.min(PARALLEL, total) }, worker));
-    if (controller.current === abort) controller.current = null;
-    setRunning(false);
-    setProgress((last) => (last ? { ...last, current: [] } : last));
+    run.finish();
   }
 
   return (
@@ -166,7 +158,7 @@ export function BulkTailor({ jobs, title = "Tailor CVs for top matches", ready =
           <span className="text-xs font-semibold tabular-nums">
             {progress.done} of {progress.total} done
           </span>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={() => controller.current?.abort()}>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => stopBatch("tailor", page)}>
             <Square size={12} aria-hidden /> Stop
           </button>
           {progress.current.length > 0 && (
@@ -216,7 +208,7 @@ export function BulkTailor({ jobs, title = "Tailor CVs for top matches", ready =
         <p className="text-xs" role="status">
           {progress.stopped ?? (
             <>
-              Wrote {what} for {progress.done - progress.failed} {progress.done - progress.failed === 1 ? "job" : "jobs"}
+              Wrote {progress.what} for {progress.done - progress.failed} {progress.done - progress.failed === 1 ? "job" : "jobs"}
               {progress.failed > 0 && `; ${progress.failed} failed (try again to retry)`}
               {progress.done < progress.total && ", stopped early"}.
             </>

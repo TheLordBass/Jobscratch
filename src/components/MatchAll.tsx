@@ -1,13 +1,15 @@
 "use client";
 
 import { Gauge, Square } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
+import { useEffect } from "react";
 import { useSources } from "@/components/useSources";
 import { canMatch, candidateFor, matchKey, type Candidate } from "@/lib/candidate";
 import type { MatchAnalysis } from "@/lib/ai/prompts";
+import { beginBatch, markBatchSeen, stopBatch, useBatch } from "@/lib/batch-runs";
 import { siteJobKey } from "@/lib/import";
 import { matchFromAnalysis } from "@/lib/job-tasks";
-import { updateTailoredDocs, useCv, useMatches, useProfile, useSavedJobs, useSettings, useTailored, type StoredMatch } from "@/lib/store";
+import { isSavedJob, updateStoredMatch, updateTailoredDocs, useCv, useMatches, useProfile, useSavedJobs, useSettings, useTailored, type StoredMatch } from "@/lib/store";
 import type { Job } from "@/lib/types";
 
 /** How many jobs are matched at the same time. */
@@ -44,17 +46,19 @@ interface MatchAllProps {
 
 export function MatchAllButton({ jobs, onMatched }: MatchAllProps) {
   const sources = useSources();
-  const [, setMatches] = useMatches();
   const { saved } = useSavedJobs();
   const [tailored] = useTailored();
   const [settings] = useSettings();
   const { matchFor, candidate } = useCurrentMatches();
-  const [progress, setProgress] = useState<{ done: number; total: number; failed: number } | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [running, setRunning] = useState(false);
-  const controller = useRef<AbortController | null>(null);
+  // Runs in the background (lib/batch-runs.ts), so going to another page doesn't stop it.
+  const page = usePathname();
+  const progress = useBatch("match", page);
+  const running = progress?.status === "running";
+  const error = progress?.stopped;
 
-  useEffect(() => () => controller.current?.abort(), []);
+  useEffect(() => {
+    if (progress?.status === "done") markBatchSeen("match", page);
+  }, [progress?.status, page]);
 
   const matchable = jobs.filter(canMatch);
   // A saved job analysed on its own page already has its analysis.
@@ -75,18 +79,13 @@ export function MatchAllButton({ jobs, onMatched }: MatchAllProps) {
     ) {
       return;
     }
-    const abort = new AbortController();
-    controller.current = abort;
-    setRunning(true);
-    setError(null);
     const queue = [...todo];
+    const run = beginBatch("match", page, queue.length);
     let done = 0;
     let failed = 0;
-    const total = queue.length;
-    setProgress({ done, total, failed });
 
     const worker = async () => {
-      while (!abort.signal.aborted) {
+      while (!run.signal.aborted) {
         const job = queue.shift();
         if (!job) return;
         try {
@@ -107,36 +106,35 @@ export function MatchAllButton({ jobs, onMatched }: MatchAllProps) {
               },
               notes,
             }),
-            signal: abort.signal,
+            signal: run.signal,
           });
           const data = await response.json().catch(() => ({}));
           if (!response.ok) {
             // A missing key or a rate limit will fail every job, so stop rather than spend the rest.
             if ([401, 403, 404, 429, 503].includes(response.status)) {
-              setError(data.error ?? `Matching stopped (HTTP ${response.status}).`);
-              abort.abort();
+              run.report({ stopped: data.error ?? `Matching stopped (HTTP ${response.status}).` });
+              run.abort();
               return;
             }
             failed++;
           } else {
             const analysis = data as MatchAnalysis;
             const match: StoredMatch = matchFromAnalysis(analysis, matchKey(job, candidate));
-            setMatches((previous) => ({ ...previous, [job.id]: match }));
+            updateStoredMatch(job.id, match);
             // A saved job's page shows it as its analysis straight away.
-            if (saved[job.id]) updateTailoredDocs(job.id, { analysis });
+            if (isSavedJob(job.id)) updateTailoredDocs(job.id, { analysis });
           }
         } catch {
-          if (abort.signal.aborted) return;
+          if (run.signal.aborted) return;
           failed++;
         }
         done++;
-        setProgress({ done, total, failed });
+        run.report({ done, failed });
       }
     };
 
     await Promise.all(Array.from({ length: Math.min(PARALLEL, queue.length) }, worker));
-    if (controller.current === abort) controller.current = null;
-    setRunning(false);
+    run.finish();
     if (done > failed) onMatched?.();
   }
 
@@ -164,7 +162,7 @@ export function MatchAllButton({ jobs, onMatched }: MatchAllProps) {
                 Matching {progress.done} of {progress.total}
               </span>
             </div>
-            <button type="button" className="btn btn-secondary btn-sm" onClick={() => controller.current?.abort()}>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => stopBatch("match", page)}>
               <Square size={12} aria-hidden /> Stop
             </button>
           </>

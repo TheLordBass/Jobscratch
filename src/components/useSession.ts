@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { clearSessionState } from "@/lib/session-state";
 import { replaceLocalData } from "@/lib/store";
 import { flush, getSyncState, syncEnabled } from "@/lib/sync";
 
@@ -45,5 +46,6 @@ export async function signOut(): Promise<void> {
     if (getSyncState().status !== "error") await replaceLocalData();
   }
   await fetch("/api/auth/logout", { method: "POST" });
+  clearSessionState();
   window.location.replace("/login");
 }

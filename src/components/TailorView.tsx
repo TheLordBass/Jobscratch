@@ -18,6 +18,7 @@ import { jobKeys } from "@/lib/import";
 import { documentFileName } from "@/lib/apply";
 import { downloadBlob, formatPosted } from "@/lib/format";
 import { hasProjectSections, printableHtml, removeProjectSections } from "@/lib/markdown";
+import { useSessionState } from "@/lib/session-state";
 import {
   APPLICATION_STATUSES,
   useCv,
@@ -452,7 +453,13 @@ function TailorWorkspace({ entry, initialTab }: { entry: SavedJob; initialTab?: 
   const staleAnalysis = !docs?.analysis && Boolean(listMatch?.analysis) && !currentMatch;
 
   // Open on what there is: the tailored CV, else the match analysis, else the job itself.
-  const [tab, setTab] = useState<Tab>(initialTab ?? (docs?.cv ? "cv" : analysis ? "analysis" : "job"));
+  // Coming back to the job (without a tab in the link, e.g. from the navigation) opens the tab you were on.
+  const [lastTab, rememberTab] = useSessionState<Tab | null>(`tailor:tab:${job.id}`, null);
+  const [tab, showTab] = useState<Tab>(initialTab ?? lastTab ?? (docs?.cv ? "cv" : analysis ? "analysis" : "job"));
+  const setTab = (next: Tab) => {
+    showTab(next);
+    rememberTab(next);
+  };
   // On a phone the tabs scroll sideways: keep the open one in view (e.g. Answers, opened from Apply).
   const tabButtons = useRef<Partial<Record<Tab, HTMLButtonElement | null>>>({});
   useEffect(() => {
