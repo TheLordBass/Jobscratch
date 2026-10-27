@@ -57,12 +57,19 @@ if (-not (Test-Path $envFile)) {
     Write-Host ""
 }
 
-$time = [datetime]::ParseExact($At, "HH:mm", $null)
+# 07:00, 7:00, 7am and 7:30pm all work.
+$formats = [string[]]@("HH:mm", "H:mm", "h:mmtt", "htt", "h:mm tt", "h tt")
+$time = [datetime]::MinValue
+if (-not [datetime]::TryParseExact($At.Trim().ToUpper(), $formats, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::None, [ref]$time)) {
+    throw "Couldn't read the time '$At'. Give it like 07:00, 7:00 or 7am."
+}
 $action = New-ScheduledTaskAction -Execute $python -Argument "`"$(Join-Path $here 'scheduled.py')`"" -WorkingDirectory $here
 $trigger = New-ScheduledTaskTrigger -Daily -At $time
+# Spaced-out LinkedIn searches can take hours (50 searches 10 minutes apart is over 8), and jobs are
+# sent as they're found, so it's allowed most of the day; the next morning's run starts it afresh.
 $settings = New-ScheduledTaskSettingsSet -WakeToRun -StartWhenAvailable -RunOnlyIfNetworkAvailable `
     -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew `
-    -ExecutionTimeLimit (New-TimeSpan -Hours 4)
+    -ExecutionTimeLimit (New-TimeSpan -Hours 20)
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings -Force `
     -Description "Runs your saved JobSpy search for JobScratch (scripts\jobspy\scheduled.py). Log: scripts\jobspy\scheduled.log" | Out-Null
 

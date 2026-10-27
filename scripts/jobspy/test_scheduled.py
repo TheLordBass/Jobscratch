@@ -125,9 +125,43 @@ class Run(unittest.TestCase):
     def test_many_jobs_go_up_in_parts_with_one_run_id(self):
         app = FakeJobScratch()
         document = {"query": {"search": ["a"], "location": []}, "jobs": [{"title": str(i)} for i in range(1100)]}
-        self.assertEqual(scheduled.upload(CONFIG, document, [], "2026-10-27T07:00:00+00:00", app), 1100)
+        uploader = scheduled.Uploader(CONFIG, "2026-10-27T07:00:00+00:00", None, app)
+        self.assertEqual(uploader.finish(document, []), 1100)
         self.assertEqual([part["done"] for part in app.parts], [False, False, True])
         self.assertEqual(len({part["id"] for part in app.parts}), 1)
+
+    def test_jobs_are_sent_during_the_run_once_each(self):
+        app = FakeJobScratch()
+        now = [0.0]
+        uploader = scheduled.Uploader(CONFIG, "2026-10-27T07:00:00+00:00", None, app, clock=lambda: now[0])
+        query = {"search": ["a"], "location": []}
+        rows = [{"job_url": f"https://x.example/{i}", "title": str(i)} for i in range(10)]
+        # Too soon, and too few to send early.
+        uploader.maybe_send({"query": query, "jobs": rows[:3]})
+        self.assertEqual(app.parts, [])
+        now[0] = 200
+        uploader.maybe_send({"query": query, "jobs": rows[:3]})
+        self.assertEqual([len(part["jobs"]) for part in app.parts], [3])
+        self.assertFalse(app.parts[0]["done"])
+        # A job found again by another title list goes up again, with both lists.
+        rows[0] = {**rows[0], "lists": ["Data roles", "Operations"]}
+        now[0] = 400
+        uploader.maybe_send({"query": query, "jobs": rows[:6]})
+        self.assertEqual([row["title"] for row in app.parts[1]["jobs"]], ["0", "3", "4", "5"])
+        uploader.finish({"query": query, "jobs": rows}, ["LinkedIn: x"])
+        last = app.parts[-1]
+        self.assertTrue(last["done"])
+        self.assertEqual([row["title"] for row in last["jobs"]], ["6", "7", "8", "9"])
+        self.assertEqual(last["failed"], ["LinkedIn: x"])
+
+    def test_a_failed_send_during_the_run_doesnt_stop_it(self):
+        def flaky(config, path, body=None):
+            raise scheduled.RunError("offline")
+
+        uploader = scheduled.Uploader(CONFIG, "2026-10-27T07:00:00+00:00", None, flaky, clock=lambda: 1000)
+        rows = [{"job_url": "https://x.example/1"}]
+        uploader.maybe_send({"query": {}, "jobs": rows})  # Logged, not raised.
+        self.assertEqual(uploader.unsent({"jobs": rows}), rows)
 
 
 class Call(unittest.TestCase):

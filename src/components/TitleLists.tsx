@@ -10,6 +10,7 @@ import {
   morningHours,
   planMornings,
   splitItems,
+  uniqueListName,
   type JobspyList,
 } from "@/lib/jobspy-lists";
 import { newId, useHydrated, useSettings } from "@/lib/store";
@@ -36,7 +37,14 @@ export function TitleLists() {
   function add(list?: Partial<JobspyList>) {
     setLists((previous) => [
       ...previous,
-      { id: newId(), name: `List ${previous.length + 1}`, titles: [], locations: [], enabled: true, ...list },
+      {
+        id: newId(),
+        titles: [],
+        locations: [],
+        enabled: true,
+        ...list,
+        name: uniqueListName(list?.name ?? `List ${previous.length + 1}`, previous),
+      },
     ]);
   }
 
@@ -56,7 +64,19 @@ export function TitleLists() {
           <ListEditor
             key={list.id}
             list={list}
-            onChange={(patch) => setLists((previous) => previous.map((l) => (l.id === list.id ? { ...l, ...patch } : l)))}
+            onChange={(patch) =>
+              setLists((previous) =>
+                previous.map((l) =>
+                  l.id !== list.id
+                    ? l
+                    : {
+                        ...l,
+                        ...patch,
+                        ...(patch.name !== undefined && { name: uniqueListName(patch.name, previous.filter((o) => o.id !== l.id)) }),
+                      },
+                ),
+              )
+            }
             onRemove={() => {
               if (window.confirm(`Delete the list “${list.name}”?`)) setLists((previous) => previous.filter((l) => l.id !== list.id));
             }}
@@ -114,7 +134,19 @@ function ListEditor({
   const [name, setName] = useState(list.name);
   const [titles, setTitles] = useState(list.titles.join("\n"));
   const [places, setPlaces] = useState(list.locations.join(", "));
+  // The box being typed in, if any.
+  const [typing, setTyping] = useState<"name" | "titles" | "places" | null>(null);
+  // The list changed under the boxes (saved here, or synced from another device): show it, except in
+  // the box being typed in, so a change made elsewhere is never written back over with old text.
+  const [shown, setShown] = useState(list);
+  if (shown !== list) {
+    setShown(list);
+    if (typing !== "name") setName(list.name);
+    if (typing !== "titles") setTitles(list.titles.join("\n"));
+    if (typing !== "places") setPlaces(list.locations.join(", "));
+  }
   const count = list.titles.length * Math.max(1, list.locations.length);
+  const same = (a: string[], b: string[]) => a.length === b.length && a.every((item, i) => item === b[i]);
 
   return (
     <fieldset className={`space-y-2 rounded-lg border border-zinc-100 p-3 dark:border-zinc-800 ${list.enabled ? "" : "opacity-70"}`}>
@@ -124,7 +156,12 @@ function ListEditor({
           value={name}
           maxLength={60}
           onChange={(e) => setName(e.target.value)}
-          onBlur={() => onChange({ name: name.trim() || list.name })}
+          onFocus={() => setTyping("name")}
+          onBlur={() => {
+            setTyping(null);
+            if (name.trim() && name.trim() !== list.name) onChange({ name: name.trim() });
+            else setName(list.name);
+          }}
           aria-label="List name"
         />
         <label className="flex items-center gap-1.5 text-sm">
@@ -145,10 +182,12 @@ function ListEditor({
             className="input min-h-24 resize-y text-sm"
             value={titles}
             onChange={(e) => setTitles(e.target.value)}
+            onFocus={() => setTyping("titles")}
             onBlur={() => {
+              setTyping(null);
               const items = splitItems(titles, MAX_LIST_TITLES);
               setTitles(items.join("\n"));
-              onChange({ titles: items });
+              if (!same(items, list.titles)) onChange({ titles: items });
             }}
             placeholder={"operations analyst\nbusiness analyst\nreporting analyst"}
           />
@@ -162,10 +201,12 @@ function ListEditor({
             className="input text-sm"
             value={places}
             onChange={(e) => setPlaces(e.target.value)}
+            onFocus={() => setTyping("places")}
             onBlur={() => {
+              setTyping(null);
               const items = splitItems(places, MAX_LIST_LOCATIONS);
               setPlaces(items.join(", "));
-              onChange({ locations: items });
+              if (!same(items, list.locations)) onChange({ locations: items });
             }}
             placeholder="Manchester, Remote (blank for anywhere)"
           />

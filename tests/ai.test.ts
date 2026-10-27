@@ -383,6 +383,35 @@ describe("draftAnswers", () => {
     expect(instruction.text).not.toContain("Salary expectations:");
   });
 
+  it("keeps each answer with its own question when one is skipped", async () => {
+    const reply = [
+      { question: "Why do you want to work for us?", answer: "Because of the work." },
+      { question: "Tell us about yourself.", answer: "I'm an analyst." },
+    ];
+    fetchMock.mockResolvedValueOnce(
+      Response.json({
+        id: "msg_8",
+        type: "message",
+        role: "assistant",
+        model: "claude-opus-5-5",
+        content: [{ type: "text", text: JSON.stringify({ answers: reply }) }],
+        stop_reason: "end_turn",
+        stop_sequence: null,
+        usage: { input_tokens: 10, output_tokens: 10 },
+      }),
+    );
+    const answers = await draftAnswers(
+      { cv: CV, job: JOB },
+      ["Why do you want to work for us?", "Why are you interested in this role?", "Tell us about yourself"],
+      undefined,
+      ENV,
+    );
+    expect(answers).toEqual([
+      { question: "Why do you want to work for us?", answer: "Because of the work." },
+      { question: "Tell us about yourself", answer: "I'm an analyst." },
+    ]);
+  });
+
   it("says to leave a gap for practical answers it hasn't been given", async () => {
     fetchMock.mockResolvedValueOnce(
       Response.json({
