@@ -31,7 +31,7 @@ export interface HelperSearch {
   hours: number | null;
   remote: boolean;
   linkedinDescriptions: boolean;
-  /** Minutes between LinkedIn searches, run after the other sites so LinkedIn is less likely to block; 0 for no gap. */
+  /** Minutes between LinkedIn searches, run after the other sites so LinkedIn is less likely to block (MIN_LINKEDIN_PACE or more). */
   linkedinPace: number;
   distance: number;
   /** For Indeed and Glassdoor, e.g. "united kingdom". */
@@ -48,8 +48,11 @@ export const DEFAULT_JOBSPY_SEARCH: Omit<HelperSearch, "country"> = {
   remote: false,
   linkedinDescriptions: false,
   distance: 50,
-  linkedinPace: 2,
+  linkedinPace: 10,
 };
+
+/** The shortest gap between LinkedIn searches, in minutes: closer together, LinkedIn turns many more away. The helper keeps to it too. */
+export const MIN_LINKEDIN_PACE = 10;
 
 /** The most job titles, and searches (titles × places), the helper takes at once. */
 export const MAX_TITLES = 50;

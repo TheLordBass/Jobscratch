@@ -38,6 +38,8 @@ MAX_LOCATIONS = 10
 # 50 job titles in two places. At about 8 seconds a search, that's under 15 minutes.
 MAX_SEARCHES = 100
 MAX_BODY = 64 * 1024
+# The shortest gap between LinkedIn searches, in minutes. Closer together, LinkedIn turns many more away.
+MIN_LINKEDIN_PACE = 10
 
 
 def parse_args():
@@ -131,8 +133,9 @@ def search_options(body):
         hours=whole_number(body.get("hours"), "hours", 1, 24 * 60, None),
         remote=bool(body.get("remote")),
         linkedin_descriptions=bool(body.get("linkedinDescriptions")),
-        # Minutes between LinkedIn searches, run after the other sites (see search.run_searches).
-        linkedin_pace=whole_number(body.get("linkedinPace"), "linkedinPace", 0, 30, 0),
+        # Minutes between LinkedIn searches, run after the other sites (see search.run_searches). Never
+        # less than MIN_LINKEDIN_PACE: LinkedIn turns away many more searches that are closer together.
+        linkedin_pace=max(MIN_LINKEDIN_PACE, whole_number(body.get("linkedinPace"), "linkedinPace", 0, 30, MIN_LINKEDIN_PACE)),
         country=country.strip().lower(),
         pause=3,
     )
