@@ -30,10 +30,25 @@ export interface FetchJsonOptions {
   ttlMs?: number;
 }
 
-export async function fetchJson<T>(url: string, options: FetchJsonOptions): Promise<T> {
+export function fetchJson<T>(url: string, options: FetchJsonOptions): Promise<T> {
+  return fetchAndRead(url, options, "application/json", async (response) => {
+    try {
+      return (await response.json()) as T;
+    } catch {
+      throw new SourceError("Response was not valid JSON");
+    }
+  });
+}
+
+/** The same, for a source that answers in another format, e.g. XML (NHS Jobs). */
+export function fetchText(url: string, options: FetchJsonOptions & { accept: string }): Promise<string> {
+  return fetchAndRead(url, options, options.accept, (response) => response.text());
+}
+
+async function fetchAndRead<T>(url: string, options: FetchJsonOptions, accept: string, read: (response: Response) => Promise<T>): Promise<T> {
   const method = options.method ?? "GET";
   const body = options.body === undefined ? undefined : JSON.stringify(options.body);
-  const cacheKey = `${method} ${url} ${body ?? ""} ${JSON.stringify(options.headers ?? {})}`;
+  const cacheKey = `${method} ${url} ${accept} ${body ?? ""} ${JSON.stringify(options.headers ?? {})}`;
   const cached = cache.get(cacheKey);
   if (cached && cached.expires > Date.now()) return cached.value as T;
 
@@ -44,7 +59,7 @@ export async function fetchJson<T>(url: string, options: FetchJsonOptions): Prom
       signal: options.signal,
       headers: {
         "User-Agent": USER_AGENT,
-        Accept: "application/json",
+        Accept: accept,
         ...(body ? { "Content-Type": "application/json" } : {}),
         ...options.headers,
       },
@@ -66,12 +81,7 @@ export async function fetchJson<T>(url: string, options: FetchJsonOptions): Prom
     throw new SourceError(`HTTP ${response.status}${hint}`, response.status);
   }
 
-  let value: T;
-  try {
-    value = (await response.json()) as T;
-  } catch {
-    throw new SourceError("Response was not valid JSON");
-  }
+  const value = await read(response);
 
   if (cache.size >= MAX_CACHE_ENTRIES) {
     const oldest = cache.keys().next().value;
