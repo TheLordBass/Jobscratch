@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useSyncExternalStore } from "react";
-import type { ExtraSkill, MatchAnalysis, TailorOptions } from "@/lib/ai/prompts";
+import type { ApplicationAnswer, ApplicationDetails, ExtraSkill, MatchAnalysis, TailorOptions } from "@/lib/ai/prompts";
 import { dismissKeys, findSavedCopy, mergeJobs } from "@/lib/import";
 import { DEFAULT_JOBSPY_SEARCH, type HelperSearch } from "@/lib/jobspy-helper";
 import type { JobspyList } from "@/lib/jobspy-lists";
@@ -59,6 +59,8 @@ export interface StoredProfile {
   fetchedFor?: { website: string; github: string };
   /** Skills and experience the CV doesn't show, added on the Profile page. Sent with every analysis and document. */
   skills?: ExtraSkill[];
+  /** Standard answers for application forms (Profile → Application details), used in drafted answers. */
+  application?: ApplicationDetails;
 }
 
 export interface Settings {
@@ -85,6 +87,8 @@ export interface TailoredDocs {
   coverLetter?: string;
   /** Edited job description used for tailoring (e.g. full text pasted over a snippet). */
   jobDescription?: string;
+  /** Drafted answers to the questions on the job's application form. */
+  answers?: ApplicationAnswer[];
   updatedAt: string;
 }
 
@@ -581,6 +585,17 @@ export function updateTailoredDocs(id: string, patch: Partial<TailoredDocs>) {
     ...previous,
     [id]: { ...previous[id], ...patch, updatedAt: new Date().toISOString() },
   }));
+}
+
+/**
+ * Saves drafted application answers outside React (see lib/job-tasks.ts): all of them, or `add`ed to
+ * the ones there, replacing any to the same question.
+ */
+export function saveAnswers(id: string, answers: ApplicationAnswer[], add: boolean) {
+  update("tailored", EMPTY_TAILORED, (previous) => {
+    const kept = add ? (previous[id]?.answers ?? []).filter((old) => !answers.some((a) => a.question === old.question)) : [];
+    return { ...previous, [id]: { ...previous[id], answers: [...kept, ...answers], updatedAt: new Date().toISOString() } };
+  });
 }
 
 /** Saves a job's match score outside React (see lib/job-tasks.ts). */

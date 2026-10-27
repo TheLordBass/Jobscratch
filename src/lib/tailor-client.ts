@@ -1,4 +1,4 @@
-import type { CandidateProfile, ExtraSkill, TailorJob, TailorOptions } from "@/lib/ai/prompts";
+import type { ApplicationAnswer, ApplicationDetails, CandidateProfile, ExtraSkill, TailorJob, TailorOptions } from "@/lib/ai/prompts";
 
 /** What /api/tailor/generate needs to write a tailored CV or cover letter. */
 export interface TailorRequest {
@@ -11,6 +11,23 @@ export interface TailorRequest {
   /** Skills from the candidate's profile that their CV doesn't show. */
   skills?: ExtraSkill[];
   options: TailorOptions;
+}
+
+/** What /api/tailor/answers needs to draft answers to application questions. */
+export type AnswersRequest = Omit<TailorRequest, "kind" | "options"> & { questions: string[]; details?: ApplicationDetails };
+
+/** Drafted answers from /api/tailor/answers. */
+export async function requestAnswers(request: AnswersRequest, signal?: AbortSignal): Promise<ApplicationAnswer[]> {
+  const response = await fetch("/api/tailor/answers", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+    signal,
+  });
+  // A timeout or server error can come back as a page rather than JSON.
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error ?? `Drafting the answers failed (HTTP ${response.status}). Try again.`);
+  return (data as { answers: ApplicationAnswer[] }).answers;
 }
 
 export interface StreamHandlers {

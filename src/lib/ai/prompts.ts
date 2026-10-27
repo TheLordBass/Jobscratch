@@ -266,3 +266,74 @@ ${LINK_RULE}
 
 Reply with only the letter in Markdown (plain paragraphs): no introduction, notes, or code fences.`;
 }
+
+/** The candidate's own answers to the practical questions forms ask (Profile → Application details). */
+export const ApplicationDetailsSchema = z.object({
+  rightToWork: z.string().max(300).default(""),
+  noticePeriod: z.string().max(300).default(""),
+  salary: z.string().max(300).default(""),
+  location: z.string().max(300).default(""),
+  other: z.string().max(2000).default(""),
+});
+
+export type ApplicationDetails = z.infer<typeof ApplicationDetailsSchema>;
+
+export const APPLICATION_DETAIL_LABELS: Record<keyof ApplicationDetails, string> = {
+  rightToWork: "Right to work",
+  noticePeriod: "Notice period or start date",
+  salary: "Salary expectations",
+  location: "Where you can work",
+  other: "Anything else forms ask",
+};
+
+/** What most application forms ask, drafted for every job made ready to apply. */
+export const DEFAULT_QUESTIONS = [
+  "Why do you want to work for us?",
+  "Why are you interested in this role?",
+  "What makes you a good fit for this role?",
+  "Tell us about yourself.",
+];
+
+export const MAX_QUESTIONS = 8;
+
+/** A question from an application form, and the drafted answer. */
+export interface ApplicationAnswer {
+  question: string;
+  answer: string;
+}
+
+export const AnswersSchema = z.object({
+  answers: z
+    .array(z.object({ question: z.string(), answer: z.string() }))
+    .describe("One answer for each question asked, in the same order, with the question repeated exactly"),
+});
+
+function detailsBlock(details: ApplicationDetails | undefined): string {
+  const lines = details
+    ? (Object.keys(APPLICATION_DETAIL_LABELS) as Array<keyof ApplicationDetails>)
+        .filter((key) => details[key].trim())
+        .map((key) => `${APPLICATION_DETAIL_LABELS[key]}: ${details[key].trim()}`)
+    : [];
+  return lines.length
+    ? `- For practical questions (right to work, notice period, salary, location and the like), use the candidate's own answers below, as written. If a question needs one that isn't there, write [add your answer] in its place rather than guessing.
+
+<application_details>
+${lines.join("\n")}
+</application_details>`
+    : "- For practical questions (right to work, notice period, salary, location and the like), write [add your answer] where the candidate's own answer belongs: don't guess.";
+}
+
+export function answersInstruction(questions: string[], details?: ApplicationDetails): string {
+  return `Draft the candidate's answers to these questions from the application form for this job, in their voice (first person).
+
+<questions>
+${questions.map((question, i) => `${i + 1}. ${question.trim()}`).join("\n")}
+</questions>
+
+- Answer every question, in the order given, repeating each question exactly as written.
+- About 80–150 words each, unless the question only needs something short (a yes or no, a date, a number): then a sentence.
+- Make each answer specific to this job: what the posting says about the role and the company, and the candidate's real experience from their materials. If the posting says little about the company, focus on the role and the work rather than inventing reasons.
+- Plain text paragraphs: no Markdown, headings or bullet points, since forms are plain text boxes.
+- British spelling unless the CV uses American spelling.
+${detailsBlock(details)}`;
+}

@@ -12,7 +12,7 @@ import { dismissTask, useJobTasks, type TaskKind } from "@/lib/job-tasks";
 /** Three sections; each covers the pages listed in `paths`. */
 const SECTIONS = [
   { href: "/", label: "Find jobs", icon: Search, paths: ["/", "/import"] },
-  { href: "/saved", label: "My jobs", icon: BriefcaseBusiness, paths: ["/saved", "/progress", "/tailor"] },
+  { href: "/saved", label: "My jobs", icon: BriefcaseBusiness, paths: ["/saved", "/apply", "/progress", "/tailor"] },
   { href: "/cv", label: "Profile", icon: UserRound, paths: ["/cv", "/settings"] },
 ] as const;
 
@@ -128,7 +128,12 @@ export function Nav() {
   );
 }
 
-const TASK_NAMES: Record<TaskKind, string> = { analysis: "Match analysis", cv: "Tailored CV", coverLetter: "Cover letter" };
+const TASK_NAMES: Record<TaskKind, string> = {
+  analysis: "Match analysis",
+  cv: "Tailored CV",
+  coverLetter: "Cover letter",
+  answers: "Application answers",
+};
 
 /** Analyses and documents being written in the background (lib/job-tasks.ts), and ones just finished. */
 function JobTasksBar() {
@@ -194,6 +199,7 @@ export const FIND_TABS = [
 
 export const MY_JOBS_TABS = [
   { href: "/saved", label: "Jobs" },
+  { href: "/apply", label: "Apply" },
   { href: "/progress", label: "Progress" },
 ] as const;
 

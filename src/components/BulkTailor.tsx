@@ -5,8 +5,9 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useCurrentMatches } from "@/components/MatchAll";
 import { findSavedCopy } from "@/lib/import";
-import { useSavedJobs, useSettings, useTailored } from "@/lib/store";
-import { streamTailored } from "@/lib/tailor-client";
+import { DEFAULT_QUESTIONS } from "@/lib/ai/prompts";
+import { useProfile, useSavedJobs, useSettings, useTailored } from "@/lib/store";
+import { requestAnswers, streamTailored } from "@/lib/tailor-client";
 import type { Job } from "@/lib/types";
 
 /** CVs written at the same time. Each takes about a minute. */
@@ -22,17 +23,19 @@ interface Progress {
 }
 
 /**
- * Writes tailored CVs (and, if asked, cover letters) for every job whose
- * quick match is at or above a threshold. Jobs are saved to My jobs first,
- * since that's where tailored documents live.
+ * Writes tailored CVs (and, if asked, cover letters and application answers) for every job whose
+ * match is at or above a threshold. Jobs are saved to My jobs first, since that's where tailored
+ * documents live. `title` and `ready` (cover letters and answers ticked) are for the Apply page.
  */
-export function BulkTailor({ jobs }: { jobs: Job[] }) {
+export function BulkTailor({ jobs, title = "Tailor CVs for top matches", ready = false }: { jobs: Job[]; title?: string; ready?: boolean }) {
   const { matchFor, candidate } = useCurrentMatches();
   const { saved, saveJob } = useSavedJobs();
   const [tailored, setTailored] = useTailored();
   const [settings] = useSettings();
+  const [profile] = useProfile();
   const [threshold, setThreshold] = useState(80);
-  const [withLetters, setWithLetters] = useState(false);
+  const [withLetters, setWithLetters] = useState(ready);
+  const [withAnswers, setWithAnswers] = useState(ready);
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<Progress | null>(null);
   const controller = useRef<AbortController | null>(null);
@@ -46,19 +49,20 @@ export function BulkTailor({ jobs }: { jobs: Job[] }) {
   const target = (job: Job) => findSavedCopy(saved, job)?.job ?? job;
   const needs = (job: Job) => {
     const docs = tailored[target(job).id];
-    return !docs?.cv || (withLetters && !docs.coverLetter);
+    return !docs?.cv || (withLetters && !docs.coverLetter) || (withAnswers && !docs.answers?.length);
   };
   const eligible = scored.filter((job) => (matchFor(job)?.score ?? 0) >= threshold);
   const todo = eligible.filter(needs);
-  const what = withLetters ? "CVs and cover letters" : "CVs";
+  const what = withLetters && withAnswers ? "CVs, cover letters and answers" : withLetters ? "CVs and cover letters" : withAnswers ? "CVs and answers" : "CVs";
+  const perJob = 1 + (withLetters ? 1 : 0) + (withAnswers ? 1 : 0);
 
   async function start() {
     if (todo.length === 0) return;
-    const minutes = Math.max(1, Math.ceil((todo.length * (withLetters ? 2 : 1)) / PARALLEL));
+    const minutes = Math.max(1, Math.ceil((todo.length * perJob) / PARALLEL));
     if (
       !window.confirm(
         `Write tailored ${what} for ${todo.length} ${todo.length === 1 ? "job" : "jobs"} matching ${threshold}%+? ` +
-          `That's ${todo.length * (withLetters ? 2 : 1)} Claude requests and takes about ${minutes} ${minutes === 1 ? "minute" : "minutes"}.`,
+          `That's up to ${todo.length * perJob} Claude requests and takes about ${minutes} ${minutes === 1 ? "minute" : "minutes"}.`,
       )
     ) {
       return;
@@ -75,25 +79,33 @@ export function BulkTailor({ jobs }: { jobs: Job[] }) {
     const report = (stopped?: string) => setProgress({ done, total, failed, current: [...current], stopped });
     report();
 
-    const write = async (into: Job, kind: "cv" | "cover-letter") => {
-      const text = await streamTailored(
-        {
-          kind,
-          cv: candidate.cv,
-          job: {
-            title: into.title.slice(0, 300),
-            company: into.company.slice(0, 200),
-            location: into.location.slice(0, 200),
-            url: into.url.slice(0, 2000),
-            description: (tailored[into.id]?.jobDescription ?? into.description).slice(0, 40_000),
-          },
-          profile: candidate.profile,
-          skills: candidate.skills,
-          notes: settings.useJobNotes ? saved[into.id]?.notes.slice(0, 4000) || undefined : undefined,
-          options: settings.tailor,
-        },
-        { signal: abort.signal },
+    const materials = (into: Job) => ({
+      cv: candidate.cv,
+      job: {
+        title: into.title.slice(0, 300),
+        company: into.company.slice(0, 200),
+        location: into.location.slice(0, 200),
+        url: into.url.slice(0, 2000),
+        description: (tailored[into.id]?.jobDescription ?? into.description).slice(0, 40_000),
+      },
+      profile: candidate.profile,
+      skills: candidate.skills,
+      notes: settings.useJobNotes ? saved[into.id]?.notes.slice(0, 4000) || undefined : undefined,
+    });
+
+    const draft = async (into: Job) => {
+      const answers = await requestAnswers(
+        { ...materials(into), questions: DEFAULT_QUESTIONS, details: profile.application },
+        abort.signal,
       );
+      setTailored((previous) => ({
+        ...previous,
+        [into.id]: { ...previous[into.id], answers, updatedAt: new Date().toISOString() },
+      }));
+    };
+
+    const write = async (into: Job, kind: "cv" | "cover-letter") => {
+      const text = await streamTailored({ kind, ...materials(into), options: settings.tailor }, { signal: abort.signal });
       const field = kind === "cv" ? "cv" : "coverLetter";
       setTailored((previous) => ({
         ...previous,
@@ -115,6 +127,7 @@ export function BulkTailor({ jobs }: { jobs: Job[] }) {
           const docs = tailored[into.id];
           if (!docs?.cv) await write(into, "cv");
           if (withLetters && !docs?.coverLetter) await write(into, "cover-letter");
+          if (withAnswers && !docs?.answers?.length) await draft(into);
           failedInARow = 0;
         } catch (error) {
           if (abort.signal.aborted) return;
@@ -162,7 +175,7 @@ export function BulkTailor({ jobs }: { jobs: Job[] }) {
         </div>
       ) : (
         <div className="flex flex-wrap items-center gap-2 text-sm">
-          <span className="font-semibold">Tailor CVs for top matches</span>
+          <span className="font-semibold">{title}</span>
           <select
             className="input w-auto py-1 text-xs"
             value={threshold}
@@ -178,6 +191,10 @@ export function BulkTailor({ jobs }: { jobs: Job[] }) {
           <label className="flex items-center gap-1.5 text-xs">
             <input type="checkbox" checked={withLetters} onChange={(e) => setWithLetters(e.target.checked)} />
             Cover letters too
+          </label>
+          <label className="flex items-center gap-1.5 text-xs">
+            <input type="checkbox" checked={withAnswers} onChange={(e) => setWithAnswers(e.target.checked)} />
+            Application answers too
           </label>
           <button
             type="button"
