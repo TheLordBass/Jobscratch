@@ -4,6 +4,7 @@ import { Sunrise } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { MORNING_RUN_HASH, fetchLatestRun, fetchRunJobs, runTime, type JobspyRun } from "@/lib/jobspy-run-client";
+import type { PrepState } from "@/lib/morning-prep";
 import type { Job } from "@/lib/types";
 
 /** Older runs aren't news on Find jobs any more; they're still in Add a job. */
@@ -14,11 +15,15 @@ const RECENT_MS = 36 * 3_600_000;
  * whether it's recent, judged when it was fetched.
  */
 function useLatestRun() {
-  const [state, setState] = useState<{ run: JobspyRun | null | undefined; recent: boolean }>({ run: undefined, recent: false });
+  const [state, setState] = useState<{ run: JobspyRun | null | undefined; prep: PrepState | null; recent: boolean }>({
+    run: undefined,
+    prep: null,
+    recent: false,
+  });
   useEffect(() => {
     let active = true;
-    void fetchLatestRun().then((run) => {
-      if (active) setState({ run, recent: Boolean(run && Date.now() - Date.parse(run.startedAt) < RECENT_MS) });
+    void fetchLatestRun().then(({ run, prep }) => {
+      if (active) setState({ run, prep, recent: Boolean(run && Date.now() - Date.parse(run.startedAt) < RECENT_MS) });
     });
     return () => {
       active = false;
@@ -32,6 +37,30 @@ function summary(run: JobspyRun): string {
   return run.finishedAt
     ? `The morning JobSpy run ${runTime(run.startedAt)} found ${found}`
     : `The morning JobSpy run ${runTime(run.startedAt)} is still sending its jobs (${found} so far)`;
+}
+
+/** What the run did with its jobs before you were up: "48 matched, 5 ready to apply". */
+function PrepLine({ prep }: { prep: PrepState }) {
+  const parts = [
+    prep.matched > 0 && `${prep.matched} matched against your CV`,
+    prep.ready.length > 0 && `${prep.ready.length} ready to apply`,
+  ].filter(Boolean);
+  if (parts.length === 0 && !prep.stopped) return null;
+  return (
+    <p className="text-xs">
+      {parts.join(", ")}
+      {!prep.finished && parts.length > 0 && " so far"}
+      {prep.stopped && <span className="text-red-700 dark:text-red-300"> Stopped early: {prep.stopped}</span>}
+      {prep.ready.length > 0 && (
+        <>
+          {" "}
+          <Link href="/apply" className="link">
+            Open Apply
+          </Link>
+        </>
+      )}
+    </p>
+  );
 }
 
 /** "Part 2 of 3 of your title lists", when they take several mornings to get through. */
@@ -49,7 +78,7 @@ export function MorningRunBanner({
 }: {
   onShow: (jobs: Job[], run: JobspyRun, lists: Record<string, string[]>) => void;
 }) {
-  const { run } = useLatestRun();
+  const { run, prep } = useLatestRun();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const opened = useRef(false);
@@ -95,6 +124,7 @@ export function MorningRunBanner({
           </button>
         )}
       </div>
+      {prep && <PrepLine prep={prep} />}
       {run.failed.length > 0 && (
         <p className="muted text-xs">
           {run.failed.length} {run.failed.length === 1 ? "search" : "searches"} failed (the site may have blocked them):{" "}
@@ -109,15 +139,20 @@ export function MorningRunBanner({
 
 /** On Find jobs: a one-line pointer to the morning run's jobs, if there's a recent one. */
 export function MorningRunNotice() {
-  const { run, recent } = useLatestRun();
+  const { run, prep, recent } = useLatestRun();
   if (!run?.count || !recent) return null;
+  const ready = prep?.ready.length ?? 0;
   return (
     <Link
       href={`/import${MORNING_RUN_HASH}`}
       className="flex items-center gap-2 rounded-xl bg-indigo-50 px-3 py-2.5 text-sm hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-950"
     >
       <Sunrise size={16} className="shrink-0 text-indigo-600 dark:text-indigo-300" aria-hidden />
-      <span className="min-w-0 flex-1">{summary(run)}.</span>
+      <span className="min-w-0 flex-1">
+        {summary(run)}
+        {prep?.matched ? `, ${prep.matched} matched` : ""}
+        {ready ? `, ${ready} ready to apply` : ""}.
+      </span>
       <span className="link shrink-0">Show them</span>
     </Link>
   );

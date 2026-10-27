@@ -4,11 +4,10 @@ import { Gauge, Square } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 import { useSources } from "@/components/useSources";
-import { canMatch, candidateFor, matchKey, type Candidate } from "@/lib/candidate";
+import { canMatch, candidateFor, matchFromAnalysis, matchKey, type Candidate } from "@/lib/candidate";
 import type { MatchAnalysis } from "@/lib/ai/prompts";
 import { beginBatch, markBatchSeen, pausedInBackground, stopBatch, useBatch } from "@/lib/batch-runs";
 import { siteJobKey } from "@/lib/import";
-import { matchFromAnalysis } from "@/lib/job-tasks";
 import { isSavedJob, updateStoredMatch, updateTailoredDocs, useCv, useMatches, useProfile, useSavedJobs, useSettings, useTailored, type StoredMatch } from "@/lib/store";
 import type { Job } from "@/lib/types";
 

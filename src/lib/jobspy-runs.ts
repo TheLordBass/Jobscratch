@@ -10,6 +10,8 @@ import type { Job } from "@/lib/types";
 
 export const RUN_KEY = "jobscratch:jobspy-run";
 export const RUN_JOBS_KEY = "jobscratch:jobspy-run:jobs";
+/** How far the run's matching and getting jobs ready has got (lib/morning-prep-server.ts). */
+export const RUN_PREP_KEY = "jobscratch:jobspy-run:prep";
 const PAGE_SIZE = 200;
 
 type Env = Record<string, string | undefined>;

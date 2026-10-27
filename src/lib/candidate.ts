@@ -1,7 +1,7 @@
 import { hashString } from "@/lib/import";
 import { MAX_EVIDENCE_CHARS, MAX_GITHUB_LENGTH, MAX_WEBSITE_LENGTH, linksChanged } from "@/lib/profile/links";
-import type { ExtraSkill } from "@/lib/ai/prompts";
-import type { StoredCv, StoredProfile } from "@/lib/store";
+import type { ExtraSkill, MatchAnalysis } from "@/lib/ai/prompts";
+import type { StoredCv, StoredMatch, StoredProfile } from "@/lib/store";
 import type { Job } from "@/lib/types";
 
 /** What the tailoring and matching requests send about the candidate. */
@@ -52,4 +52,16 @@ export function canMatch(job: Job): boolean {
 /** Identifies the CV and description a match score was made from, to tell when it's out of date. */
 export function matchKey(job: Job, candidate: Candidate): string {
   return `${candidate.key}:${hashString(job.description)}`;
+}
+
+/** A job's match score, as kept for lists, from its full analysis. */
+export function matchFromAnalysis(analysis: MatchAnalysis, key: string, at = new Date().toISOString()): StoredMatch {
+  return {
+    score: analysis.matchScore,
+    verdict: analysis.verdict,
+    missing: (analysis.keywordsMissing.length ? analysis.keywordsMissing : analysis.gaps).slice(0, 3),
+    key,
+    at,
+    analysis,
+  };
 }

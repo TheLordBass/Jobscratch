@@ -3,7 +3,8 @@
 import { useSyncExternalStore } from "react";
 import type { MatchAnalysis } from "@/lib/ai/prompts";
 import { pausedInBackground } from "@/lib/batch-runs";
-import { isSavedJob, saveAnswers, updateStoredMatch, updateTailoredDocs, type StoredMatch } from "@/lib/store";
+import { matchFromAnalysis } from "@/lib/candidate";
+import { isSavedJob, saveAnswers, updateStoredMatch, updateTailoredDocs } from "@/lib/store";
 import { requestAnswers, streamTailored, type AnswersRequest, type TailorRequest } from "@/lib/tailor-client";
 
 /*
@@ -159,18 +160,6 @@ export function startAnswers(jobId: string, label: string, request: AnswersReque
       finish(jobId, "answers", controller);
     }
   })();
-}
-
-/** A job's match score, as kept for lists, from its full analysis. */
-export function matchFromAnalysis(analysis: MatchAnalysis, key: string): StoredMatch {
-  return {
-    score: analysis.matchScore,
-    verdict: analysis.verdict,
-    missing: (analysis.keywordsMissing.length ? analysis.keywordsMissing : analysis.gaps).slice(0, 3),
-    key,
-    at: new Date().toISOString(),
-    analysis,
-  };
 }
 
 export function stopTask(jobId: string, kind: TaskKind) {

@@ -1,6 +1,6 @@
 import { promises as fs } from "node:fs";
 import { createClient } from "redis";
-import { RUN_JOBS_KEY, RUN_KEY } from "@/lib/jobspy-runs";
+import { RUN_JOBS_KEY, RUN_KEY, RUN_PREP_KEY } from "@/lib/jobspy-runs";
 import {
   SYNC_KEYS,
   type CollectionKey,
@@ -18,6 +18,8 @@ import {
 
 const PREFIX = "jobscratch:";
 const META_KEY = `${PREFIX}meta`;
+/** The devices that asked for notifications (lib/push.ts). */
+export const PUSH_KEY = `${PREFIX}push`;
 const PAGE_SIZE = 200;
 
 type Env = Record<string, string | undefined>;
@@ -88,6 +90,13 @@ export function fileBackend(path: string): DataBackend {
         }
         case "HLEN":
           return Object.keys(data.hashes[key] ?? {}).length;
+        case "HMGET":
+          return args.map((field) => data.hashes[key]?.[field] ?? null);
+        case "HDEL": {
+          for (const field of args) delete data.hashes[key]?.[field];
+          changed = true;
+          return args.length;
+        }
         case "HSCAN": {
           const fields = Object.keys(data.hashes[key] ?? {}).sort();
           const start = Number(args[0]) || 0;
@@ -236,6 +245,35 @@ export async function readItems(
   return { items, cursor: String(next) };
 }
 
+/** Every field of a Redis hash, parsed (a run's jobs, a collection, the devices to notify). */
+export async function readHash<T>(backend: DataBackend, key: string): Promise<Record<string, T>> {
+  const items: Record<string, T> = {};
+  let cursor = "0";
+  do {
+    const [result] = await backend.run([["HSCAN", key, cursor, "COUNT", String(PAGE_SIZE)]]);
+    const [next, flat] = result as [string, string[]];
+    for (let i = 0; i + 1 < flat.length; i += 2) items[flat[i]] = JSON.parse(flat[i + 1]) as T;
+    cursor = String(next);
+  } while (cursor !== "0");
+  return items;
+}
+
+/** A whole collection, for the server's own work on it (lib/morning-prep-server.ts). */
+export function readCollection<T>(backend: DataBackend, key: CollectionKey): Promise<Record<string, T>> {
+  return readHash<T>(backend, PREFIX + key);
+}
+
+/** Some items of a collection, by id; missing ones are left out. */
+export async function readSomeItems<T>(backend: DataBackend, key: CollectionKey, ids: string[]): Promise<Record<string, T>> {
+  if (ids.length === 0) return {};
+  const [values] = await backend.run([["HMGET", PREFIX + key, ...ids]]);
+  const items: Record<string, T> = {};
+  (values as Array<string | null>).forEach((raw, i) => {
+    if (typeof raw === "string") items[ids[i]] = JSON.parse(raw) as T;
+  });
+  return items;
+}
+
 /** Applies changes from a browser and returns the new "last changed" time. */
 export async function applyOps(backend: DataBackend, ops: SyncOp[], now = new Date().toISOString()): Promise<string> {
   const commands: Command[] = [];
@@ -255,7 +293,7 @@ export async function applyOps(backend: DataBackend, ops: SyncOp[], now = new Da
 /** Deletes everything (Settings → Delete all data, or before restoring a backup). */
 export async function clearAll(backend: DataBackend, now = new Date().toISOString()): Promise<string> {
   await backend.run([
-    ["DEL", ...SYNC_KEYS.map((key) => PREFIX + key), RUN_KEY, RUN_JOBS_KEY],
+    ["DEL", ...SYNC_KEYS.map((key) => PREFIX + key), RUN_KEY, RUN_JOBS_KEY, RUN_PREP_KEY, PUSH_KEY],
     ["SET", META_KEY, now],
   ]);
   return now;

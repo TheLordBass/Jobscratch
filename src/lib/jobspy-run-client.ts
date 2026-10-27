@@ -1,4 +1,5 @@
 import type { JobspyRun, RunJob } from "@/lib/jobspy-runs";
+import type { PrepState } from "@/lib/morning-prep";
 import type { Job } from "@/lib/types";
 
 /*
@@ -18,12 +19,13 @@ async function getJson<T>(url: string): Promise<T> {
   return data as T;
 }
 
-/** The latest run, or null if there's none (or no server storage). */
-export async function fetchLatestRun(): Promise<JobspyRun | null> {
+/** The latest run, or null if there's none (or no server storage), and how far its preparation has got. */
+export async function fetchLatestRun(): Promise<{ run: JobspyRun | null; prep: PrepState | null }> {
   try {
-    return (await getJson<{ run: JobspyRun | null }>("/api/jobspy-run")).run;
+    const { run, prep } = await getJson<{ run: JobspyRun | null; prep?: PrepState | null }>("/api/jobspy-run");
+    return { run, prep: prep ?? null };
   } catch {
-    return null;
+    return { run: null, prep: null };
   }
 }
 
