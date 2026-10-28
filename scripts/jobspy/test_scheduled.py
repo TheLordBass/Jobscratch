@@ -237,6 +237,16 @@ class Preparing(unittest.TestCase):
         self.assertEqual(waits, [scheduled.Preparer.IDLE_SECONDS])
         self.assertEqual(len(app.prepared), 2)
 
+    def test_waits_as_long_as_its_told_while_a_batch_of_matches_is_out(self):
+        preparer, app, _ = self.preparer([{"state": "waiting", "wait": 60}] * 50 + [{"state": "done"}])
+        slept = []
+        preparer.sleep = slept.append
+        preparer.searching_done.set()
+        preparer.loop()
+        # Past the waits it allows otherwise: a batch can take a while.
+        self.assertEqual(len(app.prepared), 51)
+        self.assertEqual(slept, [60] * 50)
+
     def test_an_older_jobscratch_without_it_is_skipped(self):
         preparer, app, logged = self.preparer([scheduled.RunError("Not found", 404)])
         preparer.loop()

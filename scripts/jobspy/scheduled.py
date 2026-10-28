@@ -182,7 +182,8 @@ class Preparer:
     Asks JobScratch to work on the run's jobs (/api/helper/prepare): matching them against your CV
     while the run searches, then getting the best ready to apply and sending the summary once it's
     done. Each request does a little; this keeps asking until JobScratch says it's done (or that it's
-    switched off). Runs alongside the searches, in its own thread.
+    switched off), and waits while a batch of matches is with Claude (JobScratch gives up on one
+    after an hour). Runs alongside the searches, in its own thread.
     """
 
     # While there's nothing to do, how long to wait before asking again.
@@ -195,6 +196,8 @@ class Preparer:
     # waits in a row before giving up (the run was replaced by a newer one, say).
     AFTER_SECONDS = 30
     MAX_WAITS_AFTER = 40
+    # With a batch of matches out, if JobScratch doesn't say how long to wait.
+    BATCH_SECONDS = 60
 
     def __init__(self, config, run_id, prepare_call=call, log=print, sleep=time.sleep):
         self.config, self.run_id, self.prepare_call, self.log, self.sleep = config, run_id, prepare_call, log, sleep
@@ -239,6 +242,10 @@ class Preparer:
                 return
             if state == "working":
                 waits = 0
+            elif state == "waiting":
+                # Matches sent to Claude as a batch, not back yet: JobScratch says when to ask again.
+                waits = 0
+                self.sleep(min(int(answer.get("wait") or self.BATCH_SECONDS), 600))
             elif not self.searching_done.is_set():
                 # Wakes early once the searches are done, to get on with the rest.
                 self.searching_done.wait(self.IDLE_SECONDS)

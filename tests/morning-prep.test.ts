@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { AiError } from "@/lib/ai/claude";
+import { AiError, type BatchedMatch, type BatchOutcome } from "@/lib/ai/claude";
 import type { MatchAnalysis } from "@/lib/ai/prompts";
 import { dismissKeys } from "@/lib/import";
 import { saveRunPart } from "@/lib/jobspy-runs";
@@ -37,15 +37,55 @@ function analysis(score: number): MatchAnalysis {
   return { matchScore: score, verdict: "Fit", strengths: [], gaps: [], keywordsPresent: [], keywordsMissing: ["dbt"], suggestions: [] };
 }
 
-/** Claude stand-ins: each job's score is set in `scores`, and what was asked for is recorded. */
-function fakes(scores: Record<string, number>) {
-  const calls = { analyze: [] as string[], write: [] as string[], answers: [] as string[], notify: [] as Array<{ title: string; body: string; url: string }> };
+/**
+ * Claude stand-ins: each job's score is set in `scores`, and what was asked for is recorded. A batch
+ * is back once it's been asked after `batchReads` times; cancelled, what's left comes back cancelled.
+ */
+function fakes(scores: Record<string, number>, batchReads = 1) {
+  const calls = {
+    analyze: [] as string[],
+    batches: [] as string[][],
+    cvIds: [] as Array<Record<string, string[]>>,
+    canceled: [] as string[],
+    write: [] as string[],
+    answers: [] as string[],
+    notify: [] as Array<{ title: string; body: string; url: string }>,
+  };
+  const batches = new Map<string, { requests: BatchedMatch[]; reads: number; canceled: boolean }>();
+  const score = (title: string) => {
+    const found = scores[title];
+    if (found === undefined) throw new AiError("The analysis was cut off. Try again.", 502);
+    return analysis(found);
+  };
   const deps: PrepDeps = {
     analyze: async (materials) => {
       calls.analyze.push(materials.job.title);
-      const score = scores[materials.job.title];
-      if (score === undefined) throw new AiError("The analysis was cut off. Try again.", 502);
-      return analysis(score);
+      return score(materials.job.title);
+    },
+    submitBatch: async (requests) => {
+      calls.batches.push(requests.map((request) => request.materials.job.title));
+      const id = `batch-${batches.size + 1}`;
+      batches.set(id, { requests, reads: 0, canceled: false });
+      return id;
+    },
+    readBatch: async (id, cvIds) => {
+      const batch = batches.get(id)!;
+      calls.cvIds.push(cvIds);
+      if (!batch.canceled && ++batch.reads < batchReads) return null;
+      const outcomes: Record<string, BatchOutcome> = {};
+      for (const { customId, materials } of batch.requests) {
+        try {
+          // With CVs to choose between, the stand-in chooses the last.
+          outcomes[customId] = batch.canceled ? { canceled: true } : { analysis: { ...score(materials.job.title), ...(cvIds[customId]?.length && { cvId: cvIds[customId].at(-1) }) } };
+        } catch (error) {
+          outcomes[customId] = { error: error as AiError };
+        }
+      }
+      return outcomes;
+    },
+    cancelBatch: async (id) => {
+      calls.canceled.push(id);
+      batches.get(id)!.canceled = true;
     },
     write: async (kind, materials) => {
       calls.write.push(`${kind}:${materials.job.title}`);
@@ -65,9 +105,10 @@ function fakes(scores: Record<string, number>) {
 let folder: string;
 let backend: DataBackend;
 
+/** One at a time unless a test says otherwise; batches have tests of their own. */
 async function seed(prep: Partial<MorningPrepSettings>, jobs: Job[], done = false) {
   await applyOps(backend, [
-    { key: "settings", value: { morningPrep: { ...DEFAULT_MORNING_PREP, ...prep } } },
+    { key: "settings", value: { morningPrep: { ...DEFAULT_MORNING_PREP, batch: false, ...prep } } },
     { key: "cv", value: { text: CV, updatedAt: "2026-10-27T06:00:00.000Z" } },
   ]);
   await saveRunPart(backend, { id: RUN, startedAt: "2026-10-27T06:00:00.000Z", failed: [], done, jobs: jobs.map((j) => ({ job: j, lists: [] })) });
@@ -179,6 +220,62 @@ describe("the morning run's preparation", () => {
     expect((await step(deps)).state).toBe("done");
     expect(calls.notify).toHaveLength(1);
     expect(calls.analyze).toHaveLength(8);
+  });
+
+  it("sends the jobs to Claude as a batch and reads the answers back on a later step", async () => {
+    const jobs = [job(1), job(2), job(3, { description: "Short." }), job(4)];
+    const { deps, calls } = fakes({ "Data Analyst 1": 95, "Data Analyst 2": 70 }, 2);
+    await seed({ match: true, batch: true, ready: true, readyFrom: 85, readyLimit: 2, coverLetters: false, answers: false }, jobs.slice(0, 3));
+    const ops = `Ops. ${"Ran warehouse and operations teams, rotas, budgets and suppliers. ".repeat(2)}`;
+    await applyOps(backend, [
+      { key: "cv", value: { text: CV, updatedAt: "2026-10-27T06:00:00.000Z", others: [{ id: "ops", name: "Ops CV", text: ops, titles: [], updatedAt: "2026-10-27T06:00:00.000Z" }] } },
+      { key: "saved", items: { "linkedin:2": { job: jobs[1], status: "saved", notes: "", savedAt: "2026-10-26T06:00:00.000Z", updatedAt: "2026-10-26T06:00:00.000Z" } } },
+    ]);
+
+    // Still searching: the two full descriptions go in one batch, and it waits as it does for more jobs.
+    expect((await step(deps)).state).toBe("idle");
+    expect(calls.batches).toEqual([["Data Analyst 1", "Data Analyst 2"]]);
+    expect((await step(deps)).state).toBe("idle");
+    // Back: saved, with the CV each was matched with chosen from both.
+    expect((await step(deps)).state).toBe("working");
+    expect(calls.cvIds.at(-1)).toEqual({ "job-0": ["main", "ops"], "job-1": ["main", "ops"] });
+    const matches = await readCollection<StoredMatch>(backend, "matches");
+    expect(matches["linkedin:1"]).toMatchObject({ score: 95 });
+    expect(matches["linkedin:1"].analysis?.cvId).toBe("ops");
+    expect((await readCollection<TailoredDocs>(backend, "tailored"))["linkedin:2"].analysis?.matchScore).toBe(70);
+
+    // The last job arrives with the run's end: a batch of its own, and the run is told when to ask again.
+    await saveRunPart(backend, { id: RUN, startedAt: "2026-10-27T06:00:00.000Z", failed: [], done: true, jobs: [{ job: jobs[3], lists: [] }] });
+    expect((await step(deps)).state).toBe("waiting");
+    expect(calls.batches[1]).toEqual(["Data Analyst 4"]);
+    const waiting = await step(deps);
+    expect(waiting).toMatchObject({ state: "waiting", wait: 60 });
+    // Data Analyst 4 has no score in the stand-ins: it failed, and isn't sent again.
+    for (let i = 0; i < 6 && (await step(deps)).state !== "done"; i++);
+    const prep = await readPrep(backend);
+    expect(prep).toMatchObject({ matched: 2, failed: ["linkedin:4"], finished: true });
+    expect(prep?.ready).toEqual(["linkedin:1"]);
+    expect(calls.batches).toHaveLength(2);
+    expect(calls.analyze).toEqual([]);
+    expect(calls.write).toEqual(["cv:Data Analyst 1"]);
+  });
+
+  it("cancels a batch that takes over an hour and matches the rest one at a time", async () => {
+    const jobs = [job(1), job(2)];
+    const { deps, calls } = fakes({ "Data Analyst 1": 80, "Data Analyst 2": 60 }, 99);
+    await seed({ match: true, batch: true, ready: false, notify: false }, jobs, true);
+    const at = (minutes: number) => prepareStep(backend, {}, RUN, "https://jobscratch.example", deps, `2026-10-27T07:${String(minutes).padStart(2, "0")}:00.000Z`);
+    expect((await at(0)).state).toBe("waiting");
+    expect((await at(30)).state).toBe("waiting");
+    expect(calls.canceled).toEqual([]);
+    expect((await at(59)).state).toBe("waiting");
+    // Over the hour (07:00 to 08:01 is past it): cancelled, and the cancelled ones are matched one at a time.
+    expect((await prepareStep(backend, {}, RUN, "https://jobscratch.example", deps, "2026-10-27T08:01:00.000Z")).state).toBe("waiting");
+    expect(calls.canceled).toEqual(["batch-1"]);
+    for (let i = 0; i < 5 && (await step(deps)).state !== "done"; i++);
+    expect(calls.analyze.sort()).toEqual(["Data Analyst 1", "Data Analyst 2"]);
+    expect(await readPrep(backend)).toMatchObject({ matched: 2, live: true, finished: true });
+    expect(calls.batches).toHaveLength(1);
   });
 
   it("skips jobs you've hidden, applied to or that have only a snippet, and keeps to the limits", async () => {

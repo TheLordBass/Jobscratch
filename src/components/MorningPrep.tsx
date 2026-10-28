@@ -63,6 +63,10 @@ export function MorningPrep() {
           </select>
           a morning
         </label>
+        <label className="flex items-center gap-1.5 pl-6 text-xs">
+          <input type="checkbox" checked={prep.batch} disabled={!prep.match} onChange={(e) => set({ batch: e.target.checked })} />
+          as one batch: half price, back within the hour (usually minutes)
+        </label>
 
         <div className="space-y-1.5">
           <label className="flex flex-wrap items-center gap-2">
@@ -109,7 +113,7 @@ export function MorningPrep() {
 
         {(prep.match || prep.ready) && (
           <p className="muted text-xs">
-            Up to {requests} Claude requests a morning. Jobs with only a snippet of a description aren’t matched, and ones you’ve
+            Up to {requests} Claude requests a morning{prep.match && prep.batch && ", the matches at half price"}. Jobs with only a snippet of a description aren’t matched, and ones you’ve
             marked Not interested are skipped.
             {noCv && <span className="text-red-700 dark:text-red-300"> Add your CV under Profile first.</span>}
             {noAi && <span className="text-red-700 dark:text-red-300"> AI isn’t set up (ANTHROPIC_API_KEY).</span>}

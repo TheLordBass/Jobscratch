@@ -10,6 +10,8 @@ export interface MorningPrepSettings {
   match: boolean;
   /** At most this many analyses a morning: each is one Claude request. */
   matchLimit: number;
+  /** Send them as batches: half price, but back later (usually within the hour). */
+  batch: boolean;
   /** Save the best matches to My jobs with a tailored CV, ready to apply. */
   ready: boolean;
   /** Only jobs matching this much or more. */
@@ -25,6 +27,7 @@ export interface MorningPrepSettings {
 export const DEFAULT_MORNING_PREP: MorningPrepSettings = {
   match: false,
   matchLimit: 40,
+  batch: true,
   ready: false,
   readyFrom: 85,
   readyLimit: 5,
@@ -52,10 +55,23 @@ export interface PrepState {
   stopped?: string;
   /** How many jobs the run had when they were last all matched, so it waits for more before looking again. */
   checkedCount?: number;
+  /** Analyses sent as a batch, not back yet (lib/ai/claude.ts, submitMatchBatch). */
+  batch?: PrepBatch;
+  /** A batch took too long: the rest are matched one at a time. */
+  live?: boolean;
   /** Everything there was to do is done. */
   finished: boolean;
   notified: boolean;
   updatedAt: string;
+}
+
+export interface PrepBatch {
+  id: string;
+  sentAt: string;
+  /** Each request's job (its custom id is `job-<index>`), the key its match is saved with, and the CVs it chose between. */
+  jobs: Array<{ id: string; key: string; cvIds?: string[] }>;
+  /** Cancelled for taking too long: what it finished still comes back. */
+  canceled?: boolean;
 }
 
 export function emptyPrepState(runId: string, now = new Date().toISOString()): PrepState {

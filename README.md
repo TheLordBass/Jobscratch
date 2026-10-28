@@ -122,7 +122,7 @@ Windows runs it while you're signed in. A computer that's asleep wakes up for it
 
 The morning run can also do the next steps for you, so you wake up to jobs that are scored and ready to apply. Switch them on in **From JobSpy → Before you're up**:
 
-- **Match the jobs it finds** against your CV, up to a limit each morning (each is one Claude request, as with Match all). It starts while the run is still searching, with the jobs sent so far. Jobs with only a snippet of a description, and ones marked Not interested, are skipped.
+- **Match the jobs it finds** against your CV, up to a limit each morning (each is one Claude request, as with Match all). It starts while the run is still searching, with the jobs sent so far. Jobs with only a snippet of a description, and ones marked Not interested, are skipped. With **as one batch** (on by default), the jobs are sent to Claude together through Anthropic's Message Batches API, which costs half as much. The answers come back later, usually within minutes, and the run waits for them. If a batch takes over an hour, JobScratch cancels what's left of it and matches those jobs one at a time, so the morning isn't held up. The batch API has no refusal fallback, so a job Claude declines in a batch just isn't scored.
 - **Get the best ones ready to apply.** Once the searches are done, the best few matches above a score you pick are saved to My jobs with a tailored CV, and a cover letter and application answers if you tick them. They're waiting on **My jobs → Apply**. Jobs you've already applied to are left alone.
 - **Send me a summary when it's done**, such as "3 jobs ready to apply", to your phone or computer, with a link to Apply.
 
