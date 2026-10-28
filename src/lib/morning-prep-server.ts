@@ -1,7 +1,7 @@
 import { AiError, analyzeMatch, draftAnswers, streamDocument, toAiError, type DocumentKind } from "@/lib/ai/claude";
 import { DEFAULT_QUESTIONS, type TailorMaterials, type TailorOptions } from "@/lib/ai/prompts";
 import { canMatch, candidateFor, matchFromAnalysis, matchKey, type Candidate } from "@/lib/candidate";
-import { cvVersions, hasCvText, pickCv } from "@/lib/cvs";
+import { cvVersions, cvsToMatch, hasCvText, pickCv } from "@/lib/cvs";
 import { dismissKeys, findSavedCopy } from "@/lib/import";
 import { RUN_JOBS_KEY, RUN_PREP_KEY, readRun, type JobspyRun, type RunJob } from "@/lib/jobspy-runs";
 import { DEFAULT_MORNING_PREP, emptyPrepState, prepSummary, type MorningPrepSettings, type PrepState } from "@/lib/morning-prep";
@@ -67,6 +67,7 @@ async function savePrep(backend: DataBackend, prep: PrepState, now: string) {
 function materialsFor(job: Job, candidate: Candidate, description: string, notes: string | undefined): TailorMaterials {
   return {
     cv: candidate.cv,
+    cvs: candidate.cvs,
     profile: candidate.profile,
     skills: candidate.skills,
     notes,
@@ -113,6 +114,7 @@ export async function prepareStep(
   const fullProfile: StoredProfile = { website: "", github: "", evidence: "", enabled: true, ...profile };
   // Each job is matched and tailored with its own CV (lib/cvs.ts), as in the app.
   const candidates = new Map(cvVersions(cv).map((version) => [version.id, candidateFor(version, fullProfile)]));
+  const everyCv = candidateFor(cvVersions(cv), fullProfile);
   const canWork = hasCvText(cv) && !prep.stopped;
   const tailor = stored?.tailor ?? { style: "uk-cv", tone: "professional", length: "two-pages", extraInstructions: "", projects: true };
   const useNotes = stored?.useJobNotes ?? true;
@@ -125,13 +127,20 @@ export async function prepareStep(
   ]);
   // The CVs picked on saved jobs' pages.
   const picked = await readSomeItems<TailoredDocs>(backend, "tailored", runJobs.filter((job) => saved[job.id]).map((job) => job.id));
-  const candidateOf = (job: Job, chosen = picked[job.id]?.cvId): Candidate =>
-    candidates.get(pickCv(cv, job, chosen)?.id ?? "") ?? candidateFor(null, fullProfile);
+  const none = candidateFor(null, fullProfile);
+  // What a job is matched against: every CV, for the analysis to choose from, unless one is picked for it.
+  const matchCandidateOf = (job: Job): Candidate => {
+    const versions = cvsToMatch(cv, job, picked[job.id]?.cvId);
+    return versions.length > 1 ? everyCv : (candidates.get(versions[0]?.id ?? "") ?? none);
+  };
+  // What its documents are written from: the CV it uses, which may be the one its match chose.
+  const candidateOf = (job: Job, chosen: string | undefined, matched: string | undefined): Candidate =>
+    candidates.get(pickCv(cv, job, chosen, matched)?.id ?? "") ?? none;
   const hidden = new Set(Object.values(dismissed).flatMap((entry) => entry.keys ?? []));
   const isDismissed = (job: Job) => dismissKeys(job).some((key) => hidden.has(key));
   const current = (job: Job) => {
     const match = matches[job.id];
-    return match?.analysis && match.key === matchKey(job, candidateOf(job)) ? match : undefined;
+    return match?.analysis && match.key === matchKey(job, matchCandidateOf(job)) ? match : undefined;
   };
 
   // 1. Match: the jobs uploaded so far, up to the morning's limit.
@@ -145,7 +154,7 @@ export async function prepareStep(
         for (let job = queue.shift(); job && !prep.stopped && !rateLimited; job = queue.shift()) {
           const notes = useNotes ? saved[job.id]?.notes.trim().slice(0, 4000) || undefined : undefined;
           try {
-            const candidate = candidateOf(job);
+            const candidate = matchCandidateOf(job);
             const analysis = await deps.analyze(materialsFor(job, candidate, job.description, notes), env);
             const match = matchFromAnalysis(analysis, matchKey(job, candidate), new Date().toISOString());
             matches[job.id] = match;
@@ -205,7 +214,7 @@ export async function prepareStep(
       const description =
         docs?.jobDescription ?? (copy && copy.job.description.length > job.description.length ? copy.job.description : job.description);
       const notes = useNotes ? copy?.notes.trim().slice(0, 4000) || undefined : undefined;
-      const materials = materialsFor(copy?.job ?? job, candidateOf(copy?.job ?? job, docs?.cvId), description, notes);
+      const materials = materialsFor(copy?.job ?? job, candidateOf(copy?.job ?? job, docs?.cvId, (docs?.analysis ?? match.analysis)?.cvId), description, notes);
       try {
         const [cvText, letter, answers] = await Promise.all([
           needs.cv ? deps.write("cv", materials, tailor, env) : undefined,

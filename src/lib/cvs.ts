@@ -3,9 +3,11 @@ import type { Job } from "@/lib/types";
 
 /*
  * More than one CV, for different kinds of job (Profile → CV). The main CV is the one saved as
- * before; the others are kept alongside it, each with the job-title words it's for. A job uses the
- * CV picked for it on its page, else the first one whose words are in its title, else the main CV.
- * Runs in the browser and on the server (the morning run), so it's kept free of React.
+ * before; the others are kept alongside it, each with any job-title words it's always used for.
+ * A job uses the CV picked for it on its page, else the one whose words are in its title, else the
+ * one its match analysis chose as fitting it best (a match is sent every CV when neither of the
+ * others decides), else the main CV. Runs in the browser and on the server (the morning run), so
+ * it's kept free of React.
  */
 
 export const MAIN_CV = "main";
@@ -59,23 +61,38 @@ export function cvForTitle(versions: CvVersion[], title: string): CvVersion | un
   return best?.version;
 }
 
-/**
- * The CV a job is tailored and matched with: the one picked on its page (`chosen`), else the one its
- * title fits, else the main CV. Null when there's no CV at all.
- */
-export function pickCv(cv: StoredCv | null, job: Pick<Job, "title">, chosen?: string): CvVersion | null {
-  const versions = cvVersions(cv);
-  if (!versions.length) return null;
-  const picked = chosen ? versions.find((version) => version.id === chosen && hasCvText(version)) : undefined;
-  return picked ?? cvForTitle(versions, job.title) ?? versions[0];
+function usable(versions: CvVersion[], id: string | undefined): CvVersion | undefined {
+  return id ? versions.find((version) => version.id === id && hasCvText(version)) : undefined;
 }
 
-/** Why a job uses its CV, for its page: "picked here", "its title has “data”" or "the main CV". */
-export function whyCv(cv: StoredCv | null, job: Pick<Job, "title">, chosen?: string): string {
+/**
+ * The CV a job is tailored with: the one picked on its page (`chosen`), else the one its title fits,
+ * else the one its match chose (`matched`), else the main CV. Null when there's no CV at all.
+ */
+export function pickCv(cv: StoredCv | null, job: Pick<Job, "title">, chosen?: string, matched?: string): CvVersion | null {
   const versions = cvVersions(cv);
-  const picked = pickCv(cv, job, chosen);
+  if (!versions.length) return null;
+  return usable(versions, chosen) ?? cvForTitle(versions, job.title) ?? usable(versions, matched) ?? versions[0];
+}
+
+/**
+ * The CVs a job is matched against: the one picked on its page or that its title fits, else every
+ * CV, for the analysis to choose the best of.
+ */
+export function cvsToMatch(cv: StoredCv | null, job: Pick<Job, "title">, chosen?: string): CvVersion[] {
+  const versions = cvVersions(cv).filter(hasCvText);
+  const decided = usable(versions, chosen) ?? cvForTitle(versions, job.title);
+  return decided ? [decided] : versions;
+}
+
+/** Why a job uses its CV, for its page: "picked for this job", "the job title has “data”" and so on. */
+export function whyCv(cv: StoredCv | null, job: Pick<Job, "title">, chosen?: string, matched?: string): string {
+  const versions = cvVersions(cv);
+  const picked = pickCv(cv, job, chosen, matched);
   if (!picked || versions.length < 2) return "";
   if (chosen && picked.id === chosen) return "picked for this job";
   const term = picked.titles.find((t) => inTitle(job.title, t));
-  return term ? `the job title has “${term}”` : "none of the others fit its title";
+  if (term) return `the job title has “${term}”`;
+  if (matched && picked.id === matched) return "the match found it fits this job best";
+  return "the main CV, until a match picks the best one";
 }

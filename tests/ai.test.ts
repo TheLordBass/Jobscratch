@@ -324,6 +324,47 @@ describe("analyzeMatch", () => {
     expect(body.model).toBe("claude-opus-5-5");
   });
 
+  it("given several CVs, has Claude pick the best one and analyse with it", async () => {
+    const reply = (cvUsed: string) =>
+      Response.json({
+        id: "msg_6",
+        type: "message",
+        role: "assistant",
+        model: "claude-opus-5-5",
+        content: [{ type: "text", text: JSON.stringify({ cvUsed, ...analysis }) }],
+        stop_reason: "end_turn",
+        stop_sequence: null,
+        usage: { input_tokens: 10, output_tokens: 10 },
+      });
+    const ops = `Jane Doe. Operations manager: warehouse teams, rotas, budgets and suppliers for five years.`;
+    const cvs = [
+      { id: "main", name: "Main CV", text: CV },
+      { id: "ops", name: "Ops \"CV\"", text: ops },
+    ];
+    fetchMock.mockResolvedValueOnce(reply("ops"));
+    const result = await analyzeMatch({ cv: CV, cvs, job: JOB }, ENV);
+    expect(result.cvId).toBe("ops");
+    expect(result).not.toHaveProperty("cvUsed");
+
+    const { body } = lastRequest();
+    expect(Object.keys(body.output_config.format.schema.properties)).toEqual(["cvUsed", ...Object.keys(analysis)]);
+    const { materials, instruction } = requestParts();
+    expect(materials).toContain("<candidate_cvs>");
+    expect(materials).toContain('<cv id="ops" name="Ops  CV">');
+    expect(materials).toContain("warehouse teams");
+    expect(materials).not.toContain("<candidate_cv>");
+    expect(instruction.text).toMatch(/^The candidate has several versions of their CV/);
+
+    // An id it made up counts as the first CV's.
+    fetchMock.mockResolvedValueOnce(reply("cv-3"));
+    expect((await analyzeMatch({ cv: CV, cvs, job: JOB }, ENV)).cvId).toBe("main");
+
+    // One CV is sent as before, with nothing to pick.
+    fetchMock.mockResolvedValueOnce(reply("main"));
+    expect((await analyzeMatch({ cv: CV, cvs: cvs.slice(0, 1), job: JOB }, ENV)).cvId).toBeUndefined();
+    expect(requestParts().materials).toContain("<candidate_cv>");
+  });
+
   it("throws a friendly error on refusal", async () => {
     fetchMock.mockResolvedValueOnce(
       Response.json({

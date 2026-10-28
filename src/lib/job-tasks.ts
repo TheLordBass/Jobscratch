@@ -1,7 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import type { MatchAnalysis } from "@/lib/ai/prompts";
+import type { CvChoice, MatchAnalysis } from "@/lib/ai/prompts";
 import { pausedInBackground } from "@/lib/batch-runs";
 import { matchFromAnalysis } from "@/lib/candidate";
 import { isSavedJob, saveAnswers, updateStoredMatch, updateTailoredDocs } from "@/lib/store";
@@ -83,7 +83,12 @@ function save(jobId: string, patch: Parameters<typeof updateTailoredDocs>[1]) {
 }
 
 /** `matchKey` (see lib/candidate.ts), when given, also saves the result as the job's match score in lists. */
-export function startAnalysis(jobId: string, label: string, body: Omit<TailorRequest, "kind" | "options">, matchKey?: string) {
+export function startAnalysis(
+  jobId: string,
+  label: string,
+  body: Omit<TailorRequest, "kind" | "options"> & { cvs?: CvChoice[] },
+  matchKey?: string,
+) {
   const controller = begin(jobId, "analysis", label);
   void (async () => {
     try {

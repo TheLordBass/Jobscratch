@@ -1,13 +1,15 @@
 import { hashString } from "@/lib/import";
 import { MAX_EVIDENCE_CHARS, MAX_GITHUB_LENGTH, MAX_WEBSITE_LENGTH, linksChanged } from "@/lib/profile/links";
-import type { ExtraSkill, MatchAnalysis } from "@/lib/ai/prompts";
-import type { CvVersion } from "@/lib/cvs";
+import type { CvChoice, ExtraSkill, MatchAnalysis } from "@/lib/ai/prompts";
+import { hasCvText, type CvVersion } from "@/lib/cvs";
 import type { StoredCv, StoredMatch, StoredProfile } from "@/lib/store";
 import type { Job } from "@/lib/types";
 
 /** What the tailoring and matching requests send about the candidate. */
 export interface Candidate {
   cv: string;
+  /** For a match: every CV, when there's more than one to choose between (see lib/cvs.ts). */
+  cvs?: CvChoice[];
   profile?: { website: string; github: string; evidence: string };
   /** Skills from the profile that the CV doesn't show. */
   skills?: ExtraSkill[];
@@ -17,8 +19,18 @@ export interface Candidate {
   key: string;
 }
 
-/** What to send about the candidate with `cv`: the main CV, or another one (see lib/cvs.ts). */
-export function candidateFor(cv: StoredCv | CvVersion | null, profile: StoredProfile): Candidate {
+/**
+ * What to send about the candidate with `cv`: the main CV, another one, or (for a match) several to
+ * choose between (see lib/cvs.ts).
+ */
+export function candidateFor(cv: StoredCv | CvVersion | CvVersion[] | null, profile: StoredProfile): Candidate {
+  if (Array.isArray(cv)) {
+    const versions = cv.filter(hasCvText);
+    if (versions.length < 2) return candidateFor(versions[0] ?? null, profile);
+    const first = candidateFor(versions[0], profile);
+    const cvs = versions.map(({ id, name, text }) => ({ id, name, text }));
+    return { ...first, cvs, key: hashString(JSON.stringify([cvs.map((version) => [version.id, version.text]), first.profile ?? null])) };
+  }
   // A link too long for the API is left out rather than failing every request.
   const website = profile.website.trim().length <= MAX_WEBSITE_LENGTH ? profile.website.trim() : "";
   const github = profile.github.trim().length <= MAX_GITHUB_LENGTH ? profile.github.trim() : "";

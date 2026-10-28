@@ -84,20 +84,23 @@ afterEach(() => rmSync(folder, { recursive: true, force: true }));
 
 describe("the morning run's preparation", () => {
   it("matches and tailors each job with its own CV", async () => {
-    const jobs = [job(1), job(2, { title: "Operations Manager" }), job(3, { title: "Office Manager" })];
+    const jobs = [job(1), job(2, { title: "Operations Manager" }), job(3, { title: "Office Manager" }), job(4, { title: "Site Lead" })];
     const used: string[] = [];
-    const { deps } = fakes({ "Data Analyst 1": 95, "Operations Manager": 92, "Office Manager": 90 });
+    const { deps } = fakes({ "Data Analyst 1": 95, "Operations Manager": 92, "Office Manager": 90, "Site Lead": 88 });
     const analyze = deps.analyze;
     deps.analyze = async (materials, env) => {
-      used.push(`${materials.job.title}: ${materials.cv.slice(0, 4)}`);
-      return analyze(materials, env);
+      // With a choice to make, the stand-in picks the Ops CV for the Site Lead job and the main one otherwise.
+      const choice = materials.cvs?.map((v) => v.id).join("+");
+      used.push(`${materials.job.title}: ${choice ?? materials.cv.slice(0, 4)}`);
+      const result = await analyze(materials, env);
+      return choice ? { ...result, cvId: materials.job.title === "Site Lead" ? "ops" : "main" } : result;
     };
     const write = deps.write;
     deps.write = async (kind, materials, options, env) => {
       if (kind === "cv") used.push(`write ${materials.job.title}: ${materials.cv.slice(0, 4)}`);
       return write(kind, materials, options, env);
     };
-    await seed({ match: true, ready: true, readyFrom: 85, readyLimit: 3, coverLetters: false, answers: false, notify: false }, jobs, true);
+    await seed({ match: true, ready: true, readyFrom: 85, readyLimit: 4, coverLetters: false, answers: false, notify: false }, jobs, true);
     const ops = `Ops. ${"Ran warehouse and operations teams, rotas, budgets and suppliers. ".repeat(2)}`;
     await applyOps(backend, [
       {
@@ -109,15 +112,22 @@ describe("the morning run's preparation", () => {
       { key: "tailored", items: { "linkedin:3": { cvId: "ops", updatedAt: "2026-10-26T06:00:00.000Z" } } },
     ]);
 
-    for (let i = 0; i < 6 && (await step(deps)).state === "working"; i++);
+    for (let i = 0; i < 8 && (await step(deps)).state === "working"; i++);
     expect(used.sort()).toEqual([
-      "Data Analyst 1: Test",
+      // No pick and no title words: matched against both, for the analysis to choose.
+      "Data Analyst 1: main+ops",
       "Office Manager: Ops.",
       "Operations Manager: Ops.",
+      "Site Lead: main+ops",
       "write Data Analyst 1: Test",
       "write Office Manager: Ops.",
       "write Operations Manager: Ops.",
+      // Written from the CV its match chose.
+      "write Site Lead: Ops.",
     ]);
+    // Scores made against both CVs count as current, so nothing is matched twice.
+    expect((await step(deps)).state).toBe("done");
+    expect(used.filter((line) => !line.startsWith("write"))).toHaveLength(4);
     // Scored against the CV each job uses, so the scores count as current in the app.
     const tailored = await readCollection<TailoredDocs>(backend, "tailored");
     expect(tailored["linkedin:3"].cvId).toBe("ops");

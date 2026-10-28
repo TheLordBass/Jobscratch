@@ -3,10 +3,12 @@ import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import {
   AnswersSchema,
   MatchAnalysisSchema,
+  MatchChoiceSchema,
   SYSTEM_PROMPT,
   analysisInstruction,
   answersInstruction,
   candidateBlock,
+  choosingCv,
   coverLetterInstruction,
   cvInstruction,
   hasProfile,
@@ -130,24 +132,38 @@ export function toAiError(error: unknown): AiError {
 const REFUSAL_MESSAGE =
   "Claude declined this request. Check the CV and job text for anything unusual, then try again.";
 
+/**
+ * A match analysis. Given several CVs (`materials.cvs`), Claude first picks the one that fits the job
+ * best and analyses with that, and `cvId` says which it was.
+ */
 export async function analyzeMatch(materials: TailorMaterials, env: Env, signal?: AbortSignal): Promise<MatchAnalysis> {
   const client = getClient(env);
+  const choosing = choosingCv(materials);
+  // Typed as the larger schema; without a choice to make, cvUsed is simply missing.
+  const schema = (choosing ? MatchChoiceSchema : MatchAnalysisSchema) as typeof MatchChoiceSchema;
   const response = await client.beta.messages.parse(
     {
       ...modelParams(env, "match"),
       max_tokens: 16000,
       system: SYSTEM_PROMPT,
-      messages: buildMessages(materials, analysisInstruction(hasProfile(materials.profile))),
-      output_config: { effort: matchEffort(env), format: betaZodOutputFormat(MatchAnalysisSchema) },
+      messages: buildMessages(materials, analysisInstruction(hasProfile(materials.profile), choosing)),
+      output_config: { effort: matchEffort(env), format: betaZodOutputFormat(schema) },
     },
     { signal },
   );
   logUsage("match", response);
   if (response.stop_reason === "refusal") throw new AiError(REFUSAL_MESSAGE, 422);
   if (response.stop_reason === "max_tokens") throw new AiError("The analysis was cut off. Try again.", 502);
-  const analysis = response.parsed_output;
-  if (!analysis) throw new AiError("Claude's analysis couldn't be read. Try again.", 502);
-  return { ...analysis, matchScore: Math.min(100, Math.max(0, Math.round(analysis.matchScore))) };
+  const parsed = response.parsed_output;
+  if (!parsed) throw new AiError("Claude's analysis couldn't be read. Try again.", 502);
+  const { cvUsed, ...analysis } = parsed;
+  const ids = materials.cvs?.map((version) => version.id) ?? [];
+  return {
+    ...analysis,
+    matchScore: Math.min(100, Math.max(0, Math.round(analysis.matchScore))),
+    // An id it made up counts as the first CV's, which the list starts with.
+    ...(choosing && { cvId: ids.includes(cvUsed) ? cvUsed : ids[0] }),
+  };
 }
 
 /** Answers to questions from a job's application form (DEFAULT_QUESTIONS, or the candidate's own). */
