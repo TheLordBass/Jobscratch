@@ -12,7 +12,8 @@ import { STATUS_LABEL, STATUS_STYLE, SavedView } from "@/components/SavedView";
 import { useSources } from "@/components/useSources";
 import type { MatchAnalysis, TailorOptions } from "@/lib/ai/prompts";
 import { markdownToDocx } from "@/lib/export-docx";
-import { canMatch, candidateFor, hasFullDescription, matchKey } from "@/lib/candidate";
+import { canMatch, hasFullDescription, matchKey } from "@/lib/candidate";
+import { cvVersions, hasCvText, pickCv, whyCv } from "@/lib/cvs";
 import { dismissTask, startAnalysis, startAnswers, startDocument, stopJobTasks, stopTask, useJobTask, type JobTask } from "@/lib/job-tasks";
 import { jobKeys } from "@/lib/import";
 import { documentFileName } from "@/lib/apply";
@@ -445,7 +446,8 @@ function TailorWorkspace({ entry, initialTab }: { entry: SavedJob; initialTab?: 
   const docs: TailoredDocs | undefined = tailored[job.id];
   // An analysis from Match all counts as this job's until one is run here (an out-of-date one is marked so).
   // Not for a job with only a snippet: one made from it would be misleading.
-  const { matchFor, candidate } = useCurrentMatches();
+  const { matchFor, candidateFor } = useCurrentMatches();
+  const candidate = candidateFor(job);
   const [matches] = useMatches();
   const currentMatch = matchFor(job);
   const listMatch = currentMatch ?? (canMatch(job) ? matches[job.id] : undefined);
@@ -489,7 +491,10 @@ function TailorWorkspace({ entry, initialTab }: { entry: SavedJob; initialTab?: 
 
   const description = docs?.jobDescription ?? job.description;
   const options = settings.tailor;
-  const cvText = cv?.text ?? "";
+  // The CV this job is tailored from: the one picked here, else the one its title fits (lib/cvs.ts).
+  const versions = cvVersions(cv);
+  const version = pickCv(cv, job, docs?.cvId);
+  const cvText = version?.text ?? "";
   const blocker =
     cvText.trim().length < 50
       ? "Add your CV first, under Profile."
@@ -515,7 +520,7 @@ function TailorWorkspace({ entry, initialTab }: { entry: SavedJob; initialTab?: 
   const profileSources =
     [profile.website.trim() && "website", profile.github.trim() && "GitHub"].filter(Boolean).join(" and ") ||
     "website and GitHub details";
-  const { profile: payloadProfile, skills: payloadSkills, staleDetails } = candidateFor(cv, profile);
+  const { profile: payloadProfile, skills: payloadSkills, staleDetails } = candidate;
   const payloadNotes = settings.useJobNotes ? entry.notes.trim().slice(0, 4000) || undefined : undefined;
 
   const payloadJob = {
@@ -836,10 +841,34 @@ function TailorWorkspace({ entry, initialTab }: { entry: SavedJob; initialTab?: 
                 {cv ? "Edit" : "Add CV"}
               </Link>
             </div>
-            {cv ? (
+            {version ? (
               <>
+                {versions.length > 1 && (
+                  <div className="pb-1">
+                    <label htmlFor="tailor-cv" className="sr-only">
+                      CV to tailor from
+                    </label>
+                    <select
+                      id="tailor-cv"
+                      className="input py-1.5 text-sm"
+                      value={docs?.cvId && versions.some((v) => v.id === docs.cvId && hasCvText(v)) ? docs.cvId : ""}
+                      onChange={(e) => updateDocs({ cvId: e.target.value || undefined })}
+                    >
+                      <option value="">Pick by job title ({pickCv(cv, job)?.name})</option>
+                      {versions.filter(hasCvText).map((v) => (
+                        <option key={v.id} value={v.id}>
+                          {v.name}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="muted mt-1 text-xs">
+                      Using <strong>{version.name}</strong>: {whyCv(cv, job, docs?.cvId)}.
+                      {docs?.cv && " Write the CV again to use another one."}
+                    </p>
+                  </div>
+                )}
                 <p className="muted text-xs">
-                  {cv.fileName ?? "Pasted CV"} · {cvText.trim().split(/\s+/).length} words
+                  {version.fileName ?? "Pasted CV"} · {cvText.trim().split(/\s+/).length} words
                 </p>
                 <p className="muted text-xs">
                   {payloadProfile ? (

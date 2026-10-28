@@ -22,7 +22,7 @@ const THRESHOLDS = [90, 80, 70, 60];
  * documents live. `title` and `ready` (cover letters and answers ticked) are for the Apply page.
  */
 export function BulkTailor({ jobs, title = "Tailor CVs for top matches", ready = false }: { jobs: Job[]; title?: string; ready?: boolean }) {
-  const { matchFor, candidate } = useCurrentMatches();
+  const { matchFor, candidateFor } = useCurrentMatches();
   const { saved, saveJob } = useSavedJobs();
   const [tailored, setTailored] = useTailored();
   const [settings] = useSettings();
@@ -73,19 +73,23 @@ export function BulkTailor({ jobs, title = "Tailor CVs for top matches", ready =
     const current = new Set<string>();
     const report = (stopped?: string) => run.report({ done, failed, current: [...current], stopped });
 
-    const materials = (into: Job) => ({
-      cv: candidate.cv,
-      job: {
-        title: into.title.slice(0, 300),
-        company: into.company.slice(0, 200),
-        location: into.location.slice(0, 200),
-        url: into.url.slice(0, 2000),
-        description: (tailored[into.id]?.jobDescription ?? into.description).slice(0, 40_000),
-      },
-      profile: candidate.profile,
-      skills: candidate.skills,
-      notes: settings.useJobNotes ? saved[into.id]?.notes.slice(0, 4000) || undefined : undefined,
-    });
+    const materials = (into: Job) => {
+      // Each with its own CV (lib/cvs.ts).
+      const candidate = candidateFor(into);
+      return {
+        cv: candidate.cv,
+        job: {
+          title: into.title.slice(0, 300),
+          company: into.company.slice(0, 200),
+          location: into.location.slice(0, 200),
+          url: into.url.slice(0, 2000),
+          description: (tailored[into.id]?.jobDescription ?? into.description).slice(0, 40_000),
+        },
+        profile: candidate.profile,
+        skills: candidate.skills,
+        notes: settings.useJobNotes ? saved[into.id]?.notes.slice(0, 4000) || undefined : undefined,
+      };
+    };
 
     const draft = async (into: Job) => {
       const answers = await requestAnswers(

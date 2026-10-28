@@ -2,10 +2,11 @@
 
 import { Gauge, Square } from "lucide-react";
 import { usePathname } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { useSources } from "@/components/useSources";
 import { canMatch, candidateFor, matchFromAnalysis, matchKey, type Candidate } from "@/lib/candidate";
 import type { MatchAnalysis } from "@/lib/ai/prompts";
+import { cvVersions, hasCvText, pickCv } from "@/lib/cvs";
 import { beginBatch, markBatchSeen, pausedInBackground, stopBatch, useBatch } from "@/lib/batch-runs";
 import { siteJobKey } from "@/lib/import";
 import { isSavedJob, updateStoredMatch, updateTailoredDocs, useCv, useMatches, useProfile, useSavedJobs, useSettings, useTailored, type StoredMatch } from "@/lib/store";
@@ -19,18 +20,31 @@ const CONFIRM_ABOVE = 10;
 /**
  * The current match for each job: a full analysis, leaving out ones made from an older CV or
  * description, from a snippet, or quick-only scores from before every match was a full analysis.
+ * Each job is matched with its own CV (lib/cvs.ts), so `candidateFor` says what to send for it.
  */
-export function useCurrentMatches(): { matchFor: (job: Job) => StoredMatch | undefined; candidate: Candidate } {
+export function useCurrentMatches(): {
+  matchFor: (job: Job) => StoredMatch | undefined;
+  candidateFor: (job: Job) => Candidate;
+  hasCv: boolean;
+} {
   const [cv] = useCv();
   const [profile] = useProfile();
   const [matches] = useMatches();
-  const candidate = candidateFor(cv, profile);
+  const [tailored] = useTailored();
+  // One per CV, worked out once rather than for every job in a list.
+  const candidates = useMemo(
+    () => new Map(cvVersions(cv).map((version) => [version.id, candidateFor(version, profile)])),
+    [cv, profile],
+  );
+  const none = useMemo(() => candidateFor(null, profile), [profile]);
+  const forJob = (job: Job) => candidates.get(pickCv(cv, job, tailored[job.id]?.cvId)?.id ?? "") ?? none;
   return {
-    candidate,
+    candidateFor: forJob,
+    hasCv: hasCvText(cv),
     matchFor: (job) => {
       const match = matches[job.id];
       // A score made from a snippet (before snippets stopped being matched) isn't shown.
-      return match?.analysis && canMatch(job) && match.key === matchKey(job, candidate) ? match : undefined;
+      return match?.analysis && canMatch(job) && match.key === matchKey(job, forJob(job)) ? match : undefined;
     },
   };
 }
@@ -48,7 +62,7 @@ export function MatchAllButton({ jobs, onMatched }: MatchAllProps) {
   const { saved } = useSavedJobs();
   const [tailored] = useTailored();
   const [settings] = useSettings();
-  const { matchFor, candidate } = useCurrentMatches();
+  const { matchFor, candidateFor: candidateForJob, hasCv } = useCurrentMatches();
   // Runs in the background (lib/batch-runs.ts), so going to another page doesn't stop it.
   const page = usePathname();
   const progress = useBatch("match", page);
@@ -65,7 +79,7 @@ export function MatchAllButton({ jobs, onMatched }: MatchAllProps) {
   const withoutDescription = jobs.length - matchable.length;
   // The bookmarklet can add the full description for jobs it recognises (LinkedIn, Indeed, Glassdoor).
   const fillable = jobs.filter((job) => !canMatch(job) && siteJobKey(job.url)).length;
-  const noCv = candidate.cv.trim().length < 50;
+  const noCv = !hasCv;
   const noAi = sources !== null && !sources.aiConfigured;
 
   async function start() {
@@ -89,6 +103,7 @@ export function MatchAllButton({ jobs, onMatched }: MatchAllProps) {
         if (!job) return;
         try {
           const notes = settings.useJobNotes ? saved[job.id]?.notes.trim().slice(0, 4000) || undefined : undefined;
+          const candidate = candidateForJob(job);
           const response = await fetch("/api/tailor/analyze", {
             method: "POST",
             headers: { "Content-Type": "application/json" },

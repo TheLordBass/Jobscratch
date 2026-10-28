@@ -1,6 +1,7 @@
 import { hashString } from "@/lib/import";
 import { MAX_EVIDENCE_CHARS, MAX_GITHUB_LENGTH, MAX_WEBSITE_LENGTH, linksChanged } from "@/lib/profile/links";
 import type { ExtraSkill, MatchAnalysis } from "@/lib/ai/prompts";
+import type { CvVersion } from "@/lib/cvs";
 import type { StoredCv, StoredMatch, StoredProfile } from "@/lib/store";
 import type { Job } from "@/lib/types";
 
@@ -16,7 +17,8 @@ export interface Candidate {
   key: string;
 }
 
-export function candidateFor(cv: StoredCv | null, profile: StoredProfile): Candidate {
+/** What to send about the candidate with `cv`: the main CV, or another one (see lib/cvs.ts). */
+export function candidateFor(cv: StoredCv | CvVersion | null, profile: StoredProfile): Candidate {
   // A link too long for the API is left out rather than failing every request.
   const website = profile.website.trim().length <= MAX_WEBSITE_LENGTH ? profile.website.trim() : "";
   const github = profile.github.trim().length <= MAX_GITHUB_LENGTH ? profile.github.trim() : "";

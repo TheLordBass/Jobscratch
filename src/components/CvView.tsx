@@ -1,26 +1,165 @@
 "use client";
 
-import { Upload } from "lucide-react";
+import { Plus, Upload } from "lucide-react";
 import Link from "next/link";
 import { useState, type ChangeEvent, type DragEvent } from "react";
 import { useSessionState } from "@/lib/session-state";
 import { PROFILE_TABS, SectionTabs } from "@/components/Nav";
 import { ApplicationDetailsForm } from "@/components/ApplicationDetailsForm";
+import { KeywordInput } from "@/components/KeywordInput";
 import { SkillsProfile } from "@/components/SkillsProfile";
 import { ProfileLinks } from "@/components/ProfileLinks";
-import { useCv, useHydrated } from "@/lib/store";
+import { useFieldDraft } from "@/components/useFieldDraft";
+import { MAIN_CV, MAX_CVS, cvVersions, type CvVersion } from "@/lib/cvs";
+import { newId, useCv, useHydrated, type StoredCv } from "@/lib/store";
+
+type Message = { tone: "ok" | "error"; text: string } | null;
+
+/**
+ * A change to one CV. The CV's own date and the whole value's both move on, so syncing knows this
+ * copy is the newer one (lib/sync.ts compares the latter).
+ */
+function withVersion(previous: StoredCv | null, id: string, patch: Partial<CvVersion>, now: string): StoredCv | null {
+  if (id === MAIN_CV) {
+    const { text, fileName, name } = patch;
+    return {
+      ...previous,
+      text: text ?? previous?.text ?? "",
+      fileName: "fileName" in patch ? fileName : previous?.fileName,
+      ...(name !== undefined && { name: name.trim() || undefined }),
+      updatedAt: now,
+    };
+  }
+  if (!previous) return previous;
+  return {
+    ...previous,
+    others: (previous.others ?? []).map((version) => (version.id === id ? { ...version, ...patch, updatedAt: now } : version)),
+    updatedAt: now,
+  };
+}
+
+/** Removes a CV. Removing the main one while there are others makes the first of them the main one. */
+function withoutVersion(previous: StoredCv | null, id: string, now: string): StoredCv | null {
+  if (!previous) return previous;
+  if (id !== MAIN_CV) {
+    return { ...previous, others: (previous.others ?? []).filter((version) => version.id !== id), updatedAt: now };
+  }
+  const [next, ...rest] = previous.others ?? [];
+  if (!next) return null;
+  return { text: next.text, fileName: next.fileName, name: next.name, others: rest.length ? rest : undefined, updatedAt: now };
+}
 
 export function CvView() {
   const hydrated = useHydrated();
   const [cv, setCv] = useCv();
-  // Unsaved edits are kept for the session, so looking something up on another page doesn't lose them.
-  const [draft, setDraft] = useSessionState<string | null>("cv:draft", null);
-  const [uploading, setUploading] = useState(false);
-  const [message, setMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
-  const [dragging, setDragging] = useState(false);
+  const versions = cvVersions(cv);
+  // The CV open here, kept for the session.
+  const [openId, setOpenId] = useSessionState<string>("cv:open", MAIN_CV);
+  const open = versions.find((version) => version.id === openId) ?? versions[0];
+  const openKey = open?.id ?? MAIN_CV;
 
-  const text = draft ?? cv?.text ?? "";
-  const dirty = draft !== null && draft !== (cv?.text ?? "");
+  const change = (id: string, patch: Partial<CvVersion>) => setCv((previous) => withVersion(previous, id, patch, new Date().toISOString()));
+
+  function addCv() {
+    const id = newId();
+    const now = new Date().toISOString();
+    setCv((previous) =>
+      previous
+        ? {
+            ...previous,
+            others: [...(previous.others ?? []), { id, name: `CV ${(previous.others?.length ?? 0) + 2}`, text: "", titles: [], updatedAt: now }],
+            updatedAt: now,
+          }
+        : previous,
+    );
+    setOpenId(id);
+  }
+
+  return (
+    <div className="space-y-4">
+      <SectionTabs tabs={PROFILE_TABS} />
+      <div>
+        <h1 className="page-title">Your CV</h1>
+        <p className="page-subtitle">
+          Your master CV. JobScratch rewrites a tailored copy for each job, and this one stays as it is. Going for more
+          than one kind of job? Add another CV for it, and say which job titles it’s for.
+        </p>
+      </div>
+
+      {cv && (
+        <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Your CVs">
+          {versions.map((version) => {
+            const active = version.id === openKey;
+            return (
+              <button
+                key={version.id}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setOpenId(version.id)}
+                className={`rounded-lg border px-3 py-1.5 text-sm font-semibold transition-colors ${active ? "border-indigo-500 bg-indigo-50 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-200" : "border-zinc-200 text-zinc-600 hover:text-zinc-900 dark:border-zinc-800 dark:text-zinc-400 dark:hover:text-white"}`}
+              >
+                {version.name}
+                {version.id !== MAIN_CV && !version.text.trim() && <span className="muted font-normal"> (empty)</span>}
+              </button>
+            );
+          })}
+          {versions.length < MAX_CVS && (
+            <button type="button" className="btn btn-ghost btn-sm" onClick={addCv}>
+              <Plus size={14} aria-hidden /> Add another CV
+            </button>
+          )}
+        </div>
+      )}
+
+      <CvEditor
+        key={openKey}
+        id={openKey}
+        version={open}
+        others={versions.length > 1}
+        hydrated={hydrated}
+        onChange={(patch) => change(openKey, patch)}
+        onDelete={() => {
+          setCv((previous) => withoutVersion(previous, openKey, new Date().toISOString()));
+          setOpenId(MAIN_CV);
+        }}
+      />
+
+      <SkillsProfile />
+      <ApplicationDetailsForm />
+      <ProfileLinks />
+    </div>
+  );
+}
+
+function CvEditor({
+  id,
+  version,
+  others,
+  hydrated,
+  onChange,
+  onDelete,
+}: {
+  id: string;
+  version: CvVersion | undefined;
+  /** Whether there's more than one CV. */
+  others: boolean;
+  hydrated: boolean;
+  onChange: (patch: Partial<CvVersion>) => void;
+  onDelete: () => void;
+}) {
+  const main = id === MAIN_CV;
+  // Unsaved edits are kept for the session, so looking something up on another page doesn't lose them.
+  const [draft, setDraft] = useSessionState<string | null>(`cv:draft:${id}`, null);
+  const [uploading, setUploading] = useState(false);
+  const [message, setMessage] = useState<Message>(null);
+  const [dragging, setDragging] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
+  const name = useFieldDraft(version?.name ?? "", (text) => onChange({ name: text.trim() || version?.name }));
+
+  const saved = version?.text ?? "";
+  const text = draft ?? saved;
+  const dirty = draft !== null && draft !== saved;
   const words = text.trim() ? text.trim().split(/\s+/).length : 0;
 
   async function upload(file: File) {
@@ -32,7 +171,7 @@ export function CvView() {
       const response = await fetch("/api/cv/parse", { method: "POST", body: form });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error ?? `Upload failed (HTTP ${response.status}). Try again.`);
-      setCv({ text: data.text, fileName: data.fileName, updatedAt: new Date().toISOString() });
+      onChange({ text: data.text, fileName: data.fileName });
       setDraft(null);
       setMessage({ tone: "ok", text: `Read ${file.name}. Check the text below; fix anything that came through oddly.` });
     } catch (error) {
@@ -57,22 +196,13 @@ export function CvView() {
 
   function save() {
     if (!draft?.trim()) return;
-    setCv({ text: draft.trim(), fileName: cv?.fileName, updatedAt: new Date().toISOString() });
+    onChange({ text: draft.trim() });
     setDraft(null);
     setMessage({ tone: "ok", text: "Saved." });
   }
 
   return (
-    <div className="space-y-4">
-      <SectionTabs tabs={PROFILE_TABS} />
-      <div>
-        <h1 className="page-title">Your CV</h1>
-        <p className="page-subtitle">
-          Your master CV. JobScratch rewrites a tailored copy for each job, and this one stays as it is. It’s stored only
-          in this browser.
-        </p>
-      </div>
-
+    <>
       <div
         onDragOver={(e) => {
           e.preventDefault();
@@ -85,7 +215,7 @@ export function CvView() {
         <span className="avatar h-11 w-11">
           <Upload size={20} aria-hidden />
         </span>
-        <p className="text-sm font-semibold">Drop your CV here, or</p>
+        <p className="text-sm font-semibold">Drop {others ? `your ${version?.name ?? "CV"}` : "your CV"} here, or</p>
         <label className="btn btn-primary btn-sm">
           {uploading ? "Reading…" : "Choose a file"}
           <input
@@ -109,9 +239,40 @@ export function CvView() {
       )}
 
       <div className="card space-y-3 p-4">
+        {others && version && (
+          <div className="grid gap-3 sm:grid-cols-[1fr_2fr]">
+            <div>
+              <label htmlFor="cv-name" className="label">
+                Name
+              </label>
+              <input id="cv-name" className="input" maxLength={60} {...name} />
+            </div>
+            {main ? (
+              <p className="muted self-end text-sm">
+                Used for every job the other CVs’ titles don’t fit. On a job’s page you can pick another one for it.
+              </p>
+            ) : (
+              <div>
+                <KeywordInput
+                  label="Use it for job titles with"
+                  values={version.titles}
+                  onChange={(titles) => onChange({ titles })}
+                  draft={titleDraft}
+                  onDraftChange={setTitleDraft}
+                  placeholder="e.g. data analyst, BI, reporting"
+                />
+                <p className="muted mt-1 text-xs">
+                  {version.titles.length
+                    ? "Jobs whose titles have any of these are matched and tailored with this CV."
+                    : "Without any, it’s only used for the jobs you pick it for on their page."}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
         <div className="flex flex-wrap items-center justify-between gap-2">
           <label htmlFor="cv-text" className="text-sm font-semibold">
-            CV text {cv?.fileName && <span className="muted font-normal">· from {cv.fileName}</span>}
+            CV text {version?.fileName && <span className="muted font-normal">· from {version.fileName}</span>}
           </label>
           <span className="muted text-xs">{words} words</span>
         </div>
@@ -131,18 +292,25 @@ export function CvView() {
               Discard changes
             </button>
           )}
-          {cv && !dirty && (
+          {version && !dirty && (
             <>
-              <Link href="/saved" className="btn btn-secondary">
-                Tailor it to a job
-              </Link>
+              {saved.trim() && (
+                <Link href="/saved" className="btn btn-secondary">
+                  Tailor it to a job
+                </Link>
+              )}
               <button
                 type="button"
                 className="btn btn-danger ml-auto"
                 onClick={() => {
-                  if (window.confirm("Delete your saved CV from this browser?")) {
-                    setCv(null);
+                  const question = !others
+                    ? "Delete your saved CV?"
+                    : main
+                      ? `Delete ${version.name}? Your next CV becomes the main one.`
+                      : `Delete ${version.name}? Jobs it was for go back to your main CV.`;
+                  if (window.confirm(question)) {
                     setDraft(null);
+                    onDelete();
                   }
                 }}
               >
@@ -152,10 +320,6 @@ export function CvView() {
           )}
         </div>
       </div>
-
-      <SkillsProfile />
-      <ApplicationDetailsForm />
-      <ProfileLinks />
-    </div>
+    </>
   );
 }
