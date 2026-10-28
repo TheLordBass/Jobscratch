@@ -83,6 +83,46 @@ beforeEach(() => {
 afterEach(() => rmSync(folder, { recursive: true, force: true }));
 
 describe("the morning run's preparation", () => {
+  it("matches and tailors each job with its own CV", async () => {
+    const jobs = [job(1), job(2, { title: "Operations Manager" }), job(3, { title: "Office Manager" })];
+    const used: string[] = [];
+    const { deps } = fakes({ "Data Analyst 1": 95, "Operations Manager": 92, "Office Manager": 90 });
+    const analyze = deps.analyze;
+    deps.analyze = async (materials, env) => {
+      used.push(`${materials.job.title}: ${materials.cv.slice(0, 4)}`);
+      return analyze(materials, env);
+    };
+    const write = deps.write;
+    deps.write = async (kind, materials, options, env) => {
+      if (kind === "cv") used.push(`write ${materials.job.title}: ${materials.cv.slice(0, 4)}`);
+      return write(kind, materials, options, env);
+    };
+    await seed({ match: true, ready: true, readyFrom: 85, readyLimit: 3, coverLetters: false, answers: false, notify: false }, jobs, true);
+    const ops = `Ops. ${"Ran warehouse and operations teams, rotas, budgets and suppliers. ".repeat(2)}`;
+    await applyOps(backend, [
+      {
+        key: "cv",
+        value: { text: CV, updatedAt: "2026-10-27T06:00:00.000Z", others: [{ id: "ops", name: "Ops CV", text: ops, titles: ["operations"], updatedAt: "2026-10-27T06:00:00.000Z" }] },
+      },
+      // Picked on its page before the run: the Office Manager job uses the Ops CV too.
+      { key: "saved", items: { "linkedin:3": { job: jobs[2], status: "saved", notes: "", savedAt: "2026-10-26T06:00:00.000Z", updatedAt: "2026-10-26T06:00:00.000Z" } } },
+      { key: "tailored", items: { "linkedin:3": { cvId: "ops", updatedAt: "2026-10-26T06:00:00.000Z" } } },
+    ]);
+
+    for (let i = 0; i < 6 && (await step(deps)).state === "working"; i++);
+    expect(used.sort()).toEqual([
+      "Data Analyst 1: Test",
+      "Office Manager: Ops.",
+      "Operations Manager: Ops.",
+      "write Data Analyst 1: Test",
+      "write Office Manager: Ops.",
+      "write Operations Manager: Ops.",
+    ]);
+    // Scored against the CV each job uses, so the scores count as current in the app.
+    const tailored = await readCollection<TailoredDocs>(backend, "tailored");
+    expect(tailored["linkedin:3"].cvId).toBe("ops");
+  });
+
   it("matches jobs as they arrive, then gets the best ready to apply and sends the summary", async () => {
     const jobs = Array.from({ length: 8 }, (_, i) => job(i + 1));
     const scores = Object.fromEntries(jobs.map((j, i) => [j.title, [95, 60, 88, 70, 91, 40, 82, 65][i]]));

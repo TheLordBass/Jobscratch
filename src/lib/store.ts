@@ -5,6 +5,7 @@ import type { ApplicationAnswer, ApplicationDetails, ExtraSkill, MatchAnalysis, 
 import { dismissKeys, findSavedCopy, mergeJobs } from "@/lib/import";
 import { DEFAULT_JOBSPY_SEARCH, type HelperSearch } from "@/lib/jobspy-helper";
 import type { JobspyList } from "@/lib/jobspy-lists";
+import type { CvVersion } from "@/lib/cvs";
 import { DEFAULT_MORNING_PREP, type MorningPrepSettings } from "@/lib/morning-prep";
 import { connectStore, queueChange } from "@/lib/sync";
 import type { CompanyBoards, Job, SearchSourceId } from "@/lib/types";
@@ -42,10 +43,14 @@ export interface SavedJob {
   history?: StatusChange[];
 }
 
+/** The main CV, with any others for different kinds of job (lib/cvs.ts). */
 export interface StoredCv {
   text: string;
   fileName?: string;
   updatedAt: string;
+  /** The main CV's name, once there are others to tell it from. */
+  name?: string;
+  others?: CvVersion[];
 }
 
 /** The candidate's website / GitHub and the text read from them (shown to the user before use). */
@@ -92,6 +97,8 @@ export interface TailoredDocs {
   jobDescription?: string;
   /** Drafted answers to the questions on the job's application form. */
   answers?: ApplicationAnswer[];
+  /** The CV picked for this job on its page (lib/cvs.ts); without one, its title decides. */
+  cvId?: string;
   updatedAt: string;
 }
 
