@@ -97,8 +97,6 @@ export interface TailoredDocs {
   jobDescription?: string;
   /** Drafted answers to the questions on the job's application form. */
   answers?: ApplicationAnswer[];
-  /** The CV picked for this job on its page (lib/cvs.ts); without one, its title decides. */
-  cvId?: string;
   updatedAt: string;
 }
 

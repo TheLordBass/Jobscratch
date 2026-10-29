@@ -1,15 +1,16 @@
 import { hashString } from "@/lib/import";
 import { MAX_EVIDENCE_CHARS, MAX_GITHUB_LENGTH, MAX_WEBSITE_LENGTH, linksChanged } from "@/lib/profile/links";
-import type { CvChoice, ExtraSkill, MatchAnalysis } from "@/lib/ai/prompts";
-import { hasCvText, type CvVersion } from "@/lib/cvs";
+import type { CandidateCv, ExtraSkill, MatchAnalysis } from "@/lib/ai/prompts";
+import { cvVersions, hasCvText } from "@/lib/cvs";
 import type { StoredCv, StoredMatch, StoredProfile } from "@/lib/store";
 import type { Job } from "@/lib/types";
 
 /** What the tailoring and matching requests send about the candidate. */
 export interface Candidate {
+  /** The main CV (or the first with text). */
   cv: string;
-  /** For a match: every CV, when there's more than one to choose between (see lib/cvs.ts). */
-  cvs?: CvChoice[];
+  /** Every CV with text, when there's more than one: Claude uses them all (see lib/cvs.ts). */
+  cvs?: CandidateCv[];
   profile?: { website: string; github: string; evidence: string };
   /** Skills from the profile that the CV doesn't show. */
   skills?: ExtraSkill[];
@@ -20,17 +21,19 @@ export interface Candidate {
 }
 
 /**
- * What to send about the candidate with `cv`: the main CV, another one, or (for a match) several to
- * choose between (see lib/cvs.ts).
+ * What to send about the candidate: all their CVs, website and GitHub, the same for every job. With
+ * one CV, the key is what it always was, so scores made before there could be more still count.
  */
-export function candidateFor(cv: StoredCv | CvVersion | CvVersion[] | null, profile: StoredProfile): Candidate {
-  if (Array.isArray(cv)) {
-    const versions = cv.filter(hasCvText);
-    if (versions.length < 2) return candidateFor(versions[0] ?? null, profile);
-    const first = candidateFor(versions[0], profile);
-    const cvs = versions.map(({ id, name, text }) => ({ id, name, text }));
-    return { ...first, cvs, key: hashString(JSON.stringify([cvs.map((version) => [version.id, version.text]), first.profile ?? null])) };
-  }
+export function candidateFor(cv: StoredCv | null, profile: StoredProfile): Candidate {
+  const versions = cvVersions(cv).filter(hasCvText);
+  const one = candidateForText(versions[0]?.text ?? cv?.text ?? "", profile);
+  if (versions.length < 2) return one;
+  const cvs = versions.map(({ name, text }) => ({ name, text }));
+  // Names aren't part of it: renaming a CV shouldn't hide every match score.
+  return { ...one, cvs, key: hashString(JSON.stringify([cvs.map((version) => version.text), one.profile ?? null])) };
+}
+
+function candidateForText(text: string, profile: StoredProfile): Candidate {
   // A link too long for the API is left out rather than failing every request.
   const website = profile.website.trim().length <= MAX_WEBSITE_LENGTH ? profile.website.trim() : "";
   const github = profile.github.trim().length <= MAX_GITHUB_LENGTH ? profile.github.trim() : "";
@@ -38,7 +41,6 @@ export function candidateFor(cv: StoredCv | CvVersion | CvVersion[] | null, prof
   const staleDetails = Boolean(profile.evidence.trim()) && linksChanged(profile, profile.fetchedFor);
   const evidence = staleDetails ? "" : profile.evidence.trim().slice(0, MAX_EVIDENCE_CHARS);
   const payload = profile.enabled && (website || github || evidence) ? { website, github, evidence } : undefined;
-  const text = cv?.text ?? "";
   const skills = (profile.skills ?? [])
     .filter((skill) => skill.name.trim())
     .slice(0, 60)

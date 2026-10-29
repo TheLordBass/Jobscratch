@@ -2,17 +2,21 @@ import { z } from "zod";
 import { draftAnswers, toAiError } from "@/lib/ai/claude";
 import {
   ApplicationDetailsSchema,
+  CandidateCvSchema,
   CandidateProfileSchema,
   ExtraSkillsSchema,
   JobNotesSchema,
   MAX_QUESTIONS,
   TailorJobSchema,
 } from "@/lib/ai/prompts";
+import { MAX_CVS } from "@/lib/cvs";
 
 export const maxDuration = 300;
 
 const Body = z.object({
   cv: z.string().min(50, "Add your CV first").max(60_000),
+  /** Every CV, when there's more than one (lib/cvs.ts); `cv` is then the first of them. */
+  cvs: z.array(CandidateCvSchema).min(2).max(MAX_CVS).optional(),
   job: TailorJobSchema,
   profile: CandidateProfileSchema.optional(),
   notes: JobNotesSchema,

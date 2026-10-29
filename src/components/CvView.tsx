@@ -6,7 +6,6 @@ import { useState, type ChangeEvent, type DragEvent } from "react";
 import { useSessionState } from "@/lib/session-state";
 import { PROFILE_TABS, SectionTabs } from "@/components/Nav";
 import { ApplicationDetailsForm } from "@/components/ApplicationDetailsForm";
-import { KeywordInput } from "@/components/KeywordInput";
 import { SkillsProfile } from "@/components/SkillsProfile";
 import { ProfileLinks } from "@/components/ProfileLinks";
 import { useFieldDraft } from "@/components/useFieldDraft";
@@ -67,7 +66,7 @@ export function CvView() {
       previous
         ? {
             ...previous,
-            others: [...(previous.others ?? []), { id, name: `CV ${(previous.others?.length ?? 0) + 2}`, text: "", titles: [], updatedAt: now }],
+            others: [...(previous.others ?? []), { id, name: `CV ${(previous.others?.length ?? 0) + 2}`, text: "", updatedAt: now }],
             updatedAt: now,
           }
         : previous,
@@ -82,7 +81,8 @@ export function CvView() {
         <h1 className="page-title">Your CV</h1>
         <p className="page-subtitle">
           Your master CV. JobScratch rewrites a tailored copy for each job, and this one stays as it is. Going for more
-          than one kind of job? Add another CV for it: matching compares them and uses the one that fits each job best.
+          than one kind of job? Add another CV for it: matching and tailoring use all of them together, taking what fits
+          each job from each.
         </p>
       </div>
 
@@ -154,7 +154,6 @@ function CvEditor({
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState<Message>(null);
   const [dragging, setDragging] = useState(false);
-  const [titleDraft, setTitleDraft] = useState("");
   const name = useFieldDraft(version?.name ?? "", (text) => onChange({ name: text.trim() || version?.name }));
 
   const saved = version?.text ?? "";
@@ -247,28 +246,10 @@ function CvEditor({
               </label>
               <input id="cv-name" className="input" maxLength={60} {...name} />
             </div>
-            {main ? (
-              <p className="muted self-end text-sm">
-                Each job is matched against all your CVs and uses the one that fits it best. Title words on another CV, or
-                a pick on the job’s page, decide it instead.
-              </p>
-            ) : (
-              <div>
-                <KeywordInput
-                  label="Always use it for job titles with (optional)"
-                  values={version.titles}
-                  onChange={(titles) => onChange({ titles })}
-                  draft={titleDraft}
-                  onDraftChange={setTitleDraft}
-                  placeholder="e.g. data analyst, BI, reporting"
-                />
-                <p className="muted mt-1 text-xs">
-                  {version.titles.length
-                    ? "Jobs whose titles have any of these always use this CV, without comparing."
-                    : "Without any, matching decides which jobs this CV fits best."}
-                </p>
-              </div>
-            )}
+            <p className="muted self-end text-sm">
+              Every job is matched and tailored with all your CVs together, plus your website and GitHub. Where they
+              disagree on a date or job title, {main ? "this one, the main CV," : "the main CV"} is taken as right.
+            </p>
           </div>
         )}
         <div className="flex flex-wrap items-center justify-between gap-2">

@@ -45,7 +45,6 @@ function fakes(scores: Record<string, number>, batchReads = 1) {
   const calls = {
     analyze: [] as string[],
     batches: [] as string[][],
-    cvIds: [] as Array<Record<string, string[]>>,
     canceled: [] as string[],
     write: [] as string[],
     answers: [] as string[],
@@ -68,15 +67,13 @@ function fakes(scores: Record<string, number>, batchReads = 1) {
       batches.set(id, { requests, reads: 0, canceled: false });
       return id;
     },
-    readBatch: async (id, cvIds) => {
+    readBatch: async (id) => {
       const batch = batches.get(id)!;
-      calls.cvIds.push(cvIds);
       if (!batch.canceled && ++batch.reads < batchReads) return null;
       const outcomes: Record<string, BatchOutcome> = {};
       for (const { customId, materials } of batch.requests) {
         try {
-          // With CVs to choose between, the stand-in chooses the last.
-          outcomes[customId] = batch.canceled ? { canceled: true } : { analysis: { ...score(materials.job.title), ...(cvIds[customId]?.length && { cvId: cvIds[customId].at(-1) }) } };
+          outcomes[customId] = batch.canceled ? { canceled: true } : { analysis: score(materials.job.title) };
         } catch (error) {
           outcomes[customId] = { error: error as AiError };
         }
@@ -124,54 +121,36 @@ beforeEach(() => {
 afterEach(() => rmSync(folder, { recursive: true, force: true }));
 
 describe("the morning run's preparation", () => {
-  it("matches and tailors each job with its own CV", async () => {
-    const jobs = [job(1), job(2, { title: "Operations Manager" }), job(3, { title: "Office Manager" }), job(4, { title: "Site Lead" })];
+  it("matches and tailors every job with all the CVs", async () => {
+    const jobs = [job(1), job(2, { title: "Operations Manager" })];
     const used: string[] = [];
-    const { deps } = fakes({ "Data Analyst 1": 95, "Operations Manager": 92, "Office Manager": 90, "Site Lead": 88 });
+    const { deps } = fakes({ "Data Analyst 1": 95, "Operations Manager": 92 });
     const analyze = deps.analyze;
     deps.analyze = async (materials, env) => {
-      // With a choice to make, the stand-in picks the Ops CV for the Site Lead job and the main one otherwise.
-      const choice = materials.cvs?.map((v) => v.id).join("+");
-      used.push(`${materials.job.title}: ${choice ?? materials.cv.slice(0, 4)}`);
-      const result = await analyze(materials, env);
-      return choice ? { ...result, cvId: materials.job.title === "Site Lead" ? "ops" : "main" } : result;
+      used.push(`match ${materials.job.title}: ${materials.cvs?.map((v) => v.name).join(" + ")}`);
+      return analyze(materials, env);
     };
     const write = deps.write;
     deps.write = async (kind, materials, options, env) => {
-      if (kind === "cv") used.push(`write ${materials.job.title}: ${materials.cv.slice(0, 4)}`);
+      if (kind === "cv") used.push(`write ${materials.job.title}: ${materials.cvs?.map((v) => v.name).join(" + ")}`);
       return write(kind, materials, options, env);
     };
     await seed({ match: true, ready: true, readyFrom: 85, readyLimit: 4, coverLetters: false, answers: false, notify: false }, jobs, true);
     const ops = `Ops. ${"Ran warehouse and operations teams, rotas, budgets and suppliers. ".repeat(2)}`;
     await applyOps(backend, [
-      {
-        key: "cv",
-        value: { text: CV, updatedAt: "2026-10-27T06:00:00.000Z", others: [{ id: "ops", name: "Ops CV", text: ops, titles: ["operations"], updatedAt: "2026-10-27T06:00:00.000Z" }] },
-      },
-      // Picked on its page before the run: the Office Manager job uses the Ops CV too.
-      { key: "saved", items: { "linkedin:3": { job: jobs[2], status: "saved", notes: "", savedAt: "2026-10-26T06:00:00.000Z", updatedAt: "2026-10-26T06:00:00.000Z" } } },
-      { key: "tailored", items: { "linkedin:3": { cvId: "ops", updatedAt: "2026-10-26T06:00:00.000Z" } } },
+      { key: "cv", value: { text: CV, updatedAt: "2026-10-27T06:00:00.000Z", others: [{ id: "ops", name: "Ops CV", text: ops, updatedAt: "2026-10-27T06:00:00.000Z" }] } },
     ]);
 
     for (let i = 0; i < 8 && (await step(deps)).state === "working"; i++);
     expect(used.sort()).toEqual([
-      // No pick and no title words: matched against both, for the analysis to choose.
-      "Data Analyst 1: main+ops",
-      "Office Manager: Ops.",
-      "Operations Manager: Ops.",
-      "Site Lead: main+ops",
-      "write Data Analyst 1: Test",
-      "write Office Manager: Ops.",
-      "write Operations Manager: Ops.",
-      // Written from the CV its match chose.
-      "write Site Lead: Ops.",
+      "match Data Analyst 1: Main CV + Ops CV",
+      "match Operations Manager: Main CV + Ops CV",
+      "write Data Analyst 1: Main CV + Ops CV",
+      "write Operations Manager: Main CV + Ops CV",
     ]);
-    // Scores made against both CVs count as current, so nothing is matched twice.
+    // Scores made with them all count as current, so nothing is matched twice.
     expect((await step(deps)).state).toBe("done");
-    expect(used.filter((line) => !line.startsWith("write"))).toHaveLength(4);
-    // Scored against the CV each job uses, so the scores count as current in the app.
-    const tailored = await readCollection<TailoredDocs>(backend, "tailored");
-    expect(tailored["linkedin:3"].cvId).toBe("ops");
+    expect(used.filter((line) => line.startsWith("match"))).toHaveLength(2);
   });
 
   it("matches jobs as they arrive, then gets the best ready to apply and sends the summary", async () => {
@@ -228,7 +207,7 @@ describe("the morning run's preparation", () => {
     await seed({ match: true, batch: true, ready: true, readyFrom: 85, readyLimit: 2, coverLetters: false, answers: false }, jobs.slice(0, 3));
     const ops = `Ops. ${"Ran warehouse and operations teams, rotas, budgets and suppliers. ".repeat(2)}`;
     await applyOps(backend, [
-      { key: "cv", value: { text: CV, updatedAt: "2026-10-27T06:00:00.000Z", others: [{ id: "ops", name: "Ops CV", text: ops, titles: [], updatedAt: "2026-10-27T06:00:00.000Z" }] } },
+      { key: "cv", value: { text: CV, updatedAt: "2026-10-27T06:00:00.000Z", others: [{ id: "ops", name: "Ops CV", text: ops, updatedAt: "2026-10-27T06:00:00.000Z" }] } },
       { key: "saved", items: { "linkedin:2": { job: jobs[1], status: "saved", notes: "", savedAt: "2026-10-26T06:00:00.000Z", updatedAt: "2026-10-26T06:00:00.000Z" } } },
     ]);
 
@@ -236,12 +215,10 @@ describe("the morning run's preparation", () => {
     expect((await step(deps)).state).toBe("idle");
     expect(calls.batches).toEqual([["Data Analyst 1", "Data Analyst 2"]]);
     expect((await step(deps)).state).toBe("idle");
-    // Back: saved, with the CV each was matched with chosen from both.
+    // Back: saved, with the saved job's analysis too.
     expect((await step(deps)).state).toBe("working");
-    expect(calls.cvIds.at(-1)).toEqual({ "job-0": ["main", "ops"], "job-1": ["main", "ops"] });
     const matches = await readCollection<StoredMatch>(backend, "matches");
     expect(matches["linkedin:1"]).toMatchObject({ score: 95 });
-    expect(matches["linkedin:1"].analysis?.cvId).toBe("ops");
     expect((await readCollection<TailoredDocs>(backend, "tailored"))["linkedin:2"].analysis?.matchScore).toBe(70);
 
     // The last job arrives with the run's end: a batch of its own, and the run is told when to ask again.

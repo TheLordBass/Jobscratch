@@ -2,7 +2,6 @@ import {
   AiError,
   analyzeMatch,
   cancelMatchBatch,
-  cvChoices,
   draftAnswers,
   readMatchBatch,
   streamDocument,
@@ -13,7 +12,7 @@ import {
 } from "@/lib/ai/claude";
 import { DEFAULT_QUESTIONS, type MatchAnalysis, type TailorMaterials, type TailorOptions } from "@/lib/ai/prompts";
 import { canMatch, candidateFor, matchFromAnalysis, matchKey, type Candidate } from "@/lib/candidate";
-import { cvVersions, cvsToMatch, hasCvText, pickCv } from "@/lib/cvs";
+import { hasCvText } from "@/lib/cvs";
 import { dismissKeys, findSavedCopy } from "@/lib/import";
 import { RUN_JOBS_KEY, RUN_PREP_KEY, readRun, type JobspyRun, type RunJob } from "@/lib/jobspy-runs";
 import { DEFAULT_MORNING_PREP, emptyPrepState, prepSummary, type MorningPrepSettings, type PrepState } from "@/lib/morning-prep";
@@ -145,9 +144,8 @@ export async function prepareStep(
     StoredProfile | null,
   ];
   const fullProfile: StoredProfile = { website: "", github: "", evidence: "", enabled: true, ...profile };
-  // Each job is matched and tailored with its own CV (lib/cvs.ts), as in the app.
-  const candidates = new Map(cvVersions(cv).map((version) => [version.id, candidateFor(version, fullProfile)]));
-  const everyCv = candidateFor(cvVersions(cv), fullProfile);
+  // Every CV, the website and GitHub, for every job, as in the app (lib/cvs.ts).
+  const candidate = candidateFor(cv, fullProfile);
   const canWork = hasCvText(cv) && !prep.stopped;
   const tailor = stored?.tailor ?? { style: "uk-cv", tone: "professional", length: "two-pages", extraInstructions: "", projects: true };
   const useNotes = stored?.useJobNotes ?? true;
@@ -158,22 +156,11 @@ export async function prepareStep(
     readCollection<SavedJob>(backend, "saved"),
     readCollection<DismissedJob>(backend, "dismissed"),
   ]);
-  // The CVs picked on saved jobs' pages.
-  const picked = await readSomeItems<TailoredDocs>(backend, "tailored", runJobs.filter((job) => saved[job.id]).map((job) => job.id));
-  const none = candidateFor(null, fullProfile);
-  // What a job is matched against: every CV, for the analysis to choose from, unless one is picked for it.
-  const matchCandidateOf = (job: Job): Candidate => {
-    const versions = cvsToMatch(cv, job, picked[job.id]?.cvId);
-    return versions.length > 1 ? everyCv : (candidates.get(versions[0]?.id ?? "") ?? none);
-  };
-  // What its documents are written from: the CV it uses, which may be the one its match chose.
-  const candidateOf = (job: Job, chosen: string | undefined, matched: string | undefined): Candidate =>
-    candidates.get(pickCv(cv, job, chosen, matched)?.id ?? "") ?? none;
   const hidden = new Set(Object.values(dismissed).flatMap((entry) => entry.keys ?? []));
   const isDismissed = (job: Job) => dismissKeys(job).some((key) => hidden.has(key));
   const current = (job: Job) => {
     const match = matches[job.id];
-    return match?.analysis && match.key === matchKey(job, matchCandidateOf(job)) ? match : undefined;
+    return match?.analysis && match.key === matchKey(job, candidate) ? match : undefined;
   };
 
   // Saved with the job's match, and with its tailored documents if it's saved, as the app does.
@@ -202,8 +189,7 @@ export async function prepareStep(
     const batch = prep.batch;
     let outcomes: Record<string, BatchOutcome> | null;
     try {
-      const cvIds = Object.fromEntries(batch.jobs.map((entry, i) => [`job-${i}`, entry.cvIds ?? []]));
-      outcomes = await deps.readBatch(batch.id, cvIds, env);
+      outcomes = await deps.readBatch(batch.id, env);
     } catch (error) {
       const aiError = toAiError(error);
       if (aiError.status === 401 || aiError.status === 403) prep.stopped = aiError.message;
@@ -250,20 +236,17 @@ export async function prepareStep(
 
     // All of them in one batch, read back on a later step.
     if (todo.length && settings.batch && !prep.live) {
-      const sending = todo.slice(0, matchesLeft).map((job, i) => {
-        const candidate = matchCandidateOf(job);
-        const materials = materialsFor(job, candidate, job.description, notesOf(job));
-        return { job, key: matchKey(job, candidate), customId: `job-${i}`, materials };
-      });
+      const sending = todo.slice(0, matchesLeft).map((job, i) => ({
+        job,
+        customId: `job-${i}`,
+        materials: materialsFor(job, candidate, job.description, notesOf(job)),
+      }));
       try {
         const id = await deps.submitBatch(sending.map(({ customId, materials }) => ({ customId, materials })), env);
         prep.batch = {
           id,
           sentAt: now,
-          jobs: sending.map(({ job, key, materials }) => {
-            const cvIds = cvChoices(materials);
-            return { id: job.id, key, ...(cvIds.length > 0 && { cvIds }) };
-          }),
+          jobs: sending.map(({ job }) => ({ id: job.id, key: matchKey(job, candidate) })),
         };
       } catch (error) {
         const aiError = toAiError(error);
@@ -286,7 +269,6 @@ export async function prepareStep(
       const worker = async () => {
         for (let job = queue.shift(); job && !prep.stopped && !rateLimited; job = queue.shift()) {
           try {
-            const candidate = matchCandidateOf(job);
             const analysis = await deps.analyze(materialsFor(job, candidate, job.description, notesOf(job)), env);
             // Saved as each one finishes, so a step cut short keeps what it did.
             await saveMatches([{ job, analysis, key: matchKey(job, candidate) }]);
@@ -338,7 +320,7 @@ export async function prepareStep(
       const description =
         docs?.jobDescription ?? (copy && copy.job.description.length > job.description.length ? copy.job.description : job.description);
       const notes = useNotes ? copy?.notes.trim().slice(0, 4000) || undefined : undefined;
-      const materials = materialsFor(copy?.job ?? job, candidateOf(copy?.job ?? job, docs?.cvId, (docs?.analysis ?? match.analysis)?.cvId), description, notes);
+      const materials = materialsFor(copy?.job ?? job, candidate, description, notes);
       try {
         const [cvText, letter, answers] = await Promise.all([
           needs.cv ? deps.write("cv", materials, tailor, env) : undefined,

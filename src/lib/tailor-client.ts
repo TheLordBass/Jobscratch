@@ -1,9 +1,11 @@
-import type { ApplicationAnswer, ApplicationDetails, CandidateProfile, ExtraSkill, TailorJob, TailorOptions } from "@/lib/ai/prompts";
+import type { ApplicationAnswer, ApplicationDetails, CandidateCv, CandidateProfile, ExtraSkill, TailorJob, TailorOptions } from "@/lib/ai/prompts";
 
 /** What /api/tailor/generate needs to write a tailored CV or cover letter. */
 export interface TailorRequest {
   kind: "cv" | "cover-letter";
   cv: string;
+  /** Every CV, when there's more than one: Claude writes from them all. */
+  cvs?: CandidateCv[];
   job: TailorJob;
   profile?: CandidateProfile;
   /** The candidate's notes on this job, used as extra experience and guidance. */
