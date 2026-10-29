@@ -82,7 +82,7 @@ export function CvView() {
         <h1 className="page-title">Your CV</h1>
         <p className="page-subtitle">
           Your master CV. JobScratch rewrites a tailored copy for each job, and this one stays as it is. Going for more
-          than one kind of job? Add another CV for it, and say which job titles it’s for.
+          than one kind of job? Add another CV for it: matching compares them and uses the one that fits each job best.
         </p>
       </div>
 
@@ -249,12 +249,13 @@ function CvEditor({
             </div>
             {main ? (
               <p className="muted self-end text-sm">
-                Used for every job the other CVs’ titles don’t fit. On a job’s page you can pick another one for it.
+                Each job is matched against all your CVs and uses the one that fits it best. Title words on another CV, or
+                a pick on the job’s page, decide it instead.
               </p>
             ) : (
               <div>
                 <KeywordInput
-                  label="Use it for job titles with"
+                  label="Always use it for job titles with (optional)"
                   values={version.titles}
                   onChange={(titles) => onChange({ titles })}
                   draft={titleDraft}
@@ -263,8 +264,8 @@ function CvEditor({
                 />
                 <p className="muted mt-1 text-xs">
                   {version.titles.length
-                    ? "Jobs whose titles have any of these are matched and tailored with this CV."
-                    : "Without any, it’s only used for the jobs you pick it for on their page."}
+                    ? "Jobs whose titles have any of these always use this CV, without comparing."
+                    : "Without any, matching decides which jobs this CV fits best."}
                 </p>
               </div>
             )}

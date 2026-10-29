@@ -77,7 +77,7 @@ function ScoreBadge({ score }: { score: number }) {
   );
 }
 
-function AnalysisPanel({ analysis }: { analysis: MatchAnalysis }) {
+function AnalysisPanel({ analysis, cvName }: { analysis: MatchAnalysis; cvName?: string }) {
   const section = (title: string, items: string[], empty: string) => (
     <div>
       <h3 className="mb-1 text-sm font-semibold">{title}</h3>
@@ -97,6 +97,7 @@ function AnalysisPanel({ analysis }: { analysis: MatchAnalysis }) {
       <div>
         <ScoreBadge score={analysis.matchScore} />
         <p className="mt-2 text-sm">{analysis.verdict}</p>
+        {cvName && <p className="muted mt-1 text-xs">Matched with your {cvName}, the CV that fits this job best.</p>}
       </div>
       {section("Strengths", analysis.strengths, "None identified.")}
       {section("Gaps", analysis.gaps, "No significant gaps.")}
@@ -446,8 +447,10 @@ function TailorWorkspace({ entry, initialTab }: { entry: SavedJob; initialTab?: 
   const docs: TailoredDocs | undefined = tailored[job.id];
   // An analysis from Match all counts as this job's until one is run here (an out-of-date one is marked so).
   // Not for a job with only a snippet: one made from it would be misleading.
-  const { matchFor, candidateFor } = useCurrentMatches();
+  const { matchFor, candidateFor, matchCandidateFor } = useCurrentMatches();
   const candidate = candidateFor(job);
+  // Every CV, for the analysis to choose the best of, unless one is picked for this job (lib/cvs.ts).
+  const matchCandidate = matchCandidateFor(job);
   const [matches] = useMatches();
   const currentMatch = matchFor(job);
   const listMatch = currentMatch ?? (canMatch(job) ? matches[job.id] : undefined);
@@ -493,7 +496,8 @@ function TailorWorkspace({ entry, initialTab }: { entry: SavedJob; initialTab?: 
   const options = settings.tailor;
   // The CV this job is tailored from: the one picked here, else the one its title fits (lib/cvs.ts).
   const versions = cvVersions(cv);
-  const version = pickCv(cv, job, docs?.cvId);
+  const matchedCv = (docs?.analysis ?? currentMatch?.analysis)?.cvId;
+  const version = pickCv(cv, job, docs?.cvId, matchedCv);
   const cvText = version?.text ?? "";
   const blocker =
     cvText.trim().length < 50
@@ -536,9 +540,9 @@ function TailorWorkspace({ entry, initialTab }: { entry: SavedJob; initialTab?: 
     startAnalysis(
       job.id,
       label,
-      { cv: cvText, job: payloadJob, profile: payloadProfile, skills: payloadSkills, notes: payloadNotes },
+      { cv: matchCandidate.cv, cvs: matchCandidate.cvs, job: payloadJob, profile: payloadProfile, skills: payloadSkills, notes: payloadNotes },
       // So the score shows in the job lists too, when it's for the job's own description.
-      description === job.description ? matchKey(job, candidate) : undefined,
+      description === job.description ? matchKey(job, matchCandidate) : undefined,
     );
   }
 
@@ -695,7 +699,7 @@ function TailorWorkspace({ entry, initialTab }: { entry: SavedJob; initialTab?: 
                 )}
                 {analysis ? (
                   <>
-                    <AnalysisPanel analysis={analysis} />
+                    <AnalysisPanel analysis={analysis} cvName={analysis.cvId ? versions.find((v) => v.id === analysis.cvId)?.name : undefined} />
                     {staleAnalysis && (
                       <p className="muted mt-3 text-xs">
                         Your CV or this job’s description has changed since this analysis, so it may be out of date.
@@ -854,7 +858,7 @@ function TailorWorkspace({ entry, initialTab }: { entry: SavedJob; initialTab?: 
                       value={docs?.cvId && versions.some((v) => v.id === docs.cvId && hasCvText(v)) ? docs.cvId : ""}
                       onChange={(e) => updateDocs({ cvId: e.target.value || undefined })}
                     >
-                      <option value="">Pick by job title ({pickCv(cv, job)?.name})</option>
+                      <option value="">Best fit ({pickCv(cv, job, undefined, matchedCv)?.name})</option>
                       {versions.filter(hasCvText).map((v) => (
                         <option key={v.id} value={v.id}>
                           {v.name}
@@ -862,7 +866,7 @@ function TailorWorkspace({ entry, initialTab }: { entry: SavedJob; initialTab?: 
                       ))}
                     </select>
                     <p className="muted mt-1 text-xs">
-                      Using <strong>{version.name}</strong>: {whyCv(cv, job, docs?.cvId)}.
+                      Using <strong>{version.name}</strong>: {whyCv(cv, job, docs?.cvId, matchedCv)}.
                       {docs?.cv && " Write the CV again to use another one."}
                     </p>
                   </div>
