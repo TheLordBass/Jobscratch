@@ -1,5 +1,17 @@
-import { AiError, analyzeMatch, draftAnswers, streamDocument, toAiError, type DocumentKind } from "@/lib/ai/claude";
-import { DEFAULT_QUESTIONS, type TailorMaterials, type TailorOptions } from "@/lib/ai/prompts";
+import {
+  AiError,
+  analyzeMatch,
+  cancelMatchBatch,
+  cvChoices,
+  draftAnswers,
+  readMatchBatch,
+  streamDocument,
+  submitMatchBatch,
+  toAiError,
+  type BatchOutcome,
+  type DocumentKind,
+} from "@/lib/ai/claude";
+import { DEFAULT_QUESTIONS, type MatchAnalysis, type TailorMaterials, type TailorOptions } from "@/lib/ai/prompts";
 import { canMatch, candidateFor, matchFromAnalysis, matchKey, type Candidate } from "@/lib/candidate";
 import { cvVersions, cvsToMatch, hasCvText, pickCv } from "@/lib/cvs";
 import { dismissKeys, findSavedCopy } from "@/lib/import";
@@ -13,29 +25,42 @@ import type { Job } from "@/lib/types";
 /*
  * One step of the morning run's preparation (see lib/morning-prep.ts), asked for again and again by
  * scripts/jobspy/scheduled.py until it says it's done. Each step does a little, so no request runs
- * for long: while the run is still searching it matches the jobs uploaded so far; once the run has
- * finished it gets the best matches ready to apply, one job a step, then sends the summary. What it
+ * for long: while the run is still searching it matches the jobs uploaded so far (sent to Claude as
+ * a batch at half price and read back on a later step, or one at a time if batches are off or one
+ * took too long); once the run has finished it gets the best matches ready to apply, one job a
+ * step, then sends the summary. What it
  * writes goes into the same server storage the app syncs from, so it appears on every device.
  */
 
 /** Analyses in one step, and how many at a time: two rounds stay well inside a function's 300 seconds. */
 const MATCHES_PER_STEP = 6;
 const PARALLEL = 3;
+/** How long a batch may take before it's cancelled and the rest are matched one at a time. */
+const BATCH_PATIENCE_MS = 60 * 60 * 1000;
+/** With a batch out and the searches done: how long the run waits before asking again. */
+const BATCH_WAIT_SECONDS = 60;
 /** Errors that every other job would hit too: the key, the model, the API being down. */
 const FATAL = new Set([401, 403, 404, 503]);
 
 type Env = Record<string, string | undefined>;
 
 export interface StepResult {
-  /** working: ask again straight away. idle: nothing to do until more jobs arrive. done/off: stop asking. */
-  state: "working" | "idle" | "done" | "off";
+  /**
+   * working: ask again straight away. idle: nothing to do until more jobs arrive. waiting: a batch is
+   * with Claude, ask again in `wait` seconds. done/off: stop asking.
+   */
+  state: "working" | "idle" | "waiting" | "done" | "off";
   message: string;
+  wait?: number;
   prep?: PrepState;
 }
 
 /** The Claude calls and the notification, replaceable in tests. */
 export interface PrepDeps {
   analyze: typeof analyzeMatch;
+  submitBatch: typeof submitMatchBatch;
+  readBatch: typeof readMatchBatch;
+  cancelBatch: typeof cancelMatchBatch;
   write: (kind: DocumentKind, materials: TailorMaterials, options: TailorOptions, env: Env) => Promise<string>;
   answers: typeof draftAnswers;
   notify: (backend: DataBackend, env: Env, message: PushMessage, origin: string) => Promise<unknown>;
@@ -52,7 +77,15 @@ async function writeDocument(kind: DocumentKind, materials: TailorMaterials, opt
   return text.trim();
 }
 
-const DEPS: PrepDeps = { analyze: analyzeMatch, write: writeDocument, answers: draftAnswers, notify: notifyDevices };
+const DEPS: PrepDeps = {
+  analyze: analyzeMatch,
+  submitBatch: submitMatchBatch,
+  readBatch: readMatchBatch,
+  cancelBatch: cancelMatchBatch,
+  write: writeDocument,
+  answers: draftAnswers,
+  notify: notifyDevices,
+};
 
 export async function readPrep(backend: DataBackend): Promise<PrepState | null> {
   const [raw] = await backend.run([["GET", RUN_PREP_KEY]]);
@@ -103,7 +136,7 @@ export async function prepareStep(
   const searching = !run.finishedAt;
   const matchesLeft = settings.matchLimit - prep.matched - prep.failed.length;
   // Nothing to do until the searches are done: not worth reading everything again to find that out.
-  if (searching && (!settings.match || prep.stopped || matchesLeft <= 0 || prep.checkedCount === run.count)) {
+  if (searching && !prep.batch && (!settings.match || prep.stopped || matchesLeft <= 0 || prep.checkedCount === run.count)) {
     return { state: "idle", message: "Waiting for more jobs.", prep };
   }
 
@@ -143,29 +176,120 @@ export async function prepareStep(
     return match?.analysis && match.key === matchKey(job, matchCandidateOf(job)) ? match : undefined;
   };
 
-  // 1. Match: the jobs uploaded so far, up to the morning's limit.
+  // Saved with the job's match, and with its tailored documents if it's saved, as the app does.
+  const saveMatches = async (found: Array<{ job: Job; analysis: MatchAnalysis; key: string }>) => {
+    if (!found.length) return;
+    const at = new Date().toISOString();
+    const savedIds = found.filter(({ job }) => saved[job.id]).map(({ job }) => job.id);
+    const docs = savedIds.length ? await readSomeItems<TailoredDocs>(backend, "tailored", savedIds) : {};
+    const items: Record<string, StoredMatch> = {};
+    const tailored: Record<string, TailoredDocs> = {};
+    for (const { job, analysis, key } of found) {
+      items[job.id] = matches[job.id] = matchFromAnalysis(analysis, key, at);
+      if (saved[job.id]) tailored[job.id] = { ...docs[job.id], analysis, updatedAt: at };
+    }
+    const ops: Parameters<typeof applyOps>[1] = [{ key: "matches", items }];
+    if (savedIds.length) ops.push({ key: "tailored", items: tailored });
+    await applyOps(backend, ops);
+    prep.matched += found.length;
+  };
+  // A batch is out: while the run's still searching, it waits as it does for more jobs.
+  const waitForBatch = (message: string): StepResult =>
+    searching ? { state: "idle", message, prep } : { state: "waiting", wait: BATCH_WAIT_SECONDS, message, prep };
+
+  // 1a. Match: a batch sent on an earlier step, once it's back.
+  if (settings.match && canWork && prep.batch) {
+    const batch = prep.batch;
+    let outcomes: Record<string, BatchOutcome> | null;
+    try {
+      const cvIds = Object.fromEntries(batch.jobs.map((entry, i) => [`job-${i}`, entry.cvIds ?? []]));
+      outcomes = await deps.readBatch(batch.id, cvIds, env);
+    } catch (error) {
+      const aiError = toAiError(error);
+      if (aiError.status === 401 || aiError.status === 403) prep.stopped = aiError.message;
+      // Gone (sent with a different API key, say): the rest are matched one at a time.
+      else if (aiError.status === 404) [prep.batch, prep.live] = [undefined, true];
+      else return waitForBatch("Couldn't ask after the batch of matches; trying again shortly.");
+      await savePrep(backend, prep, now);
+      return { state: "working", message: prep.stopped ? `Stopped matching: ${prep.stopped}` : "Matching one at a time.", prep };
+    }
+    if (!outcomes) {
+      if (!batch.canceled && Date.parse(now) - Date.parse(batch.sentAt) > BATCH_PATIENCE_MS) {
+        try {
+          await deps.cancelBatch(batch.id, env);
+          batch.canceled = true;
+          prep.live = true;
+          await savePrep(backend, prep, now);
+        } catch (error) {
+          console.error("Couldn't cancel the batch of matches", error);
+        }
+      }
+      return waitForBatch(`${batch.jobs.length} ${batch.jobs.length === 1 ? "job is" : "jobs are"} with Claude to match.`);
+    }
+    const byId = new Map(runJobs.map((job) => [job.id, job]));
+    const found: Array<{ job: Job; analysis: MatchAnalysis; key: string }> = [];
+    batch.jobs.forEach((entry, i) => {
+      const outcome = outcomes[`job-${i}`];
+      const job = byId.get(entry.id);
+      if (!job) return;
+      // Cancelled before Claude got to it: matched one at a time instead.
+      if (outcome && "canceled" in outcome) prep.live = true;
+      else if (outcome && "analysis" in outcome) found.push({ job, analysis: outcome.analysis, key: entry.key });
+      else prep.failed.push(entry.id);
+    });
+    await saveMatches(found);
+    prep.batch = undefined;
+    await savePrep(backend, prep, now);
+    return { state: "working", message: `Matched ${prep.matched} so far.`, prep };
+  }
+
+  // 1b. Match: the jobs uploaded so far, up to the morning's limit.
   if (settings.match && canWork && matchesLeft > 0) {
     const todo = runJobs.filter((job) => canMatch(job) && !isDismissed(job) && !current(job) && !prep.failed.includes(job.id));
-    const batch = todo.slice(0, Math.min(MATCHES_PER_STEP, matchesLeft));
-    if (batch.length) {
+    const notesOf = (job: Job) => (useNotes ? saved[job.id]?.notes.trim().slice(0, 4000) || undefined : undefined);
+
+    // All of them in one batch, read back on a later step.
+    if (todo.length && settings.batch && !prep.live) {
+      const sending = todo.slice(0, matchesLeft).map((job, i) => {
+        const candidate = matchCandidateOf(job);
+        const materials = materialsFor(job, candidate, job.description, notesOf(job));
+        return { job, key: matchKey(job, candidate), customId: `job-${i}`, materials };
+      });
+      try {
+        const id = await deps.submitBatch(sending.map(({ customId, materials }) => ({ customId, materials })), env);
+        prep.batch = {
+          id,
+          sentAt: now,
+          jobs: sending.map(({ job, key, materials }) => {
+            const cvIds = cvChoices(materials);
+            return { id: job.id, key, ...(cvIds.length > 0 && { cvIds }) };
+          }),
+        };
+      } catch (error) {
+        const aiError = toAiError(error);
+        if (aiError.status === 429) return { state: "idle", message: "Claude's rate limit was reached; trying again shortly.", prep };
+        if (aiError.status === 401 || aiError.status === 403) prep.stopped = aiError.message;
+        // Batches can't be had: one at a time instead.
+        else prep.live = true;
+        await savePrep(backend, prep, now);
+        return { state: "working", message: prep.stopped ? `Stopped matching: ${prep.stopped}` : "Matching one at a time.", prep };
+      }
+      await savePrep(backend, prep, now);
+      return waitForBatch(`Sent ${sending.length} ${sending.length === 1 ? "job" : "jobs"} to Claude to match.`);
+    }
+
+    // One at a time, a few at once.
+    const next = todo.slice(0, Math.min(MATCHES_PER_STEP, matchesLeft));
+    if (next.length) {
       let rateLimited = false;
-      const queue = [...batch];
+      const queue = [...next];
       const worker = async () => {
         for (let job = queue.shift(); job && !prep.stopped && !rateLimited; job = queue.shift()) {
-          const notes = useNotes ? saved[job.id]?.notes.trim().slice(0, 4000) || undefined : undefined;
           try {
             const candidate = matchCandidateOf(job);
-            const analysis = await deps.analyze(materialsFor(job, candidate, job.description, notes), env);
-            const match = matchFromAnalysis(analysis, matchKey(job, candidate), new Date().toISOString());
-            matches[job.id] = match;
+            const analysis = await deps.analyze(materialsFor(job, candidate, job.description, notesOf(job)), env);
             // Saved as each one finishes, so a step cut short keeps what it did.
-            const ops: Parameters<typeof applyOps>[1] = [{ key: "matches", items: { [job.id]: match } }];
-            if (saved[job.id]) {
-              const docs = (await readSomeItems<TailoredDocs>(backend, "tailored", [job.id]))[job.id];
-              ops.push({ key: "tailored", items: { [job.id]: { ...docs, analysis, updatedAt: match.at } } });
-            }
-            await applyOps(backend, ops);
-            prep.matched++;
+            await saveMatches([{ job, analysis, key: matchKey(job, candidate) }]);
           } catch (error) {
             const aiError = toAiError(error);
             if (aiError.status === 429) rateLimited = true;

@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
+import { z } from "zod";
 import {
   AnswersSchema,
   MatchAnalysisSchema,
@@ -132,38 +133,111 @@ export function toAiError(error: unknown): AiError {
 const REFUSAL_MESSAGE =
   "Claude declined this request. Check the CV and job text for anything unusual, then try again.";
 
+/** The CVs a match chooses between: none when there's only the one. */
+export function cvChoices(materials: TailorMaterials): string[] {
+  return choosingCv(materials) ? (materials.cvs ?? []).map((version) => version.id) : [];
+}
+
+/** A match analysis's request, but for the model. */
+function matchRequest(materials: TailorMaterials, env: Env) {
+  const choosing = choosingCv(materials);
+  // Typed as the larger schema; without a choice to make, cvUsed is simply missing.
+  const schema = (choosing ? MatchChoiceSchema : MatchAnalysisSchema) as typeof MatchChoiceSchema;
+  return {
+    max_tokens: 16000,
+    system: SYSTEM_PROMPT,
+    messages: buildMessages(materials, analysisInstruction(hasProfile(materials.profile), choosing)),
+    output_config: { effort: matchEffort(env), format: betaZodOutputFormat(schema) },
+  };
+}
+
+/** Claude's answer as an analysis. `cvIds` are the CVs it chose between, if it had a choice. */
+function toAnalysis(stopReason: string | null, parsed: (z.infer<typeof MatchAnalysisSchema> & { cvUsed?: string }) | null, cvIds: string[]): MatchAnalysis {
+  if (stopReason === "refusal") throw new AiError(REFUSAL_MESSAGE, 422);
+  if (stopReason === "max_tokens") throw new AiError("The analysis was cut off. Try again.", 502);
+  if (!parsed) throw new AiError("Claude's analysis couldn't be read. Try again.", 502);
+  const { cvUsed, ...analysis } = parsed;
+  return {
+    ...analysis,
+    matchScore: Math.min(100, Math.max(0, Math.round(analysis.matchScore))),
+    // An id it made up counts as the first CV's, which the list starts with.
+    ...(cvIds.length > 0 && { cvId: cvUsed && cvIds.includes(cvUsed) ? cvUsed : cvIds[0] }),
+  };
+}
+
 /**
  * A match analysis. Given several CVs (`materials.cvs`), Claude first picks the one that fits the job
  * best and analyses with that, and `cvId` says which it was.
  */
 export async function analyzeMatch(materials: TailorMaterials, env: Env, signal?: AbortSignal): Promise<MatchAnalysis> {
   const client = getClient(env);
-  const choosing = choosingCv(materials);
-  // Typed as the larger schema; without a choice to make, cvUsed is simply missing.
-  const schema = (choosing ? MatchChoiceSchema : MatchAnalysisSchema) as typeof MatchChoiceSchema;
-  const response = await client.beta.messages.parse(
-    {
-      ...modelParams(env, "match"),
-      max_tokens: 16000,
-      system: SYSTEM_PROMPT,
-      messages: buildMessages(materials, analysisInstruction(hasProfile(materials.profile), choosing)),
-      output_config: { effort: matchEffort(env), format: betaZodOutputFormat(schema) },
-    },
-    { signal },
-  );
+  const response = await client.beta.messages.parse({ ...modelParams(env, "match"), ...matchRequest(materials, env) }, { signal });
   logUsage("match", response);
-  if (response.stop_reason === "refusal") throw new AiError(REFUSAL_MESSAGE, 422);
-  if (response.stop_reason === "max_tokens") throw new AiError("The analysis was cut off. Try again.", 502);
-  const parsed = response.parsed_output;
-  if (!parsed) throw new AiError("Claude's analysis couldn't be read. Try again.", 502);
-  const { cvUsed, ...analysis } = parsed;
-  const ids = materials.cvs?.map((version) => version.id) ?? [];
-  return {
-    ...analysis,
-    matchScore: Math.min(100, Math.max(0, Math.round(analysis.matchScore))),
-    // An id it made up counts as the first CV's, which the list starts with.
-    ...(choosing && { cvId: ids.includes(cvUsed) ? cvUsed : ids[0] }),
-  };
+  return toAnalysis(response.stop_reason, response.parsed_output, cvChoices(materials));
+}
+
+/*
+ * Match analyses as one batch (the Message Batches API): half the price of asking one at a time,
+ * but the answers come back later, usually within the hour. For the morning run, which isn't in a
+ * hurry. The batch API takes no refusal fallback, so a refused job simply fails.
+ */
+
+export interface BatchedMatch {
+  /** Letters, digits, - and _, up to 64 characters: what the result comes back under. */
+  customId: string;
+  materials: TailorMaterials;
+}
+
+/** Sends the analyses; the batch's id, to ask after it with. */
+export async function submitMatchBatch(matches: BatchedMatch[], env: Env): Promise<string> {
+  const client = getClient(env);
+  const { model } = modelParams(env, "match");
+  const batch = await client.beta.messages.batches.create({
+    requests: matches.map(({ customId, materials }) => ({ custom_id: customId, params: { model, ...matchRequest(materials, env) } })),
+  });
+  return batch.id;
+}
+
+export type BatchOutcome = { analysis: MatchAnalysis } | { error: AiError } | { canceled: true };
+
+/**
+ * A batch's analyses, once it's finished: null while Claude's still working on it. `cvIds` are the
+ * CVs each request chose between (by custom id), as `cvChoices` gave them when it was sent.
+ */
+export async function readMatchBatch(
+  id: string,
+  cvIds: Record<string, string[]>,
+  env: Env,
+): Promise<Record<string, BatchOutcome> | null> {
+  const client = getClient(env);
+  const batch = await client.beta.messages.batches.retrieve(id);
+  if (batch.processing_status !== "ended") return null;
+  const outcomes: Record<string, BatchOutcome> = {};
+  // Either schema: cvUsed is there only when the request had CVs to choose between.
+  const format = betaZodOutputFormat(MatchAnalysisSchema.extend({ cvUsed: z.string().optional() }));
+  for await (const { custom_id, result } of await client.beta.messages.batches.results(id)) {
+    if (result.type === "succeeded") {
+      logUsage("match (batch)", result.message);
+      try {
+        const text = result.message.content.find((block) => block.type === "text")?.text;
+        const parsed = result.message.stop_reason === "end_turn" && text ? format.parse(text) : null;
+        outcomes[custom_id] = { analysis: toAnalysis(result.message.stop_reason, parsed, cvIds[custom_id] ?? []) };
+      } catch (error) {
+        outcomes[custom_id] = { error: error instanceof AiError ? error : new AiError("Claude's analysis couldn't be read.", 502) };
+      }
+    } else if (result.type === "errored") {
+      outcomes[custom_id] = { error: new AiError(`Anthropic API error (${result.error.error.type}).`, 502) };
+    } else {
+      // Canceled, or not got to within the batch's day.
+      outcomes[custom_id] = { canceled: true };
+    }
+  }
+  return outcomes;
+}
+
+/** Stops a batch that's taking too long; what it finished first still comes back. */
+export async function cancelMatchBatch(id: string, env: Env): Promise<void> {
+  await getClient(env).beta.messages.batches.cancel(id);
 }
 
 /** Answers to questions from a job's application form (DEFAULT_QUESTIONS, or the candidate's own). */

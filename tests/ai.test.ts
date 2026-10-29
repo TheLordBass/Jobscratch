@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { analyzeMatch, draftAnswers, isAiConfigured, streamDocument, type StreamEvent } from "@/lib/ai/claude";
+import { analyzeMatch, draftAnswers, isAiConfigured, readMatchBatch, streamDocument, submitMatchBatch, type StreamEvent } from "@/lib/ai/claude";
 import type { TailorJob, TailorOptions } from "@/lib/ai/prompts";
 
 const ENV = { ANTHROPIC_API_KEY: "sk-ant-test" };
@@ -380,6 +380,91 @@ describe("analyzeMatch", () => {
       }),
     );
     await expect(analyzeMatch({ cv: CV, job: JOB }, ENV)).rejects.toMatchObject({ status: 422 });
+  });
+});
+
+describe("match batches", () => {
+  const analysis = {
+    matchScore: 81,
+    verdict: "Good fit.",
+    strengths: ["SQL"],
+    gaps: [],
+    keywordsPresent: ["SQL"],
+    keywordsMissing: [],
+    suggestions: [],
+  };
+  const batch = (status: "in_progress" | "ended") =>
+    Response.json({
+      id: "msgbatch_1",
+      type: "message_batch",
+      processing_status: status,
+      request_counts: { processing: 0, succeeded: 2, errored: 1, canceled: 0, expired: 0 },
+      results_url: status === "ended" ? "https://api.anthropic.com/v1/messages/batches/msgbatch_1/results" : null,
+      created_at: "2026-10-28T06:00:00Z",
+      ended_at: null,
+      expires_at: "2026-10-29T06:00:00Z",
+      archived_at: null,
+      cancel_initiated_at: null,
+    });
+  const message = (content: object) => ({
+    id: "msg_b",
+    type: "message",
+    role: "assistant",
+    model: "claude-opus-5-5",
+    content: [{ type: "text", text: JSON.stringify(content) }],
+    stop_reason: "end_turn",
+    stop_sequence: null,
+    usage: { input_tokens: 10, output_tokens: 10 },
+  });
+
+  it("sends every analysis in one request, without the refusal fallback the batch API won't take", async () => {
+    fetchMock.mockResolvedValueOnce(batch("in_progress"));
+    const cvs = [
+      { id: "main", name: "Main CV", text: CV },
+      { id: "ops", name: "Ops CV", text: `Jane Doe. Operations manager: warehouse teams, rotas, budgets and suppliers.` },
+    ];
+    const id = await submitMatchBatch(
+      [
+        { customId: "job-0", materials: { cv: CV, job: JOB } },
+        { customId: "job-1", materials: { cv: CV, cvs, job: { ...JOB, title: "Site Lead" } } },
+      ],
+      ENV,
+    );
+    expect(id).toBe("msgbatch_1");
+    const { url, headers, body } = lastRequest();
+    expect(url).toMatch(/\/v1\/messages\/batches(\?|$)/);
+    expect(headers.get("anthropic-beta") ?? "").not.toContain("server-side-fallback");
+    expect(body.requests.map((r: { custom_id: string }) => r.custom_id)).toEqual(["job-0", "job-1"]);
+    const [one, two] = body.requests.map((r: { params: Record<string, unknown> }) => r.params);
+    expect(one).toMatchObject({ model: "claude-opus-5-5", max_tokens: 16000, output_config: { effort: "medium", format: { type: "json_schema" } } });
+    expect(one.fallbacks).toBeUndefined();
+    expect(JSON.stringify(two.messages)).toContain("<candidate_cvs>");
+    expect(Object.keys((two.output_config as { format: { schema: { properties: object } } }).format.schema.properties)[0]).toBe("cvUsed");
+  });
+
+  it("reads the analyses back once the batch has ended", async () => {
+    fetchMock.mockResolvedValueOnce(batch("in_progress"));
+    expect(await readMatchBatch("msgbatch_1", {}, ENV)).toBeNull();
+
+    const lines = [
+      { custom_id: "job-0", result: { type: "succeeded", message: message({ ...analysis, matchScore: 120 }) } },
+      { custom_id: "job-1", result: { type: "succeeded", message: message({ cvUsed: "ops", ...analysis }) } },
+      { custom_id: "job-2", result: { type: "errored", error: { type: "error", error: { type: "overloaded_error", message: "Overloaded" } } } },
+      { custom_id: "job-3", result: { type: "canceled" } },
+      { custom_id: "job-4", result: { type: "succeeded", message: { ...message({}), content: [], stop_reason: "refusal" } } },
+    ];
+    fetchMock.mockImplementation(async (url) =>
+      String(url).includes("/results")
+        ? new Response(lines.map((line) => JSON.stringify(line)).join("\n"), { headers: { "content-type": "application/binary" } })
+        : batch("ended"),
+    );
+    const outcomes = await readMatchBatch("msgbatch_1", { "job-1": ["main", "ops"] }, ENV);
+    expect(outcomes?.["job-0"]).toMatchObject({ analysis: { matchScore: 100 } });
+    expect(outcomes?.["job-0"]).not.toHaveProperty("analysis.cvId");
+    expect(outcomes?.["job-1"]).toMatchObject({ analysis: { cvId: "ops", matchScore: 81 } });
+    expect(outcomes?.["job-2"]).toMatchObject({ error: { status: 502 } });
+    expect(outcomes?.["job-3"]).toEqual({ canceled: true });
+    expect(outcomes?.["job-4"]).toMatchObject({ error: { status: 422 } });
   });
 });
 

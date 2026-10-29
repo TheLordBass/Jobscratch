@@ -43,6 +43,7 @@ function summary(run: JobspyRun): string {
 function PrepLine({ prep }: { prep: PrepState }) {
   const parts = [
     prep.matched > 0 && `${prep.matched} matched against your CV`,
+    prep.batch && !prep.finished && `${prep.batch.jobs.length} with Claude to match`,
     prep.ready.length > 0 && `${prep.ready.length} ready to apply`,
   ].filter(Boolean);
   if (parts.length === 0 && !prep.stopped) return null;
