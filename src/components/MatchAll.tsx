@@ -6,7 +6,7 @@ import { useEffect, useMemo } from "react";
 import { useSources } from "@/components/useSources";
 import { canMatch, candidateFor, matchFromAnalysis, matchKey, type Candidate } from "@/lib/candidate";
 import type { MatchAnalysis } from "@/lib/ai/prompts";
-import { cvVersions, cvsToMatch, hasCvText, pickCv } from "@/lib/cvs";
+import { hasCvText } from "@/lib/cvs";
 import { beginBatch, markBatchSeen, pausedInBackground, stopBatch, useBatch } from "@/lib/batch-runs";
 import { siteJobKey } from "@/lib/import";
 import { isSavedJob, updateStoredMatch, updateTailoredDocs, useCv, useMatches, useProfile, useSavedJobs, useSettings, useTailored, type StoredMatch } from "@/lib/store";
@@ -20,43 +20,24 @@ const CONFIRM_ABOVE = 10;
 /**
  * The current match for each job: a full analysis, leaving out ones made from an older CV or
  * description, from a snippet, or quick-only scores from before every match was a full analysis.
- * Each job has its own CV (lib/cvs.ts): `matchCandidateFor` says what to send to match it (every
- * CV, for the analysis to choose from, unless one is picked for it), `candidateFor` what to send to
- * write its documents (the CV it uses).
+ * `candidate` is what's sent about the candidate for every job: all their CVs, website and GitHub.
  */
 export function useCurrentMatches(): {
   matchFor: (job: Job) => StoredMatch | undefined;
-  matchCandidateFor: (job: Job) => Candidate;
-  candidateFor: (job: Job) => Candidate;
+  candidate: Candidate;
   hasCv: boolean;
 } {
   const [cv] = useCv();
   const [profile] = useProfile();
   const [matches] = useMatches();
-  const [tailored] = useTailored();
-  // One per CV, and one for them all, worked out once rather than for every job in a list.
-  const candidates = useMemo(
-    () => new Map(cvVersions(cv).map((version) => [version.id, candidateFor(version, profile)])),
-    [cv, profile],
-  );
-  const everyCv = useMemo(() => candidateFor(cvVersions(cv), profile), [cv, profile]);
-  const none = useMemo(() => candidateFor(null, profile), [profile]);
-
-  const matchCandidateFor = (job: Job) => {
-    const versions = cvsToMatch(cv, job, tailored[job.id]?.cvId);
-    return versions.length > 1 ? everyCv : (candidates.get(versions[0]?.id ?? "") ?? none);
-  };
+  // Worked out once rather than for every job in a list.
+  const candidate = useMemo(() => candidateFor(cv, profile), [cv, profile]);
   const matchFor = (job: Job) => {
     const match = matches[job.id];
     // A score made from a snippet (before snippets stopped being matched) isn't shown.
-    return match?.analysis && canMatch(job) && match.key === matchKey(job, matchCandidateFor(job)) ? match : undefined;
+    return match?.analysis && canMatch(job) && match.key === matchKey(job, candidate) ? match : undefined;
   };
-  const candidateForJob = (job: Job) => {
-    const docs = tailored[job.id];
-    const matched = (docs?.analysis ?? matchFor(job)?.analysis)?.cvId;
-    return candidates.get(pickCv(cv, job, docs?.cvId, matched)?.id ?? "") ?? none;
-  };
-  return { matchFor, matchCandidateFor, candidateFor: candidateForJob, hasCv: hasCvText(cv) };
+  return { matchFor, candidate, hasCv: hasCvText(cv) };
 }
 
 
@@ -72,7 +53,7 @@ export function MatchAllButton({ jobs, onMatched }: MatchAllProps) {
   const { saved } = useSavedJobs();
   const [tailored] = useTailored();
   const [settings] = useSettings();
-  const { matchFor, matchCandidateFor, hasCv } = useCurrentMatches();
+  const { matchFor, candidate, hasCv } = useCurrentMatches();
   // Runs in the background (lib/batch-runs.ts), so going to another page doesn't stop it.
   const page = usePathname();
   const progress = useBatch("match", page);
@@ -113,7 +94,6 @@ export function MatchAllButton({ jobs, onMatched }: MatchAllProps) {
         if (!job) return;
         try {
           const notes = settings.useJobNotes ? saved[job.id]?.notes.trim().slice(0, 4000) || undefined : undefined;
-          const candidate = matchCandidateFor(job);
           const response = await fetch("/api/tailor/analyze", {
             method: "POST",
             headers: { "Content-Type": "application/json" },

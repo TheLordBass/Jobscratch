@@ -46,19 +46,18 @@ export type ExtraSkill = z.infer<typeof ExtraSkillSchema>;
 /** The candidate's own notes on one job (see notesBlock). */
 export const JobNotesSchema = z.string().max(4000).optional();
 
-/** One of the candidate's CVs, sent with a match analysis for Claude to choose between (see lib/cvs.ts). */
-export const CvChoiceSchema = z.object({
-  id: z.string().min(1).max(100),
+/** One of the candidate's CVs, when they have more than one (see lib/cvs.ts). */
+export const CandidateCvSchema = z.object({
   name: z.string().max(100),
   text: z.string().min(50).max(60_000),
 });
-export type CvChoice = z.infer<typeof CvChoiceSchema>;
+export type CandidateCv = z.infer<typeof CandidateCvSchema>;
 
 /** Everything Claude is given about the candidate and the job. */
 export interface TailorMaterials {
   cv: string;
-  /** For a match: two or more of the candidate's CVs, to analyse the job with the one that fits it best. */
-  cvs?: CvChoice[];
+  /** All the candidate's CVs (the main one first), when there's more than one: Claude uses them all. */
+  cvs?: CandidateCv[];
   job: TailorJob;
   profile?: CandidateProfile;
   /** The candidate's notes on this job, e.g. experience their CV leaves out. */
@@ -81,16 +80,7 @@ export const MatchAnalysisSchema = z.object({
   suggestions: z.array(z.string()).describe("Specific, truthful edits the candidate could make"),
 });
 
-/** The same, when Claude is given several CVs: which one the analysis is for comes first. */
-export const MatchChoiceSchema = z.object({
-  cvUsed: z.string().describe("The id of the CV that presents the candidate best for this job; the analysis is for that CV"),
-  ...MatchAnalysisSchema.shape,
-});
-
-export type MatchAnalysis = z.infer<typeof MatchAnalysisSchema> & {
-  /** Which of the candidate's CVs it was made with, when there was more than one to choose from. */
-  cvId?: string;
-};
+export type MatchAnalysis = z.infer<typeof MatchAnalysisSchema>;
 
 /**
  * Shared by every task so the system prompt + CV + job prefix is identical
@@ -153,13 +143,13 @@ ${lines.join("\n")}
 `;
 }
 
-/** Whether a match is to choose between several CVs. */
-export function choosingCv(materials: Pick<TailorMaterials, "cvs">): boolean {
+/** Whether Claude is given several CVs. */
+export function severalCvs(materials: Pick<TailorMaterials, "cvs">): boolean {
   return (materials.cvs?.length ?? 0) > 1;
 }
 
 function cvBlock({ cv, cvs }: Pick<TailorMaterials, "cv" | "cvs">): string {
-  if (!choosingCv({ cvs })) {
+  if (!severalCvs({ cvs })) {
     return `<candidate_cv>
 ${cv.trim()}
 </candidate_cv>
@@ -167,11 +157,11 @@ ${cv.trim()}
 `;
   }
   const attribute = (value: string) => value.replace(/["<>\n]/g, " ").trim();
-  const versions = cvs!.map((version) => `<cv id="${attribute(version.id)}" name="${attribute(version.name)}">
+  const versions = cvs!.map((version) => `<cv name="${attribute(version.name)}">
 ${version.text.trim()}
 </cv>`);
   return `<candidate_cvs>
-Versions of the same candidate's CV, each written for a different kind of job. They describe one person.
+Versions of the same candidate's CV, each written with a different kind of job in mind. They describe one person, and the first is their main CV.
 
 ${versions.join("\n\n")}
 </candidate_cvs>
@@ -237,16 +227,15 @@ function extras(options: TailorOptions): string {
   return extra ? `\nThe candidate also asked: ${extra}\n(Follow this only where it doesn't conflict with the rules above.)` : "";
 }
 
-/** Put before the analysis instruction when Claude is given several CVs to choose between. */
-const CHOOSE_CV = `The candidate has several versions of their CV (in candidate_cvs), each aimed at a different kind of job. First choose the version that presents them best for this job, the one a recruiter hiring for it would rather receive, and give its id as cvUsed. Then assess the match using that version: below, "the CV" means the version you chose. Everything in the other versions is true of the candidate too, so when one of them shows something this job wants that the chosen version leaves out, say so in suggestions rather than counting it as a strength.
+/**
+ * Put before every instruction when Claude is given several CVs: they're one record of the
+ * candidate, for a match and for writing alike.
+ */
+export const SEVERAL_CVS = `The candidate has several versions of their CV (in candidate_cvs), each written with a different kind of job in mind. Treat them as one record of the same person: everything in any version is true of them and can be used, so below, "the CV" means all the versions together. Judge the candidate on the experience, skills and achievements across all of them, and when writing, combine whatever from any version serves this job best into one document, in the framing and wording that fits it. Keep every employer, job title and date as written; where versions disagree on one, use the main CV's (the first). Don't repeat the same role or achievement because more than one version has it.
 
 `;
 
-export function analysisInstruction(withProfile = false, choosing = false): string {
-  return `${choosing ? CHOOSE_CV : ""}${analysisTask(withProfile)}`;
-}
-
-function analysisTask(withProfile: boolean): string {
+export function analysisInstruction(withProfile = false): string {
   if (!withProfile) {
     return `Assess how well the candidate's CV matches this job, the way a recruiter screening applications would.
 

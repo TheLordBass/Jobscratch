@@ -1,20 +1,19 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
-import { z } from "zod";
 import {
   AnswersSchema,
   MatchAnalysisSchema,
-  MatchChoiceSchema,
+  SEVERAL_CVS,
   SYSTEM_PROMPT,
   analysisInstruction,
   answersInstruction,
   candidateBlock,
-  choosingCv,
   coverLetterInstruction,
   cvInstruction,
   hasProfile,
   jobBlock,
   notesBlock,
+  severalCvs,
   type ApplicationAnswer,
   type ApplicationDetails,
   type MatchAnalysis,
@@ -86,7 +85,8 @@ function buildMessages(materials: TailorMaterials, instruction: string): Anthrop
           text: `${jobBlock(materials.job)}${notesBlock(materials.notes)}`,
           cache_control: { type: "ephemeral" },
         },
-        { type: "text", text: instruction },
+        // With several CVs, every task is told to treat them as one record.
+        { type: "text", text: `${severalCvs(materials) ? SEVERAL_CVS : ""}${instruction}` },
       ],
     },
   ];
@@ -133,47 +133,30 @@ export function toAiError(error: unknown): AiError {
 const REFUSAL_MESSAGE =
   "Claude declined this request. Check the CV and job text for anything unusual, then try again.";
 
-/** The CVs a match chooses between: none when there's only the one. */
-export function cvChoices(materials: TailorMaterials): string[] {
-  return choosingCv(materials) ? (materials.cvs ?? []).map((version) => version.id) : [];
-}
-
 /** A match analysis's request, but for the model. */
 function matchRequest(materials: TailorMaterials, env: Env) {
-  const choosing = choosingCv(materials);
-  // Typed as the larger schema; without a choice to make, cvUsed is simply missing.
-  const schema = (choosing ? MatchChoiceSchema : MatchAnalysisSchema) as typeof MatchChoiceSchema;
   return {
     max_tokens: 16000,
     system: SYSTEM_PROMPT,
-    messages: buildMessages(materials, analysisInstruction(hasProfile(materials.profile), choosing)),
-    output_config: { effort: matchEffort(env), format: betaZodOutputFormat(schema) },
+    messages: buildMessages(materials, analysisInstruction(hasProfile(materials.profile))),
+    output_config: { effort: matchEffort(env), format: betaZodOutputFormat(MatchAnalysisSchema) },
   };
 }
 
-/** Claude's answer as an analysis. `cvIds` are the CVs it chose between, if it had a choice. */
-function toAnalysis(stopReason: string | null, parsed: (z.infer<typeof MatchAnalysisSchema> & { cvUsed?: string }) | null, cvIds: string[]): MatchAnalysis {
+/** Claude's answer as an analysis. */
+function toAnalysis(stopReason: string | null, parsed: MatchAnalysis | null): MatchAnalysis {
   if (stopReason === "refusal") throw new AiError(REFUSAL_MESSAGE, 422);
   if (stopReason === "max_tokens") throw new AiError("The analysis was cut off. Try again.", 502);
   if (!parsed) throw new AiError("Claude's analysis couldn't be read. Try again.", 502);
-  const { cvUsed, ...analysis } = parsed;
-  return {
-    ...analysis,
-    matchScore: Math.min(100, Math.max(0, Math.round(analysis.matchScore))),
-    // An id it made up counts as the first CV's, which the list starts with.
-    ...(cvIds.length > 0 && { cvId: cvUsed && cvIds.includes(cvUsed) ? cvUsed : cvIds[0] }),
-  };
+  return { ...parsed, matchScore: Math.min(100, Math.max(0, Math.round(parsed.matchScore))) };
 }
 
-/**
- * A match analysis. Given several CVs (`materials.cvs`), Claude first picks the one that fits the job
- * best and analyses with that, and `cvId` says which it was.
- */
+/** A match analysis: how well everything about the candidate (every CV, the website and GitHub) fits the job. */
 export async function analyzeMatch(materials: TailorMaterials, env: Env, signal?: AbortSignal): Promise<MatchAnalysis> {
   const client = getClient(env);
   const response = await client.beta.messages.parse({ ...modelParams(env, "match"), ...matchRequest(materials, env) }, { signal });
   logUsage("match", response);
-  return toAnalysis(response.stop_reason, response.parsed_output, cvChoices(materials));
+  return toAnalysis(response.stop_reason, response.parsed_output);
 }
 
 /*
@@ -200,28 +183,20 @@ export async function submitMatchBatch(matches: BatchedMatch[], env: Env): Promi
 
 export type BatchOutcome = { analysis: MatchAnalysis } | { error: AiError } | { canceled: true };
 
-/**
- * A batch's analyses, once it's finished: null while Claude's still working on it. `cvIds` are the
- * CVs each request chose between (by custom id), as `cvChoices` gave them when it was sent.
- */
-export async function readMatchBatch(
-  id: string,
-  cvIds: Record<string, string[]>,
-  env: Env,
-): Promise<Record<string, BatchOutcome> | null> {
+/** A batch's analyses, by custom id, once it's finished: null while Claude's still working on it. */
+export async function readMatchBatch(id: string, env: Env): Promise<Record<string, BatchOutcome> | null> {
   const client = getClient(env);
   const batch = await client.beta.messages.batches.retrieve(id);
   if (batch.processing_status !== "ended") return null;
   const outcomes: Record<string, BatchOutcome> = {};
-  // Either schema: cvUsed is there only when the request had CVs to choose between.
-  const format = betaZodOutputFormat(MatchAnalysisSchema.extend({ cvUsed: z.string().optional() }));
+  const format = betaZodOutputFormat(MatchAnalysisSchema);
   for await (const { custom_id, result } of await client.beta.messages.batches.results(id)) {
     if (result.type === "succeeded") {
       logUsage("match (batch)", result.message);
       try {
         const text = result.message.content.find((block) => block.type === "text")?.text;
         const parsed = result.message.stop_reason === "end_turn" && text ? format.parse(text) : null;
-        outcomes[custom_id] = { analysis: toAnalysis(result.message.stop_reason, parsed, cvIds[custom_id] ?? []) };
+        outcomes[custom_id] = { analysis: toAnalysis(result.message.stop_reason, parsed) };
       } catch (error) {
         outcomes[custom_id] = { error: error instanceof AiError ? error : new AiError("Claude's analysis couldn't be read.", 502) };
       }

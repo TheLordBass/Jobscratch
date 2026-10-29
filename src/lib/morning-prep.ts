@@ -68,8 +68,8 @@ export interface PrepState {
 export interface PrepBatch {
   id: string;
   sentAt: string;
-  /** Each request's job (its custom id is `job-<index>`), the key its match is saved with, and the CVs it chose between. */
-  jobs: Array<{ id: string; key: string; cvIds?: string[] }>;
+  /** Each request's job (its custom id is `job-<index>`) and the key its match is saved with. */
+  jobs: Array<{ id: string; key: string }>;
   /** Cancelled for taking too long: what it finished still comes back. */
   canceled?: boolean;
 }

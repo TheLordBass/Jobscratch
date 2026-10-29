@@ -324,45 +324,48 @@ describe("analyzeMatch", () => {
     expect(body.model).toBe("claude-opus-5-5");
   });
 
-  it("given several CVs, has Claude pick the best one and analyse with it", async () => {
-    const reply = (cvUsed: string) =>
+  it("given several CVs, has Claude use them all as one record, for the match and the writing", async () => {
+    const reply = () =>
       Response.json({
         id: "msg_6",
         type: "message",
         role: "assistant",
         model: "claude-opus-5-5",
-        content: [{ type: "text", text: JSON.stringify({ cvUsed, ...analysis }) }],
+        content: [{ type: "text", text: JSON.stringify(analysis) }],
         stop_reason: "end_turn",
         stop_sequence: null,
         usage: { input_tokens: 10, output_tokens: 10 },
       });
     const ops = `Jane Doe. Operations manager: warehouse teams, rotas, budgets and suppliers for five years.`;
     const cvs = [
-      { id: "main", name: "Main CV", text: CV },
-      { id: "ops", name: "Ops \"CV\"", text: ops },
+      { name: "Main CV", text: CV },
+      { name: 'Ops "CV"', text: ops },
     ];
-    fetchMock.mockResolvedValueOnce(reply("ops"));
+    fetchMock.mockResolvedValueOnce(reply());
     const result = await analyzeMatch({ cv: CV, cvs, job: JOB }, ENV);
-    expect(result.cvId).toBe("ops");
-    expect(result).not.toHaveProperty("cvUsed");
-
-    const { body } = lastRequest();
-    expect(Object.keys(body.output_config.format.schema.properties)).toEqual(["cvUsed", ...Object.keys(analysis)]);
-    const { materials, instruction } = requestParts();
+    expect(result.matchScore).toBe(100);
+    expect(Object.keys(lastRequest().body.output_config.format.schema.properties)).toEqual(Object.keys(analysis));
+    let { materials, instruction } = requestParts();
     expect(materials).toContain("<candidate_cvs>");
-    expect(materials).toContain('<cv id="ops" name="Ops  CV">');
+    expect(materials).toContain('<cv name="Ops  CV">');
     expect(materials).toContain("warehouse teams");
     expect(materials).not.toContain("<candidate_cv>");
     expect(instruction.text).toMatch(/^The candidate has several versions of their CV/);
+    expect(instruction.text).toContain("Assess how well");
 
-    // An id it made up counts as the first CV's.
-    fetchMock.mockResolvedValueOnce(reply("cv-3"));
-    expect((await analyzeMatch({ cv: CV, cvs, job: JOB }, ENV)).cvId).toBe("main");
+    // The CV is written from them all too.
+    fetchMock.mockResolvedValueOnce(streamOf(["# Jane"]));
+    await collect(streamDocument("cv", { cv: CV, cvs, job: JOB }, OPTIONS, ENV));
+    ({ materials, instruction } = requestParts());
+    expect(materials).toContain("warehouse teams");
+    expect(instruction.text).toMatch(/^The candidate has several versions of their CV/);
+    expect(instruction.text).toContain("Rewrite the candidate's CV");
 
-    // One CV is sent as before, with nothing to pick.
-    fetchMock.mockResolvedValueOnce(reply("main"));
-    expect((await analyzeMatch({ cv: CV, cvs: cvs.slice(0, 1), job: JOB }, ENV)).cvId).toBeUndefined();
+    // One CV is sent as before.
+    fetchMock.mockResolvedValueOnce(reply());
+    await analyzeMatch({ cv: CV, job: JOB }, ENV);
     expect(requestParts().materials).toContain("<candidate_cv>");
+    expect(requestParts().instruction.text).toMatch(/^Assess how well/);
   });
 
   it("throws a friendly error on refusal", async () => {
@@ -420,8 +423,8 @@ describe("match batches", () => {
   it("sends every analysis in one request, without the refusal fallback the batch API won't take", async () => {
     fetchMock.mockResolvedValueOnce(batch("in_progress"));
     const cvs = [
-      { id: "main", name: "Main CV", text: CV },
-      { id: "ops", name: "Ops CV", text: `Jane Doe. Operations manager: warehouse teams, rotas, budgets and suppliers.` },
+      { name: "Main CV", text: CV },
+      { name: "Ops CV", text: `Jane Doe. Operations manager: warehouse teams, rotas, budgets and suppliers.` },
     ];
     const id = await submitMatchBatch(
       [
@@ -439,16 +442,15 @@ describe("match batches", () => {
     expect(one).toMatchObject({ model: "claude-opus-5-5", max_tokens: 16000, output_config: { effort: "medium", format: { type: "json_schema" } } });
     expect(one.fallbacks).toBeUndefined();
     expect(JSON.stringify(two.messages)).toContain("<candidate_cvs>");
-    expect(Object.keys((two.output_config as { format: { schema: { properties: object } } }).format.schema.properties)[0]).toBe("cvUsed");
   });
 
   it("reads the analyses back once the batch has ended", async () => {
     fetchMock.mockResolvedValueOnce(batch("in_progress"));
-    expect(await readMatchBatch("msgbatch_1", {}, ENV)).toBeNull();
+    expect(await readMatchBatch("msgbatch_1", ENV)).toBeNull();
 
     const lines = [
       { custom_id: "job-0", result: { type: "succeeded", message: message({ ...analysis, matchScore: 120 }) } },
-      { custom_id: "job-1", result: { type: "succeeded", message: message({ cvUsed: "ops", ...analysis }) } },
+      { custom_id: "job-1", result: { type: "succeeded", message: message(analysis) } },
       { custom_id: "job-2", result: { type: "errored", error: { type: "error", error: { type: "overloaded_error", message: "Overloaded" } } } },
       { custom_id: "job-3", result: { type: "canceled" } },
       { custom_id: "job-4", result: { type: "succeeded", message: { ...message({}), content: [], stop_reason: "refusal" } } },
@@ -458,10 +460,9 @@ describe("match batches", () => {
         ? new Response(lines.map((line) => JSON.stringify(line)).join("\n"), { headers: { "content-type": "application/binary" } })
         : batch("ended"),
     );
-    const outcomes = await readMatchBatch("msgbatch_1", { "job-1": ["main", "ops"] }, ENV);
+    const outcomes = await readMatchBatch("msgbatch_1", ENV);
     expect(outcomes?.["job-0"]).toMatchObject({ analysis: { matchScore: 100 } });
-    expect(outcomes?.["job-0"]).not.toHaveProperty("analysis.cvId");
-    expect(outcomes?.["job-1"]).toMatchObject({ analysis: { cvId: "ops", matchScore: 81 } });
+    expect(outcomes?.["job-1"]).toMatchObject({ analysis: { matchScore: 81 } });
     expect(outcomes?.["job-2"]).toMatchObject({ error: { status: 502 } });
     expect(outcomes?.["job-3"]).toEqual({ canceled: true });
     expect(outcomes?.["job-4"]).toMatchObject({ error: { status: 422 } });

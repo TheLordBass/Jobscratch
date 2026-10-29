@@ -13,7 +13,7 @@ import { useSources } from "@/components/useSources";
 import type { MatchAnalysis, TailorOptions } from "@/lib/ai/prompts";
 import { markdownToDocx } from "@/lib/export-docx";
 import { canMatch, hasFullDescription, matchKey } from "@/lib/candidate";
-import { cvVersions, hasCvText, pickCv, whyCv } from "@/lib/cvs";
+import { cvVersions, hasCvText } from "@/lib/cvs";
 import { dismissTask, startAnalysis, startAnswers, startDocument, stopJobTasks, stopTask, useJobTask, type JobTask } from "@/lib/job-tasks";
 import { jobKeys } from "@/lib/import";
 import { documentFileName } from "@/lib/apply";
@@ -77,7 +77,7 @@ function ScoreBadge({ score }: { score: number }) {
   );
 }
 
-function AnalysisPanel({ analysis, cvName }: { analysis: MatchAnalysis; cvName?: string }) {
+function AnalysisPanel({ analysis }: { analysis: MatchAnalysis }) {
   const section = (title: string, items: string[], empty: string) => (
     <div>
       <h3 className="mb-1 text-sm font-semibold">{title}</h3>
@@ -97,7 +97,6 @@ function AnalysisPanel({ analysis, cvName }: { analysis: MatchAnalysis; cvName?:
       <div>
         <ScoreBadge score={analysis.matchScore} />
         <p className="mt-2 text-sm">{analysis.verdict}</p>
-        {cvName && <p className="muted mt-1 text-xs">Matched with your {cvName}, the CV that fits this job best.</p>}
       </div>
       {section("Strengths", analysis.strengths, "None identified.")}
       {section("Gaps", analysis.gaps, "No significant gaps.")}
@@ -447,10 +446,8 @@ function TailorWorkspace({ entry, initialTab }: { entry: SavedJob; initialTab?: 
   const docs: TailoredDocs | undefined = tailored[job.id];
   // An analysis from Match all counts as this job's until one is run here (an out-of-date one is marked so).
   // Not for a job with only a snippet: one made from it would be misleading.
-  const { matchFor, candidateFor, matchCandidateFor } = useCurrentMatches();
-  const candidate = candidateFor(job);
-  // Every CV, for the analysis to choose the best of, unless one is picked for this job (lib/cvs.ts).
-  const matchCandidate = matchCandidateFor(job);
+  // Everything about the candidate (every CV, the website and GitHub), the same for every job.
+  const { matchFor, candidate } = useCurrentMatches();
   const [matches] = useMatches();
   const currentMatch = matchFor(job);
   const listMatch = currentMatch ?? (canMatch(job) ? matches[job.id] : undefined);
@@ -494,11 +491,8 @@ function TailorWorkspace({ entry, initialTab }: { entry: SavedJob; initialTab?: 
 
   const description = docs?.jobDescription ?? job.description;
   const options = settings.tailor;
-  // The CV this job is tailored from: the one picked here, else the one its title fits (lib/cvs.ts).
-  const versions = cvVersions(cv);
-  const matchedCv = (docs?.analysis ?? currentMatch?.analysis)?.cvId;
-  const version = pickCv(cv, job, docs?.cvId, matchedCv);
-  const cvText = version?.text ?? "";
+  const versions = cvVersions(cv).filter(hasCvText);
+  const cvText = candidate.cv;
   const blocker =
     cvText.trim().length < 50
       ? "Add your CV first, under Profile."
@@ -524,7 +518,7 @@ function TailorWorkspace({ entry, initialTab }: { entry: SavedJob; initialTab?: 
   const profileSources =
     [profile.website.trim() && "website", profile.github.trim() && "GitHub"].filter(Boolean).join(" and ") ||
     "website and GitHub details";
-  const { profile: payloadProfile, skills: payloadSkills, staleDetails } = candidate;
+  const { cvs: payloadCvs, profile: payloadProfile, skills: payloadSkills, staleDetails } = candidate;
   const payloadNotes = settings.useJobNotes ? entry.notes.trim().slice(0, 4000) || undefined : undefined;
 
   const payloadJob = {
@@ -540,15 +534,15 @@ function TailorWorkspace({ entry, initialTab }: { entry: SavedJob; initialTab?: 
     startAnalysis(
       job.id,
       label,
-      { cv: matchCandidate.cv, cvs: matchCandidate.cvs, job: payloadJob, profile: payloadProfile, skills: payloadSkills, notes: payloadNotes },
+      { cv: cvText, cvs: payloadCvs, job: payloadJob, profile: payloadProfile, skills: payloadSkills, notes: payloadNotes },
       // So the score shows in the job lists too, when it's for the job's own description.
-      description === job.description ? matchKey(job, matchCandidate) : undefined,
+      description === job.description ? matchKey(job, candidate) : undefined,
     );
   }
 
   function generate(kind: DocKind) {
     setTab(kind);
-    startDocument(job.id, label, kind, { cv: cvText, job: payloadJob, profile: payloadProfile, skills: payloadSkills, notes: payloadNotes, options });
+    startDocument(job.id, label, kind, { cv: cvText, cvs: payloadCvs, job: payloadJob, profile: payloadProfile, skills: payloadSkills, notes: payloadNotes, options });
   }
 
   /** Drafts application answers in the background; `add` keeps the job's other answers. */
@@ -557,7 +551,7 @@ function TailorWorkspace({ entry, initialTab }: { entry: SavedJob; initialTab?: 
     startAnswers(
       job.id,
       label,
-      { cv: cvText, job: payloadJob, profile: payloadProfile, skills: payloadSkills, notes: payloadNotes, questions, details: profile.application },
+      { cv: cvText, cvs: payloadCvs, job: payloadJob, profile: payloadProfile, skills: payloadSkills, notes: payloadNotes, questions, details: profile.application },
       add,
     );
   }
@@ -699,7 +693,7 @@ function TailorWorkspace({ entry, initialTab }: { entry: SavedJob; initialTab?: 
                 )}
                 {analysis ? (
                   <>
-                    <AnalysisPanel analysis={analysis} cvName={analysis.cvId ? versions.find((v) => v.id === analysis.cvId)?.name : undefined} />
+                    <AnalysisPanel analysis={analysis} />
                     {staleAnalysis && (
                       <p className="muted mt-3 text-xs">
                         Your CV or this job’s description has changed since this analysis, so it may be out of date.
@@ -845,34 +839,17 @@ function TailorWorkspace({ entry, initialTab }: { entry: SavedJob; initialTab?: 
                 {cv ? "Edit" : "Add CV"}
               </Link>
             </div>
-            {version ? (
+            {versions.length > 0 ? (
               <>
-                {versions.length > 1 && (
-                  <div className="pb-1">
-                    <label htmlFor="tailor-cv" className="sr-only">
-                      CV to tailor from
-                    </label>
-                    <select
-                      id="tailor-cv"
-                      className="input py-1.5 text-sm"
-                      value={docs?.cvId && versions.some((v) => v.id === docs.cvId && hasCvText(v)) ? docs.cvId : ""}
-                      onChange={(e) => updateDocs({ cvId: e.target.value || undefined })}
-                    >
-                      <option value="">Best fit ({pickCv(cv, job, undefined, matchedCv)?.name})</option>
-                      {versions.filter(hasCvText).map((v) => (
-                        <option key={v.id} value={v.id}>
-                          {v.name}
-                        </option>
-                      ))}
-                    </select>
-                    <p className="muted mt-1 text-xs">
-                      Using <strong>{version.name}</strong>: {whyCv(cv, job, docs?.cvId, matchedCv)}.
-                      {docs?.cv && " Write the CV again to use another one."}
-                    </p>
-                  </div>
-                )}
                 <p className="muted text-xs">
-                  {version.fileName ?? "Pasted CV"} · {cvText.trim().split(/\s+/).length} words
+                  {versions.length > 1 ? (
+                    <>
+                      All {versions.length}: {versions.map((v) => v.name).join(", ")}. Matching and writing use everything in
+                      them, taking what fits this job from each.
+                    </>
+                  ) : (
+                    `${versions[0].fileName ?? "Pasted CV"} · ${cvText.trim().split(/\s+/).length} words`
+                  )}
                 </p>
                 <p className="muted text-xs">
                   {payloadProfile ? (

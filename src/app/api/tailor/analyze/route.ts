@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { analyzeMatch, toAiError } from "@/lib/ai/claude";
-import { CandidateProfileSchema, CvChoiceSchema, ExtraSkillsSchema, JobNotesSchema, TailorJobSchema } from "@/lib/ai/prompts";
+import { CandidateCvSchema, CandidateProfileSchema, ExtraSkillsSchema, JobNotesSchema, TailorJobSchema } from "@/lib/ai/prompts";
 import { hasFullDescription } from "@/lib/candidate";
 import { MAX_CVS } from "@/lib/cvs";
 
@@ -8,8 +8,8 @@ export const maxDuration = 300;
 
 const Body = z.object({
   cv: z.string().min(50, "Add your CV first").max(60_000),
-  /** Several CVs to choose between (lib/cvs.ts); `cv` is then the first of them. */
-  cvs: z.array(CvChoiceSchema).max(MAX_CVS).optional(),
+  /** Every CV, when there's more than one (lib/cvs.ts); `cv` is then the first of them. */
+  cvs: z.array(CandidateCvSchema).min(2).max(MAX_CVS).optional(),
   job: TailorJobSchema,
   profile: CandidateProfileSchema.optional(),
   notes: JobNotesSchema,

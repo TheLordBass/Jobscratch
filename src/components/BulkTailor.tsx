@@ -22,7 +22,7 @@ const THRESHOLDS = [90, 80, 70, 60];
  * documents live. `title` and `ready` (cover letters and answers ticked) are for the Apply page.
  */
 export function BulkTailor({ jobs, title = "Tailor CVs for top matches", ready = false }: { jobs: Job[]; title?: string; ready?: boolean }) {
-  const { matchFor, candidateFor } = useCurrentMatches();
+  const { matchFor, candidate } = useCurrentMatches();
   const { saved, saveJob } = useSavedJobs();
   const [tailored, setTailored] = useTailored();
   const [settings] = useSettings();
@@ -74,10 +74,9 @@ export function BulkTailor({ jobs, title = "Tailor CVs for top matches", ready =
     const report = (stopped?: string) => run.report({ done, failed, current: [...current], stopped });
 
     const materials = (into: Job) => {
-      // Each with its own CV (lib/cvs.ts).
-      const candidate = candidateFor(into);
       return {
         cv: candidate.cv,
+        cvs: candidate.cvs,
         job: {
           title: into.title.slice(0, 300),
           company: into.company.slice(0, 200),
