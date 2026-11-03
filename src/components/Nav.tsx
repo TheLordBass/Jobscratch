@@ -9,6 +9,7 @@ import { signOut, useSession } from "@/components/useSession";
 import { startSync, useSyncState } from "@/lib/sync";
 import { markBatchSeen, useBatches, type BatchRun } from "@/lib/batch-runs";
 import { dismissTask, useJobTasks, type TaskKind } from "@/lib/job-tasks";
+import { resumeMatchBatches } from "@/lib/match-batches";
 import { useSearchState, useSearchUnseen } from "@/lib/search-session";
 
 /** Three sections; each covers the pages listed in `paths`. */
@@ -34,7 +35,10 @@ export function Nav() {
   // The sign-in page has nothing to sync yet; signing in reloads the page.
   const onLogin = pathname === "/login";
   useEffect(() => {
-    if (!onLogin) startSync();
+    if (onLogin) return;
+    startSync();
+    // Matches sent from this phone before a reload: collected when they're back.
+    resumeMatchBatches();
   }, [onLogin]);
 
   return (
@@ -166,6 +170,7 @@ const TASK_NAMES: Record<TaskKind, string> = {
 function batchName(run: BatchRun): string {
   const jobs = (n: number) => `${n} ${n === 1 ? "job" : "jobs"}`;
   if (run.kind === "match") {
+    if (run.status === "running" && run.background) return `Claude is matching ${jobs(run.total - run.done)}`;
     return run.status === "running" ? `Matching ${run.done} of ${jobs(run.total)}` : `Matched ${jobs(run.done - run.failed)}`;
   }
   return run.status === "running"

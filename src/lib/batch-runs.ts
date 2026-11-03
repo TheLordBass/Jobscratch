@@ -26,6 +26,8 @@ export interface BatchRun {
   current: string[];
   /** Why it stopped early, e.g. the API key was refused. */
   stopped?: string;
+  /** Running at Claude's end (lib/match-batches.ts): leaving the app doesn't stop it. */
+  background?: boolean;
 }
 
 const runs = new Map<string, BatchRun>();
@@ -43,7 +45,7 @@ function changed() {
 if (typeof window !== "undefined") {
   // Leaving the app (a reload or closing the tab) would stop them, so the browser asks first.
   window.addEventListener("beforeunload", (event) => {
-    if (all.some((run) => run.status === "running")) event.preventDefault();
+    if (all.some((run) => run.status === "running" && !run.background)) event.preventDefault();
   });
 }
 
@@ -80,12 +82,12 @@ export interface BatchHandle {
 }
 
 /** Starts a run for `page` (stopping one already running there) and returns how to report on it. */
-export function beginBatch(kind: BatchKind, page: string, total: number, what = ""): BatchHandle {
+export function beginBatch(kind: BatchKind, page: string, total: number, what = "", background = false): BatchHandle {
   const key = keyOf(kind, page);
   controllers.get(key)?.abort();
   const controller = new AbortController();
   controllers.set(key, controller);
-  runs.set(key, { kind, page, what, status: "running", done: 0, total, failed: 0, current: [] });
+  runs.set(key, { kind, page, what, status: "running", done: 0, total, failed: 0, current: [], ...(background && { background }) });
   changed();
   const mine = () => controllers.get(key) === controller;
   return {

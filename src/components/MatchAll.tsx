@@ -8,6 +8,7 @@ import { canMatch, candidateFor, matchFromAnalysis, matchKey, type Candidate } f
 import type { MatchAnalysis } from "@/lib/ai/prompts";
 import { hasCvText } from "@/lib/cvs";
 import { beginBatch, markBatchSeen, pausedInBackground, stopBatch, useBatch } from "@/lib/batch-runs";
+import { matchInBatches, matchesInBackground } from "@/lib/match-batches";
 import { siteJobKey } from "@/lib/import";
 import { isSavedJob, updateStoredMatch, updateTailoredDocs, useCv, useMatches, useProfile, useSavedJobs, useSettings, useTailored, type StoredMatch } from "@/lib/store";
 import type { Job } from "@/lib/types";
@@ -75,12 +76,21 @@ export function MatchAllButton({ jobs, onMatched }: MatchAllProps) {
 
   async function start() {
     if (todo.length === 0) return;
+    // On a phone, as batches that carry on while it has the app in the background (lib/match-batches.ts).
+    const background = matchesInBackground();
     if (
       todo.length > CONFIRM_ABOVE &&
       !window.confirm(
-        `Analyse ${todo.length} jobs against your CV? Each is a full analysis, one Claude request per job, so it takes a few minutes.`,
+        background
+          ? `Analyse ${todo.length} jobs against your CV? Claude does them all in the background at half price, usually within a few minutes, so you can leave the app meanwhile.`
+          : `Analyse ${todo.length} jobs against your CV? Each is a full analysis, one Claude request per job, so it takes a few minutes.`,
       )
     ) {
+      return;
+    }
+    const notesOf = (job: Job) => (settings.useJobNotes ? saved[job.id]?.notes.trim().slice(0, 4000) || undefined : undefined);
+    if (background) {
+      await matchInBatches(page, candidate, todo.map((job) => ({ job, notes: notesOf(job) })));
       return;
     }
     const queue = [...todo];
@@ -93,7 +103,7 @@ export function MatchAllButton({ jobs, onMatched }: MatchAllProps) {
         const job = queue.shift();
         if (!job) return;
         try {
-          const notes = settings.useJobNotes ? saved[job.id]?.notes.trim().slice(0, 4000) || undefined : undefined;
+          const notes = notesOf(job);
           const response = await fetch("/api/tailor/analyze", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -169,7 +179,9 @@ export function MatchAllButton({ jobs, onMatched }: MatchAllProps) {
                 />
               </span>
               <span className="text-xs font-semibold tabular-nums">
-                Matching {progress.done} of {progress.total}
+                {progress.background
+                  ? `Claude is matching ${progress.total - progress.done} in the background: you can leave the app, and the scores appear when they’re ready (usually within a few minutes).`
+                  : `Matching ${progress.done} of ${progress.total}`}
               </span>
             </div>
             <button type="button" className="btn btn-secondary btn-sm" onClick={() => stopBatch("match", page)}>
