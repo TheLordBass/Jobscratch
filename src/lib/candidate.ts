@@ -61,6 +61,12 @@ export function hasFullDescription(description: string): boolean {
   return description.trim().length >= FULL_DESCRIPTION;
 }
 
+/**
+ * Jobs in one batch of matches sent from a phone (lib/match-batches.ts): with descriptions of up to
+ * 40,000 characters, the request stays well inside what the server takes in one go.
+ */
+export const MATCH_BATCH_SIZE = 25;
+
 export function canMatch(job: Job): boolean {
   return hasFullDescription(job.description);
 }

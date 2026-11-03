@@ -2,14 +2,14 @@
 
 import { ArrowRight, BriefcaseBusiness, Download, FileText, Mail, StickyNote, Trash2, X } from "lucide-react";
 import Link from "next/link";
-import { useMemo } from "react";
+import { Fragment, useMemo } from "react";
 import { BulkTailor } from "@/components/BulkTailor";
 import { CompanyMark, MatchBadge } from "@/components/JobCard";
 import { JobFilters } from "@/components/JobFilters";
 import { MatchAllButton, useCurrentMatches } from "@/components/MatchAll";
 import { MY_JOBS_TABS, SectionTabs } from "@/components/Nav";
 import { downloadBlob, formatPosted, formatSalary } from "@/lib/format";
-import { ANY_JOB, filterJobs, type JobFilter } from "@/lib/job-filters";
+import { ANY_JOB, filterJobs, jobSite, type JobFilter } from "@/lib/job-filters";
 import { useSessionState } from "@/lib/session-state";
 import {
   APPLICATION_STATUSES,
@@ -69,6 +69,8 @@ function csvSafe(cell: string): string {
   return /^[=+\-@\t\r]/.test(cell) ? `'${cell}` : cell;
 }
 
+type Order = "saved" | "source" | "match" | "unmatched";
+
 export function SavedView() {
   const hydrated = useHydrated();
   const { saved, updateJob, removeJob, removeJobs } = useSavedJobs();
@@ -76,7 +78,7 @@ export function SavedView() {
   // How the list is shown is kept for the session, so coming back from a job finds it as you left it.
   const [statusFilter, setStatusFilter] = useSessionState<ApplicationStatus | "all">("saved:status", "all");
   const { matchFor } = useCurrentMatches();
-  const [order, setOrder] = useSessionState<"saved" | "match" | "unmatched">("saved:order", "saved");
+  const [order, setOrder] = useSessionState<Order>("saved:order", "saved");
   const [jobFilter, setJobFilter] = useSessionState<JobFilter>("saved:jobFilter", ANY_JOB);
 
   // Newest saved first. Not by last update, or a job would jump to the top as soon as you change its status or notes.
@@ -103,7 +105,13 @@ export function SavedView() {
       : order === "unmatched" && anyScored
         ? // Jobs without a score first (newest saved first, as the sort keeps their order), then best match.
           [...shown].sort((a, b) => Number(isMatched(a.job)) - Number(isMatched(b.job)) || byScore(a, b))
-        : shown;
+        : order === "source"
+          ? // Grouped by site, A to Z (LinkedIn found by JobSpy with LinkedIn), newest saved first within each.
+            [...shown].sort((a, b) => jobSite(a.job).localeCompare(jobSite(b.job)))
+          : shown;
+  // By job site: a heading over each site's jobs, with how many there are.
+  const perSite = new Map<string, number>();
+  if (order === "source") for (const { job } of shown) perSite.set(jobSite(job), (perSite.get(jobSite(job)) ?? 0) + 1);
   const clearable = shown.filter((entry) => CLEARABLE[statusFilter].includes(entry.status));
 
   function exportCsv() {
@@ -244,18 +252,17 @@ export function SavedView() {
               onChange={setJobFilter}
               shown={shown.length}
             />
-            {anyScored && (
-              <select
-                className="input ml-auto w-auto py-1.5 text-xs"
-                value={order}
-                onChange={(e) => setOrder(e.target.value as "saved" | "match" | "unmatched")}
-                aria-label="Order"
-              >
-                <option value="saved">Newest saved first</option>
-                <option value="match">Best match to my CV</option>
-                <option value="unmatched">Not matched first</option>
-              </select>
-            )}
+            <select
+              className="input ml-auto w-auto py-1.5 text-xs"
+              value={!anyScored && (order === "match" || order === "unmatched") ? "saved" : order}
+              onChange={(e) => setOrder(e.target.value as Order)}
+              aria-label="Order"
+            >
+              <option value="saved">Newest saved first</option>
+              <option value="source">By job site</option>
+              {anyScored && <option value="match">Best match to my CV</option>}
+              {anyScored && <option value="unmatched">Not matched first</option>}
+            </select>
           </div>
 
           {byStatus.length > 0 && (
@@ -272,79 +279,87 @@ export function SavedView() {
             </p>
           )}
           <ul className="space-y-2.5">
-            {ordered.map(({ job, status, notes, savedAt }) => {
+            {ordered.map(({ job, status, notes, savedAt }, i) => {
               const docs = tailored[job.id];
               const score = scoreOf(job);
               const salary = formatSalary(job.salary);
               const href = `/tailor?job=${encodeURIComponent(job.id)}`;
+              const site = jobSite(job);
+              const firstOfSite = order === "source" && (i === 0 || jobSite(ordered[i - 1].job) !== site);
               return (
-                <li
-                  key={job.id}
-                  className="card relative flex flex-col gap-3 overflow-hidden p-4 pl-5 transition hover:border-zinc-300 hover:shadow-md sm:flex-row sm:items-center dark:hover:border-zinc-700"
-                >
-                  <span className={`absolute inset-y-0 left-0 w-1 ${STATUS_ACCENT[status]}`} aria-hidden />
-                  <div className="flex min-w-0 flex-1 gap-3.5">
-                    <CompanyMark job={job} />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-start gap-2">
-                        <Link href={href} className="font-bold hover:text-indigo-600 dark:hover:text-indigo-400">
-                          {job.title}
-                        </Link>
-                        {score !== undefined && <MatchBadge score={score} />}
+                <Fragment key={job.id}>
+                  {firstOfSite && (
+                    <li className="flex items-baseline gap-2 px-1 pt-2 text-sm font-semibold first:pt-0">
+                      {site} <span className="muted text-xs font-normal">{perSite.get(site)}</span>
+                    </li>
+                  )}
+                  <li
+                    className="card relative flex flex-col gap-3 overflow-hidden p-4 pl-5 transition hover:border-zinc-300 hover:shadow-md sm:flex-row sm:items-center dark:hover:border-zinc-700"
+                  >
+                    <span className={`absolute inset-y-0 left-0 w-1 ${STATUS_ACCENT[status]}`} aria-hidden />
+                    <div className="flex min-w-0 flex-1 gap-3.5">
+                      <CompanyMark job={job} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start gap-2">
+                          <Link href={href} className="font-bold hover:text-indigo-600 dark:hover:text-indigo-400">
+                            {job.title}
+                          </Link>
+                          {score !== undefined && <MatchBadge score={score} />}
+                        </div>
+                        <p className="text-sm text-zinc-700 dark:text-zinc-300">
+                          {job.company}
+                          {job.location && <span className="muted"> · {job.location}</span>}
+                        </p>
+                        <p className="muted mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs">
+                          {docs?.cv && (
+                            <span className="inline-flex items-center gap-1">
+                              <FileText size={12} aria-hidden /> CV tailored
+                            </span>
+                          )}
+                          {docs?.coverLetter && (
+                            <span className="inline-flex items-center gap-1">
+                              <Mail size={12} aria-hidden /> Cover letter
+                            </span>
+                          )}
+                          {notes.trim() && (
+                            <span className="inline-flex items-center gap-1">
+                              <StickyNote size={12} aria-hidden /> Notes
+                            </span>
+                          )}
+                          <span>{[salary, `saved ${formatPosted(savedAt)}`].filter(Boolean).join(" · ")}</span>
+                        </p>
                       </div>
-                      <p className="text-sm text-zinc-700 dark:text-zinc-300">
-                        {job.company}
-                        {job.location && <span className="muted"> · {job.location}</span>}
-                      </p>
-                      <p className="muted mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs">
-                        {docs?.cv && (
-                          <span className="inline-flex items-center gap-1">
-                            <FileText size={12} aria-hidden /> CV tailored
-                          </span>
-                        )}
-                        {docs?.coverLetter && (
-                          <span className="inline-flex items-center gap-1">
-                            <Mail size={12} aria-hidden /> Cover letter
-                          </span>
-                        )}
-                        {notes.trim() && (
-                          <span className="inline-flex items-center gap-1">
-                            <StickyNote size={12} aria-hidden /> Notes
-                          </span>
-                        )}
-                        <span>{[salary, `saved ${formatPosted(savedAt)}`].filter(Boolean).join(" · ")}</span>
-                      </p>
                     </div>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <select
-                      className={`input w-auto rounded-full border-transparent py-1 pr-7 text-xs font-semibold shadow-none ${STATUS_STYLE[status]}`}
-                      value={status}
-                      onChange={(e) => updateJob(job.id, { status: e.target.value as ApplicationStatus })}
-                      aria-label={`Status of ${job.title}`}
-                    >
-                      {APPLICATION_STATUSES.map((s) => (
-                        <option key={s} value={s}>
-                          {STATUS_LABEL[s]}
-                        </option>
-                      ))}
-                    </select>
-                    <Link href={href} className="btn btn-primary btn-sm">
-                      {docs?.cv ? "Open" : "Tailor CV"} <ArrowRight size={14} aria-hidden />
-                    </Link>
-                    <button
-                      type="button"
-                      className="btn btn-ghost btn-sm btn-icon"
-                      onClick={() => {
-                        if (window.confirm(`Remove “${job.title}” from your jobs?`)) removeJob(job.id);
-                      }}
-                      aria-label={`Remove ${job.title}`}
-                      title="Remove"
-                    >
-                      <X size={15} aria-hidden />
-                    </button>
-                  </div>
-                </li>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <select
+                        className={`input w-auto rounded-full border-transparent py-1 pr-7 text-xs font-semibold shadow-none ${STATUS_STYLE[status]}`}
+                        value={status}
+                        onChange={(e) => updateJob(job.id, { status: e.target.value as ApplicationStatus })}
+                        aria-label={`Status of ${job.title}`}
+                      >
+                        {APPLICATION_STATUSES.map((s) => (
+                          <option key={s} value={s}>
+                            {STATUS_LABEL[s]}
+                          </option>
+                        ))}
+                      </select>
+                      <Link href={href} className="btn btn-primary btn-sm">
+                        {docs?.cv ? "Open" : "Tailor CV"} <ArrowRight size={14} aria-hidden />
+                      </Link>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm btn-icon"
+                        onClick={() => {
+                          if (window.confirm(`Remove “${job.title}” from your jobs?`)) removeJob(job.id);
+                        }}
+                        aria-label={`Remove ${job.title}`}
+                        title="Remove"
+                      >
+                        <X size={15} aria-hidden />
+                      </button>
+                    </div>
+                  </li>
+                </Fragment>
               );
             })}
           </ul>
