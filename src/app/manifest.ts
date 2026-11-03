@@ -7,7 +7,8 @@ export default function manifest(): MetadataRoute.Manifest {
     short_name: "JobScratch",
     description: "Search jobs, tailor your CV and get ready to apply.",
     start_url: "/",
-    display: "standalone",
+    // Installed on Android, it fills the screen: no status bar or navigation bar around it.
+    display: "fullscreen",
     background_color: "#09090b",
     theme_color: "#4f46e5",
     icons: [
