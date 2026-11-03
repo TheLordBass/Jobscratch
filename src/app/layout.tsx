@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import { Nav } from "@/components/Nav";
 import "./globals.css";
@@ -14,13 +14,16 @@ export const metadata: Metadata = {
   icons: { apple: "/icons/apple-touch-icon.png" },
 };
 
+// Full screen, the page reaches under a phone's camera cutout: the header and footer keep clear of it.
+export const viewport: Viewport = { viewportFit: "cover" };
+
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`h-full ${jakarta.variable}`}>
       <body className="flex min-h-full flex-col">
         <Nav />
         <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 sm:px-6">{children}</main>
-        <footer className="mx-auto w-full max-w-6xl px-4 pb-8 sm:px-6">
+        <footer className="mx-auto w-full max-w-6xl px-4 pb-[calc(2rem+env(safe-area-inset-bottom))] sm:px-6">
           <p className="muted border-t border-zinc-200/70 pt-4 text-xs dark:border-zinc-800">
             Your CV, saved jobs and settings stay in this browser. Listings link back to the site they came from.
           </p>

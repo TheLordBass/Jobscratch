@@ -42,7 +42,7 @@ export function Nav() {
   }, [onLogin]);
 
   return (
-    <header className="sticky top-0 z-20 border-b border-zinc-200/70 bg-white/75 backdrop-blur-lg dark:border-zinc-800/70 dark:bg-zinc-950/75">
+    <header className="sticky top-0 z-20 border-b pt-[env(safe-area-inset-top)] border-zinc-200/70 bg-white/75 backdrop-blur-lg dark:border-zinc-800/70 dark:bg-zinc-950/75">
       <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-2.5 sm:gap-6 sm:px-6 sm:py-3">
         <Link href="/" className="flex items-center gap-2.5 font-bold tracking-tight">
           <span className="grid h-8 w-8 place-items-center rounded-xl bg-linear-to-br from-indigo-500 to-violet-600 text-white shadow-sm shadow-indigo-600/30">
