@@ -8,7 +8,7 @@ import { CompanyMark, MatchBadge } from "@/components/JobCard";
 import { JobFilters } from "@/components/JobFilters";
 import { MatchAllButton, useCurrentMatches } from "@/components/MatchAll";
 import { MY_JOBS_TABS, SectionTabs } from "@/components/Nav";
-import { downloadBlob, formatPosted, formatSalary } from "@/lib/format";
+import { downloadBlob, formatPosted, formatSalary, olderThan } from "@/lib/format";
 import { ANY_JOB, filterJobs, jobSite, type JobFilter } from "@/lib/job-filters";
 import { useSessionState } from "@/lib/session-state";
 import {
@@ -80,6 +80,9 @@ export function SavedView() {
   const { matchFor } = useCurrentMatches();
   const [order, setOrder] = useSessionState<Order>("saved:order", "saved");
   const [jobFilter, setJobFilter] = useSessionState<JobFilter>("saved:jobFilter", ANY_JOB);
+  // Clear only jobs saved more than this many days ago; empty clears them whatever their age.
+  const [clearDays, setClearDays] = useSessionState("saved:clearDays", "");
+  const days = Math.floor(Number(clearDays)) > 0 ? Math.floor(Number(clearDays)) : 0;
 
   // Newest saved first. Not by last update, or a job would jump to the top as soon as you change its status or notes.
   const entries = useMemo(
@@ -112,7 +115,9 @@ export function SavedView() {
   // By job site: a heading over each site's jobs, with how many there are.
   const perSite = new Map<string, number>();
   if (order === "source") for (const { job } of shown) perSite.set(jobSite(job), (perSite.get(jobSite(job)) ?? 0) + 1);
-  const clearable = shown.filter((entry) => CLEARABLE[statusFilter].includes(entry.status));
+  const clearable = shown.filter(
+    (entry) => CLEARABLE[statusFilter].includes(entry.status) && (!days || olderThan(entry.savedAt, days)),
+  );
 
   function exportCsv() {
     const rows = [
@@ -136,15 +141,21 @@ export function SavedView() {
     const ids = clearable.map((entry) => entry.job.id);
     if (ids.length === 0) return;
     const one = ids.length === 1;
+    const age = days ? ` saved more than ${days === 1 ? "a day" : `${days} days`} ago` : "";
     const which =
       statusFilter === "all"
-        ? one
-          ? "the 1 job you haven’t applied to yet"
-          : `the ${ids.length} jobs you haven’t applied to yet`
-        : one
+        ? `the ${ids.length} ${one ? "job" : "jobs"}${age}${age ? " that" : ""} you haven’t applied to yet`
+        : one && !age
           ? `this “${STATUS_LABEL[statusFilter]}” job`
-          : `the ${ids.length} “${STATUS_LABEL[statusFilter]}” jobs`;
-    const kept = statusFilter === "all" && entries.length > ids.length ? " Jobs you’ve applied to are kept." : "";
+          : `the ${ids.length} “${STATUS_LABEL[statusFilter]}” ${one ? "job" : "jobs"}${age}`;
+    const applied = statusFilter === "all" && entries.some((entry) => entry.status !== "saved");
+    const kept = applied
+      ? age
+        ? " Newer jobs, and ones you’ve applied to, are kept."
+        : " Jobs you’ve applied to are kept."
+      : age
+        ? " Newer ones are kept."
+        : "";
     const documents = ids.some((id) => tailored[id])
       ? one
         ? " Its tailored CV and cover letter will be deleted too."
@@ -182,7 +193,7 @@ export function SavedView() {
           <p className="page-subtitle">Open a job to check your match, tailor your CV and track your application.</p>
         </div>
         {entries.length > 0 && (
-          <div className="flex gap-1">
+          <div className="flex flex-wrap items-center gap-1">
             <button type="button" className="btn btn-ghost btn-sm" onClick={exportCsv}>
               <Download size={14} aria-hidden /> Export CSV
             </button>
@@ -194,12 +205,28 @@ export function SavedView() {
                 disabled={clearable.length === 0}
                 title={
                   statusFilter === "all"
-                    ? "Removes jobs still marked Saved. Jobs you’ve applied to are kept."
-                    : `Removes the jobs marked ${STATUS_LABEL[statusFilter]}`
+                    ? `Removes jobs still marked Saved${days ? `, saved more than ${days} days ago` : ""}. Jobs you’ve applied to are kept.`
+                    : `Removes the jobs marked ${STATUS_LABEL[statusFilter]}${days ? `, saved more than ${days} days ago` : ""}`
                 }
               >
                 <Trash2 size={14} aria-hidden /> {clearLabel}
               </button>
+            )}
+            {CLEARABLE[statusFilter].length > 0 && (
+              <label className="muted flex items-center gap-1.5 text-xs">
+                older than
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  className="input w-16 py-1 text-xs"
+                  placeholder="any"
+                  value={clearDays}
+                  onChange={(e) => setClearDays(e.target.value)}
+                  aria-label="Clear only jobs saved more than this many days ago"
+                />
+                days
+              </label>
             )}
           </div>
         )}

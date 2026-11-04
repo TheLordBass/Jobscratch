@@ -33,6 +33,12 @@ export function formatSalary(salary: Salary | undefined): string | undefined {
   return period ? `${range} ${PERIOD_LABEL[period]}` : range;
 }
 
+/** Whether `iso` is more than `days` whole days before `now` (an unreadable date isn't). */
+export function olderThan(iso: string, days: number, now = Date.now()): boolean {
+  const time = Date.parse(iso);
+  return !Number.isNaN(time) && now - time > days * 86_400_000;
+}
+
 export function formatPosted(iso: string | undefined, now = Date.now()): string | undefined {
   if (!iso) return undefined;
   const time = Date.parse(iso);
