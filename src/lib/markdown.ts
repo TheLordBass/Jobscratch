@@ -9,6 +9,8 @@ export interface Inline {
   bold?: boolean;
   italic?: boolean;
   href?: string;
+  /** A line break inside a paragraph (its text is a newline). */
+  br?: boolean;
 }
 
 export type Block =
@@ -50,8 +52,15 @@ export function parseMarkdown(markdown: string): Block[] {
   let paragraph: string[] = [];
   let list: { ordered: boolean; items: string[] } | null = null;
 
+  // Lines stay lines: in a CV, a job's title and its dates, the contact details or a letter's sign-off
+  // are written one under the other, and run together they read as one muddled line.
   const flushParagraph = () => {
-    if (paragraph.length) blocks.push({ type: "paragraph", inlines: parseInline(paragraph.join(" ")) });
+    if (paragraph.length) {
+      blocks.push({
+        type: "paragraph",
+        inlines: paragraph.flatMap((line, i) => (i ? [{ text: "\n", br: true }, ...parseInline(line)] : parseInline(line))),
+      });
+    }
     paragraph = [];
   };
   const flushList = () => {
@@ -171,6 +180,7 @@ function escapeHtml(text: string): string {
 function inlinesToHtml(inlines: Inline[]): string {
   return inlines
     .map((inline) => {
+      if (inline.br) return "<br>";
       let html = escapeHtml(inline.text);
       if (inline.bold) html = `<strong>${html}</strong>`;
       if (inline.italic) html = `<em>${html}</em>`;

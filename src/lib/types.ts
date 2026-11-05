@@ -117,4 +117,6 @@ export type SourceCategory = "free" | "company" | "keyed" | "aggregator";
 export interface SourcesResponse {
   sources: SourceInfo[];
   aiConfigured: boolean;
+  /** The models in use (ANTHROPIC_MODEL, ANTHROPIC_MATCH_MODEL), when Claude is set up. */
+  aiModels?: { documents: string; matches: string; matchEffort: string };
 }
