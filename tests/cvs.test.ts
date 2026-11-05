@@ -51,7 +51,10 @@ describe("documents made from an earlier CV", () => {
   const uploaded = candidateFor({ ...cv, text: text("New main"), updatedAt: "2026-11-05T09:00:00.000Z" }, EMPTY_PROFILE);
 
   it("sends each CV's date, so the newest wins where they disagree", () => {
-    expect(candidate.cvs?.[0]).toMatchObject({ name: "Main CV", updated: "2026-10-28" });
+    expect(candidate.cvs?.[0]).toMatchObject({ name: "Main CV", updated: "2026-10-28 08:00" });
+    // The main CV keeps its own date when another one changes.
+    const later = { ...cv, updatedAt: "2026-11-05T09:00:00.000Z", mainUpdatedAt: "2026-10-01T10:00:00.000Z" };
+    expect(candidateFor(later, EMPTY_PROFILE).cvs?.[0].updated).toBe("2026-10-01 10:00");
   });
 
   it("goes by what each was made from, once that's recorded", () => {

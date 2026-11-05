@@ -50,7 +50,7 @@ export const JobNotesSchema = z.string().max(4000).optional();
 export const CandidateCvSchema = z.object({
   name: z.string().max(100),
   text: z.string().min(50).max(60_000),
-  /** When it was last changed (YYYY-MM-DD), so the newest wins where versions disagree. */
+  /** When it was last changed ("YYYY-MM-DD HH:MM"), so the newest wins where versions disagree. */
   updated: z.string().max(40).optional(),
 });
 export type CandidateCv = z.infer<typeof CandidateCvSchema>;

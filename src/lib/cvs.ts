@@ -32,7 +32,7 @@ export function cvVersions(cv: StoredCv | null): CvVersion[] {
     name: cv.name?.trim() || "Main CV",
     text: cv.text,
     fileName: cv.fileName,
-    updatedAt: cv.updatedAt,
+    updatedAt: cv.mainUpdatedAt ?? cv.updatedAt,
   };
   return [main, ...(cv.others ?? [])];
 }

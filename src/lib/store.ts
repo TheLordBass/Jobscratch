@@ -47,7 +47,10 @@ export interface SavedJob {
 export interface StoredCv {
   text: string;
   fileName?: string;
+  /** When any of the CVs last changed (for syncing). */
   updatedAt: string;
+  /** When the main CV's own text last changed. Missing until one changes after it was added. */
+  mainUpdatedAt?: string;
   /** The main CV's name, once there are others to tell it from. */
   name?: string;
   others?: CvVersion[];

@@ -30,7 +30,8 @@ export function candidateFor(cv: StoredCv | null, profile: StoredProfile): Candi
   const versions = cvVersions(cv).filter(hasCvText);
   const one = { ...candidateForText(versions[0]?.text ?? cv?.text ?? "", profile), since: cv?.updatedAt };
   if (versions.length < 2) return one;
-  const cvs = versions.map(({ name, text, updatedAt }) => ({ name, text, updated: updatedAt.slice(0, 10) }));
+  // To the minute, so two changed on the same day are still in order.
+  const cvs = versions.map(({ name, text, updatedAt }) => ({ name, text, updated: updatedAt.slice(0, 16).replace("T", " ") }));
   // Names and dates aren't part of it: renaming a CV shouldn't hide every match score.
   return { ...one, cvs, key: hashString(JSON.stringify([cvs.map((version) => version.text), one.profile ?? null])) };
 }
