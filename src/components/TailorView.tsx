@@ -12,7 +12,7 @@ import { STATUS_LABEL, STATUS_STYLE, SavedView } from "@/components/SavedView";
 import { useSources } from "@/components/useSources";
 import type { MatchAnalysis, TailorOptions } from "@/lib/ai/prompts";
 import { markdownToDocx } from "@/lib/export-docx";
-import { canMatch, hasFullDescription, matchKey } from "@/lib/candidate";
+import { canMatch, hasFullDescription, madeFromCurrent, matchKey } from "@/lib/candidate";
 import { cvVersions, hasCvText } from "@/lib/cvs";
 import { dismissTask, startAnalysis, startAnswers, startDocument, stopJobTasks, stopTask, useJobTask, type JobTask } from "@/lib/job-tasks";
 import { jobKeys } from "@/lib/import";
@@ -265,6 +265,7 @@ function DocumentPanel({
   markdown,
   generation,
   blocker,
+  outOfDate,
   onEdit,
   onGenerate,
   onStop,
@@ -273,6 +274,8 @@ function DocumentPanel({
   job: Job;
   markdown: string | undefined;
   generation: Generation;
+  /** Written from an earlier CV (or website and GitHub details) than there is now. */
+  outOfDate: boolean;
   /** Why a document can't be written yet (no CV or job description). */
   blocker: string | undefined;
   onEdit: (text: string) => void;
@@ -345,6 +348,25 @@ function DocumentPanel({
         <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
           {generation.error}
         </p>
+      )}
+      {!streaming && markdown && outOfDate && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+          <p className="flex-1">
+            This {label} was written before your CV (or website and GitHub details) last changed. Regenerate it to use
+            them as they are now.
+          </p>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            disabled={Boolean(blocker)}
+            title={blocker}
+            onClick={() => {
+              if (window.confirm(`Replace this ${label} with a new version, written from your CV as it is now? Any changes you made to it are replaced.`)) onGenerate();
+            }}
+          >
+            <RotateCcw size={13} aria-hidden /> Regenerate
+          </button>
+        </div>
       )}
       {!streaming && (
         <div className="flex flex-wrap gap-1.5">
@@ -451,8 +473,10 @@ function TailorWorkspace({ entry, initialTab }: { entry: SavedJob; initialTab?: 
   const [matches] = useMatches();
   const currentMatch = matchFor(job);
   const listMatch = currentMatch ?? (canMatch(job) ? matches[job.id] : undefined);
-  const analysis = docs?.analysis ?? listMatch?.analysis;
-  const staleAnalysis = !docs?.analysis && Boolean(listMatch?.analysis) && !currentMatch;
+  // One run here counts until the CV changes; then a newer one from Match all, else the old one, marked so.
+  const ownAnalysis = madeFromCurrent(docs, "analysis", candidate);
+  const analysis = (ownAnalysis ? docs?.analysis : undefined) ?? currentMatch?.analysis ?? docs?.analysis ?? listMatch?.analysis;
+  const staleAnalysis = Boolean(analysis) && !ownAnalysis && !currentMatch;
 
   // Open on what there is: the tailored CV, else the match analysis, else the job itself.
   // Coming back to the job (without a tab in the link, e.g. from the navigation) opens the tab you were on.
@@ -535,6 +559,7 @@ function TailorWorkspace({ entry, initialTab }: { entry: SavedJob; initialTab?: 
       job.id,
       label,
       { cv: cvText, cvs: payloadCvs, job: payloadJob, profile: payloadProfile, skills: payloadSkills, notes: payloadNotes },
+      candidate.key,
       // So the score shows in the job lists too, when it's for the job's own description.
       description === job.description ? matchKey(job, candidate) : undefined,
     );
@@ -542,7 +567,13 @@ function TailorWorkspace({ entry, initialTab }: { entry: SavedJob; initialTab?: 
 
   function generate(kind: DocKind) {
     setTab(kind);
-    startDocument(job.id, label, kind, { cv: cvText, cvs: payloadCvs, job: payloadJob, profile: payloadProfile, skills: payloadSkills, notes: payloadNotes, options });
+    startDocument(
+      job.id,
+      label,
+      kind,
+      { cv: cvText, cvs: payloadCvs, job: payloadJob, profile: payloadProfile, skills: payloadSkills, notes: payloadNotes, options },
+      candidate.key,
+    );
   }
 
   /** Drafts application answers in the background; `add` keeps the job's other answers. */
@@ -822,6 +853,7 @@ function TailorWorkspace({ entry, initialTab }: { entry: SavedJob; initialTab?: 
               markdown={docs?.[tab]}
               generation={generations[tab]}
               blocker={blocker}
+              outOfDate={Boolean(docs?.[tab]) && !madeFromCurrent(docs, tab, candidate)}
               onEdit={(text) => updateDocs({ [tab]: text })}
               onGenerate={() => {
                 if (ready) void generate(tab);

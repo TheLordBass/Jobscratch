@@ -4,7 +4,7 @@ import { Gauge, Square } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo } from "react";
 import { useSources } from "@/components/useSources";
-import { canMatch, candidateFor, matchFromAnalysis, matchKey, type Candidate } from "@/lib/candidate";
+import { canMatch, candidateFor, madeFromCurrent, matchFromAnalysis, matchKey, type Candidate } from "@/lib/candidate";
 import type { MatchAnalysis } from "@/lib/ai/prompts";
 import { hasCvText } from "@/lib/cvs";
 import { beginBatch, markBatchSeen, pausedInBackground, stopBatch, useBatch } from "@/lib/batch-runs";
@@ -66,8 +66,10 @@ export function MatchAllButton({ jobs, onMatched }: MatchAllProps) {
   }, [progress?.status, page]);
 
   const matchable = jobs.filter(canMatch);
-  // A saved job analysed on its own page already has its analysis.
-  const todo = matchable.filter((job) => !matchFor(job) && !(saved[job.id] && tailored[job.id]?.analysis));
+  // A saved job analysed on its own page already has its analysis, unless it was made from an earlier CV.
+  const todo = matchable.filter(
+    (job) => !matchFor(job) && !(saved[job.id] && madeFromCurrent(tailored[job.id], "analysis", candidate)),
+  );
   const withoutDescription = jobs.length - matchable.length;
   // The bookmarklet can add the full description for jobs it recognises (LinkedIn, Indeed, Glassdoor).
   const fillable = jobs.filter((job) => !canMatch(job) && siteJobKey(job.url)).length;
@@ -137,7 +139,7 @@ export function MatchAllButton({ jobs, onMatched }: MatchAllProps) {
             const match: StoredMatch = matchFromAnalysis(analysis, matchKey(job, candidate));
             updateStoredMatch(job.id, match);
             // A saved job's page shows it as its analysis straight away.
-            if (isSavedJob(job.id)) updateTailoredDocs(job.id, { analysis });
+            if (isSavedJob(job.id)) updateTailoredDocs(job.id, { analysis, analysisFrom: candidate.key });
           }
         } catch {
           if (run.signal.aborted) return;
