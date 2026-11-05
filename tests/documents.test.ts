@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { extractCvText, CvParseError } from "@/lib/cv-parse";
 import { markdownToDocx } from "@/lib/export-docx";
-import { blocksToHtml, hasProjectSections, parseInline, parseMarkdown, printableHtml, removeProjectSections } from "@/lib/markdown";
+import {
+  blocksToHtml,
+  hasProjectSections,
+  markdownToPlainText,
+  parseInline,
+  parseMarkdown,
+  printableHtml,
+  removeProjectSections,
+} from "@/lib/markdown";
 
 const CV = `# Jane Doe
 jane@example.com | London | linkedin.com/in/janedoe
@@ -58,6 +66,14 @@ describe("parseMarkdown", () => {
     const html = blocksToHtml(parseMarkdown(CV));
     expect(html).toContain('<a href="https://jane.example">my site</a>');
     expect(html).not.toContain("javascript:");
+  });
+
+  it("keeps lines that are written one under the other on their own lines", () => {
+    const letter = "**Analyst** | Globex | London\n*March 2021 – Present*\n\nKind regards,\nJane Doe";
+    const blocks = parseMarkdown(letter);
+    expect(blocks).toHaveLength(2);
+    expect(blocksToHtml(blocks)).toBe("<p><strong>Analyst</strong> | Globex | London<br><em>March 2021 – Present</em></p>\n<p>Kind regards,<br>Jane Doe</p>");
+    expect(markdownToPlainText(letter)).toBe("Analyst | Globex | London\nMarch 2021 – Present\n\nKind regards,\nJane Doe");
   });
 
   it("unwraps a fenced document and escapes HTML", () => {

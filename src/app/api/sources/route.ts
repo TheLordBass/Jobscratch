@@ -1,5 +1,5 @@
 import { connection } from "next/server";
-import { isAiConfigured } from "@/lib/ai/claude";
+import { aiModels, isAiConfigured } from "@/lib/ai/claude";
 import { describeSources } from "@/lib/sources";
 import type { SourcesResponse } from "@/lib/types";
 
@@ -9,6 +9,7 @@ export async function GET() {
   const body: SourcesResponse = {
     sources: describeSources(process.env),
     aiConfigured: isAiConfigured(process.env),
+    ...(isAiConfigured(process.env) && { aiModels: aiModels(process.env) }),
   };
   return Response.json(body);
 }

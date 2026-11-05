@@ -62,6 +62,11 @@ function modelParams(env: Env, task: "match" | "document") {
   return { model, betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const };
 }
 
+/** Which models write the documents and the match analyses, for Settings. */
+export function aiModels(env: Env): { documents: string; matches: string; matchEffort: string } {
+  return { documents: modelParams(env, "document").model, matches: modelParams(env, "match").model, matchEffort: matchEffort(env) };
+}
+
 const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 type Effort = (typeof EFFORTS)[number];
 

@@ -350,7 +350,25 @@ export function SettingsView() {
         <h2 className="font-semibold">AI CV tailoring</h2>
         {sources ? (
           sources.aiConfigured ? (
-            <p className="text-sm text-emerald-700 dark:text-emerald-300">Ready. Claude is connected.</p>
+            <>
+              <p className="text-sm text-emerald-700 dark:text-emerald-300">Ready. Claude is connected.</p>
+              {sources.aiModels && (
+                <ul className="muted space-y-0.5 text-xs">
+                  <li>
+                    Tailored CVs, cover letters and answers: <code>{sources.aiModels.documents}</code>
+                  </li>
+                  <li>
+                    Match analyses: <code>{sources.aiModels.matches}</code>, {sources.aiModels.matchEffort} effort
+                  </li>
+                </ul>
+              )}
+              {sources.aiModels?.documents.startsWith("claude-haiku") && (
+                <p className="text-sm text-amber-800 dark:text-amber-200">
+                  Tailored CVs and cover letters are written with a small, fast model, so they’ll be noticeably weaker. Remove{" "}
+                  <code>ANTHROPIC_MODEL</code> (or set it to a larger model) for the best writing.
+                </p>
+              )}
+            </>
           ) : (
             <p className="text-sm text-amber-800 dark:text-amber-200">
               Not set up. Add <code>ANTHROPIC_API_KEY</code> to <code>.env.local</code> and restart. Get a key at{" "}
