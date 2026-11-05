@@ -20,6 +20,8 @@ interface PendingBatch {
   page: string;
   /** Each request's job (its custom id is `job-<index>`) and the key its match is saved with. */
   jobs: Array<{ id: string; key: string }>;
+  /** The candidate's key, saved with a saved job's analysis (lib/candidate.ts). */
+  from?: string;
 }
 
 const STORAGE_KEY = "jobscratch:match-batches";
@@ -129,7 +131,7 @@ async function check() {
         }
         updateStoredMatch(id, matchFromAnalysis(analysis, key));
         // A saved job's page shows it as its analysis straight away.
-        if (isSavedJob(id)) updateTailoredDocs(id, { analysis });
+        if (isSavedJob(id)) updateTailoredDocs(id, { analysis, analysisFrom: batch.from });
       });
       pending = pending.filter((b) => b !== batch);
       save();
@@ -197,7 +199,7 @@ export async function matchInBatches(page: string, candidate: Candidate, jobs: A
       }
       continue;
     }
-    pending.push({ id: data.id, page, jobs: chunk.map(({ job }) => ({ id: job.id, key: matchKey(job, candidate) })) });
+    pending.push({ id: data.id, page, jobs: chunk.map(({ job }) => ({ id: job.id, key: matchKey(job, candidate) })), from: candidate.key });
     save();
   }
   // Stopped before they were all sent: the rest count as not matched.

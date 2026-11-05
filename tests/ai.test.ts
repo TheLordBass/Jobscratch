@@ -339,7 +339,7 @@ describe("analyzeMatch", () => {
     const ops = `Jane Doe. Operations manager: warehouse teams, rotas, budgets and suppliers for five years.`;
     const cvs = [
       { name: "Main CV", text: CV },
-      { name: 'Ops "CV"', text: ops },
+      { name: 'Ops "CV"', text: ops, updated: "2026-11-04" },
     ];
     fetchMock.mockResolvedValueOnce(reply());
     const result = await analyzeMatch({ cv: CV, cvs, job: JOB }, ENV);
@@ -347,7 +347,7 @@ describe("analyzeMatch", () => {
     expect(Object.keys(lastRequest().body.output_config.format.schema.properties)).toEqual(Object.keys(analysis));
     let { materials, instruction } = requestParts();
     expect(materials).toContain("<candidate_cvs>");
-    expect(materials).toContain('<cv name="Ops  CV">');
+    expect(materials).toContain('<cv name="Ops  CV" updated="2026-11-04">');
     expect(materials).toContain("warehouse teams");
     expect(materials).not.toContain("<candidate_cv>");
     expect(instruction.text).toMatch(/^The candidate has several versions of their CV/);

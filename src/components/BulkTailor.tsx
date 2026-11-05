@@ -8,6 +8,7 @@ import { useCurrentMatches } from "@/components/MatchAll";
 import { findSavedCopy } from "@/lib/import";
 import { DEFAULT_QUESTIONS } from "@/lib/ai/prompts";
 import { beginBatch, markBatchSeen, pausedInBackground, stopBatch, useBatch } from "@/lib/batch-runs";
+import { madeFromCurrent } from "@/lib/candidate";
 import { useProfile, useSavedJobs, useSettings, useTailored } from "@/lib/store";
 import { requestAnswers, streamTailored } from "@/lib/tailor-client";
 import type { Job } from "@/lib/types";
@@ -44,12 +45,21 @@ export function BulkTailor({ jobs, title = "Tailor CVs for top matches", ready =
 
   // Tailored documents are kept on the saved copy of a job, which may have another id.
   const target = (job: Job) => findSavedCopy(saved, job)?.job ?? job;
+  // A CV or cover letter written from an earlier CV is written again.
   const needs = (job: Job) => {
     const docs = tailored[target(job).id];
-    return !docs?.cv || (withLetters && !docs.coverLetter) || (withAnswers && !docs.answers?.length);
+    return (
+      !madeFromCurrent(docs, "cv", candidate) ||
+      (withLetters && !madeFromCurrent(docs, "coverLetter", candidate)) ||
+      (withAnswers && !docs?.answers?.length)
+    );
   };
   const eligible = scored.filter((job) => (matchFor(job)?.score ?? 0) >= threshold);
   const todo = eligible.filter(needs);
+  const rewrites = todo.filter((job) => {
+    const docs = tailored[target(job).id];
+    return (docs?.cv && !madeFromCurrent(docs, "cv", candidate)) || (withLetters && docs?.coverLetter && !madeFromCurrent(docs, "coverLetter", candidate));
+  }).length;
   const what = withLetters && withAnswers ? "CVs, cover letters and answers" : withLetters ? "CVs and cover letters" : withAnswers ? "CVs and answers" : "CVs";
   const perJob = 1 + (withLetters ? 1 : 0) + (withAnswers ? 1 : 0);
 
@@ -59,7 +69,10 @@ export function BulkTailor({ jobs, title = "Tailor CVs for top matches", ready =
     if (
       !window.confirm(
         `Write tailored ${what} for ${todo.length} ${todo.length === 1 ? "job" : "jobs"} matching ${threshold}%+? ` +
-          `That's up to ${todo.length * perJob} Claude requests and takes about ${minutes} ${minutes === 1 ? "minute" : "minutes"}.`,
+          `That's up to ${todo.length * perJob} Claude requests and takes about ${minutes} ${minutes === 1 ? "minute" : "minutes"}.` +
+          (rewrites
+            ? ` ${rewrites === 1 ? "1 job has a CV or cover letter" : `${rewrites} jobs have CVs or cover letters`} written from an earlier version of your CV: ${rewrites === 1 ? "it's" : "they're"} written again, replacing any changes you made to ${rewrites === 1 ? "it" : "them"}.`
+            : ""),
       )
     ) {
       return;
@@ -106,7 +119,7 @@ export function BulkTailor({ jobs, title = "Tailor CVs for top matches", ready =
       const field = kind === "cv" ? "cv" : "coverLetter";
       setTailored((previous) => ({
         ...previous,
-        [into.id]: { ...previous[into.id], [field]: text, updatedAt: new Date().toISOString() },
+        [into.id]: { ...previous[into.id], [field]: text, [`${field}From`]: candidate.key, updatedAt: new Date().toISOString() },
       }));
     };
 
@@ -122,8 +135,8 @@ export function BulkTailor({ jobs, title = "Tailor CVs for top matches", ready =
         report();
         try {
           const docs = tailored[into.id];
-          if (!docs?.cv) await write(into, "cv");
-          if (withLetters && !docs?.coverLetter) await write(into, "cover-letter");
+          if (!madeFromCurrent(docs, "cv", candidate)) await write(into, "cv");
+          if (withLetters && !madeFromCurrent(docs, "coverLetter", candidate)) await write(into, "cover-letter");
           if (withAnswers && !docs?.answers?.length) await draft(into);
           failedInARow = 0;
         } catch (error) {

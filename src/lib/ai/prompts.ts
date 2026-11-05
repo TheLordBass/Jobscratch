@@ -50,6 +50,8 @@ export const JobNotesSchema = z.string().max(4000).optional();
 export const CandidateCvSchema = z.object({
   name: z.string().max(100),
   text: z.string().min(50).max(60_000),
+  /** When it was last changed ("YYYY-MM-DD HH:MM"), so the newest wins where versions disagree. */
+  updated: z.string().max(40).optional(),
 });
 export type CandidateCv = z.infer<typeof CandidateCvSchema>;
 
@@ -157,7 +159,7 @@ ${cv.trim()}
 `;
   }
   const attribute = (value: string) => value.replace(/["<>\n]/g, " ").trim();
-  const versions = cvs!.map((version) => `<cv name="${attribute(version.name)}">
+  const versions = cvs!.map((version) => `<cv name="${attribute(version.name)}"${version.updated ? ` updated="${attribute(version.updated)}"` : ""}>
 ${version.text.trim()}
 </cv>`);
   return `<candidate_cvs>
@@ -231,7 +233,7 @@ function extras(options: TailorOptions): string {
  * Put before every instruction when Claude is given several CVs: they're one record of the
  * candidate, for a match and for writing alike.
  */
-export const SEVERAL_CVS = `The candidate has several versions of their CV (in candidate_cvs), each written with a different kind of job in mind. Treat them as one record of the same person: everything in any version is true of them and can be used, so below, "the CV" means all the versions together. Judge the candidate on the experience, skills and achievements across all of them, and when writing, combine whatever from any version serves this job best into one document, in the framing and wording that fits it. Keep every employer, job title and date as written; where versions disagree on one, use the main CV's (the first). Don't repeat the same role or achievement because more than one version has it.
+export const SEVERAL_CVS = `The candidate has several versions of their CV (in candidate_cvs), each written with a different kind of job in mind. Treat them as one record of the same person: everything in any version is true of them and can be used, so below, "the CV" means all the versions together. Judge the candidate on the experience, skills and achievements across all of them, and when writing, combine whatever from any version serves this job best into one document, in the framing and wording that fits it. Keep every employer, job title and date as written; where versions disagree on one, use the most recently updated version's, as it's the most up to date. Don't repeat the same role or achievement because more than one version has it.
 
 `;
 

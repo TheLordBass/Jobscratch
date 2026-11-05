@@ -15,10 +15,12 @@ import { newId, useCv, useHydrated, type StoredCv } from "@/lib/store";
 type Message = { tone: "ok" | "error"; text: string } | null;
 
 /**
- * A change to one CV. The CV's own date and the whole value's both move on, so syncing knows this
- * copy is the newer one (lib/sync.ts compares the latter).
+ * A change to one CV. The whole value's date moves on, so syncing knows this copy is the newer one
+ * (lib/sync.ts compares it), and so does the CV's own when its text changes: where CVs disagree,
+ * Claude goes with the newest (lib/ai/prompts.ts).
  */
 function withVersion(previous: StoredCv | null, id: string, patch: Partial<CvVersion>, now: string): StoredCv | null {
+  const changed = "text" in patch;
   if (id === MAIN_CV) {
     const { text, fileName, name } = patch;
     return {
@@ -27,25 +29,46 @@ function withVersion(previous: StoredCv | null, id: string, patch: Partial<CvVer
       fileName: "fileName" in patch ? fileName : previous?.fileName,
       ...(name !== undefined && { name: name.trim() || undefined }),
       updatedAt: now,
+      mainUpdatedAt: changed ? now : mainDate(previous),
     };
   }
   if (!previous) return previous;
   return {
     ...previous,
-    others: (previous.others ?? []).map((version) => (version.id === id ? { ...version, ...patch, updatedAt: now } : version)),
+    others: (previous.others ?? []).map((version) =>
+      version.id === id ? { ...version, ...patch, updatedAt: changed ? now : version.updatedAt } : version,
+    ),
     updatedAt: now,
+    mainUpdatedAt: mainDate(previous),
   };
+}
+
+/** The main CV's own date, kept as the whole value's moves on for the others. */
+function mainDate(previous: StoredCv | null): string | undefined {
+  return previous ? (previous.mainUpdatedAt ?? previous.updatedAt) : undefined;
 }
 
 /** Removes a CV. Removing the main one while there are others makes the first of them the main one. */
 function withoutVersion(previous: StoredCv | null, id: string, now: string): StoredCv | null {
   if (!previous) return previous;
   if (id !== MAIN_CV) {
-    return { ...previous, others: (previous.others ?? []).filter((version) => version.id !== id), updatedAt: now };
+    return {
+      ...previous,
+      others: (previous.others ?? []).filter((version) => version.id !== id),
+      updatedAt: now,
+      mainUpdatedAt: mainDate(previous),
+    };
   }
   const [next, ...rest] = previous.others ?? [];
   if (!next) return null;
-  return { text: next.text, fileName: next.fileName, name: next.name, others: rest.length ? rest : undefined, updatedAt: now };
+  return {
+    text: next.text,
+    fileName: next.fileName,
+    name: next.name,
+    others: rest.length ? rest : undefined,
+    updatedAt: now,
+    mainUpdatedAt: next.updatedAt,
+  };
 }
 
 export function CvView() {
@@ -68,6 +91,7 @@ export function CvView() {
             ...previous,
             others: [...(previous.others ?? []), { id, name: `CV ${(previous.others?.length ?? 0) + 2}`, text: "", updatedAt: now }],
             updatedAt: now,
+            mainUpdatedAt: mainDate(previous),
           }
         : previous,
     );
@@ -248,7 +272,7 @@ function CvEditor({
             </div>
             <p className="muted self-end text-sm">
               Every job is matched and tailored with all your CVs together, plus your website and GitHub. Where they
-              disagree on a date or job title, {main ? "this one, the main CV," : "the main CV"} is taken as right.
+              disagree on a date or job title, the one changed most recently is taken as right.
             </p>
           </div>
         )}
@@ -289,7 +313,7 @@ function CvEditor({
                     ? "Delete your saved CV?"
                     : main
                       ? `Delete ${version.name}? Your next CV becomes the main one.`
-                      : `Delete ${version.name}? Jobs it was for go back to your main CV.`;
+                      : `Delete ${version.name}? Matching and tailoring use your other CVs from then on.`;
                   if (window.confirm(question)) {
                     setDraft(null);
                     onDelete();

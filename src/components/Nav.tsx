@@ -4,7 +4,9 @@ import { BriefcaseBusiness, Check, Cloud, CloudAlert, CloudUpload, Loader2, LogO
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { useHydrated, useSavedJobs } from "@/lib/store";
+import { useHydrated, useSavedJobs, useTailored } from "@/lib/store";
+import { useCurrentMatches } from "@/components/MatchAll";
+import { stampMadeFrom } from "@/lib/candidate";
 import { signOut, useSession } from "@/components/useSession";
 import { startSync, useSyncState } from "@/lib/sync";
 import { markBatchSeen, useBatches, type BatchRun } from "@/lib/batch-runs";
@@ -40,6 +42,23 @@ export function Nav() {
     // Matches sent from this phone before a reload: collected when they're back.
     resumeMatchBatches();
   }, [onLogin]);
+
+  // Notes which tailored documents were made before the CV last changed, while their dates still tell.
+  const [tailored, setTailored] = useTailored();
+  const { candidate, hasCv } = useCurrentMatches();
+  useEffect(() => {
+    if (!hasCv) return;
+    if (!Object.values(tailored).some((docs) => stampMadeFrom(docs, candidate))) return;
+    const at = new Date().toISOString();
+    setTailored((previous) => {
+      const next = { ...previous };
+      for (const [id, docs] of Object.entries(next)) {
+        const stamp = stampMadeFrom(docs, candidate);
+        if (stamp) next[id] = { ...docs, ...stamp, updatedAt: at };
+      }
+      return next;
+    });
+  }, [tailored, candidate, hasCv, setTailored]);
 
   return (
     <header className="sticky top-0 z-20 border-b pt-[env(safe-area-inset-top)] border-zinc-200/70 bg-white/75 backdrop-blur-lg dark:border-zinc-800/70 dark:bg-zinc-950/75">

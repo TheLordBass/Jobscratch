@@ -2,7 +2,7 @@ import { hashString } from "@/lib/import";
 import { MAX_EVIDENCE_CHARS, MAX_GITHUB_LENGTH, MAX_WEBSITE_LENGTH, linksChanged } from "@/lib/profile/links";
 import type { CandidateCv, ExtraSkill, MatchAnalysis } from "@/lib/ai/prompts";
 import { cvVersions, hasCvText } from "@/lib/cvs";
-import type { StoredCv, StoredMatch, StoredProfile } from "@/lib/store";
+import type { StoredCv, StoredMatch, StoredProfile, TailoredDocs } from "@/lib/store";
 import type { Job } from "@/lib/types";
 
 /** What the tailoring and matching requests send about the candidate. */
@@ -18,6 +18,8 @@ export interface Candidate {
   staleDetails: boolean;
   /** Changes whenever what Claude is told about the candidate changes. */
   key: string;
+  /** When the CVs were last changed: a document made before it, and not recorded as made since, is out of date. */
+  since?: string;
 }
 
 /**
@@ -26,10 +28,11 @@ export interface Candidate {
  */
 export function candidateFor(cv: StoredCv | null, profile: StoredProfile): Candidate {
   const versions = cvVersions(cv).filter(hasCvText);
-  const one = candidateForText(versions[0]?.text ?? cv?.text ?? "", profile);
+  const one = { ...candidateForText(versions[0]?.text ?? cv?.text ?? "", profile), since: cv?.updatedAt };
   if (versions.length < 2) return one;
-  const cvs = versions.map(({ name, text }) => ({ name, text }));
-  // Names aren't part of it: renaming a CV shouldn't hide every match score.
+  // To the minute, so two changed on the same day are still in order.
+  const cvs = versions.map(({ name, text, updatedAt }) => ({ name, text, updated: updatedAt.slice(0, 16).replace("T", " ") }));
+  // Names and dates aren't part of it: renaming a CV shouldn't hide every match score.
   return { ...one, cvs, key: hashString(JSON.stringify([cvs.map((version) => version.text), one.profile ?? null])) };
 }
 
@@ -48,6 +51,30 @@ function candidateForText(text: string, profile: StoredProfile): Candidate {
   // Extra skills aren't part of the key: adding one shouldn't hide every match score. New analyses use them.
   const key = hashString(JSON.stringify([text, payload ?? null]));
   return { cv: text, profile: payload, skills: skills.length ? skills : undefined, staleDetails, key };
+}
+
+export type MadePart = "analysis" | "cv" | "coverLetter";
+
+/**
+ * Whether a job's analysis, tailored CV or cover letter was made from the candidate as they are now,
+ * not from an earlier CV. One made before that was recorded counts if it's newer than the CVs.
+ */
+export function madeFromCurrent(docs: TailoredDocs | undefined, part: MadePart, candidate: Candidate): boolean {
+  if (!docs?.[part]) return false;
+  const from = docs[`${part}From`];
+  if (from) return from === candidate.key;
+  return !candidate.since || docs.updatedAt >= candidate.since;
+}
+
+/**
+ * Records what a job's older documents were made from (see madeFromCurrent), going by their date
+ * while it still tells: once anything else about the job is saved, its date moves on. Undefined
+ * when there's nothing to record.
+ */
+export function stampMadeFrom(docs: TailoredDocs, candidate: Candidate): Partial<TailoredDocs> | undefined {
+  const parts = (["analysis", "cv", "coverLetter"] as const).filter((part) => docs[part] && !docs[`${part}From`]);
+  if (!parts.length) return undefined;
+  return Object.fromEntries(parts.map((part) => [`${part}From`, madeFromCurrent(docs, part, candidate) ? candidate.key : "earlier"]));
 }
 
 /**

@@ -82,11 +82,15 @@ function save(jobId: string, patch: Parameters<typeof updateTailoredDocs>[1]) {
   if (isSavedJob(jobId)) updateTailoredDocs(jobId, patch);
 }
 
-/** `matchKey` (see lib/candidate.ts), when given, also saves the result as the job's match score in lists. */
+/**
+ * `from` is the candidate's key (see lib/candidate.ts), saved with the result. `matchKey`, when given,
+ * also saves it as the job's match score in lists.
+ */
 export function startAnalysis(
   jobId: string,
   label: string,
   body: Omit<TailorRequest, "kind" | "options">,
+  from: string,
   matchKey?: string,
 ) {
   const controller = begin(jobId, "analysis", label);
@@ -102,12 +106,12 @@ export function startAnalysis(
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error ?? `The analysis failed (HTTP ${response.status}). Try again.`);
       const analysis = data as MatchAnalysis;
-      save(jobId, { analysis });
+      save(jobId, { analysis, analysisFrom: from });
       if (matchKey) updateStoredMatch(jobId, matchFromAnalysis(analysis, matchKey));
       set(jobId, "analysis", { status: "done" });
     } catch (error) {
       if (controller.signal.aborted) set(jobId, "analysis", { status: "stopped" });
-      else if (await pausedInBackground(controller.signal)) startAnalysis(jobId, label, body, matchKey);
+      else if (await pausedInBackground(controller.signal)) startAnalysis(jobId, label, body, from, matchKey);
       else set(jobId, "analysis", { status: "error", error: (error as Error).message });
     } finally {
       finish(jobId, "analysis", controller);
@@ -115,7 +119,8 @@ export function startAnalysis(
   })();
 }
 
-export function startDocument(jobId: string, label: string, kind: "cv" | "coverLetter", request: Omit<TailorRequest, "kind">) {
+/** `from` is the candidate's key (see lib/candidate.ts), saved with the document. */
+export function startDocument(jobId: string, label: string, kind: "cv" | "coverLetter", request: Omit<TailorRequest, "kind">, from: string) {
   const controller = begin(jobId, kind, label);
   let text = "";
   void (async () => {
@@ -132,14 +137,14 @@ export function startDocument(jobId: string, label: string, kind: "cv" | "coverL
           onNotice: (notice) => set(jobId, kind, { notice }),
         },
       );
-      save(jobId, { [kind]: finished });
+      save(jobId, { [kind]: finished, [`${kind}From`]: from });
       set(jobId, kind, { status: "done", text: "" });
     } catch (error) {
       if (controller.signal.aborted) {
-        if (text.trim()) save(jobId, { [kind]: text.trim() });
+        if (text.trim()) save(jobId, { [kind]: text.trim(), [`${kind}From`]: from });
         set(jobId, kind, { status: "stopped", text: "", notice: text ? "Stopped early, so this draft may be incomplete." : undefined });
       } else if (await pausedInBackground(controller.signal)) {
-        startDocument(jobId, label, kind, request);
+        startDocument(jobId, label, kind, request, from);
       } else {
         set(jobId, kind, { status: "error", text: "", error: (error as Error).message });
       }

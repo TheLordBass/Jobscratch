@@ -47,7 +47,10 @@ export interface SavedJob {
 export interface StoredCv {
   text: string;
   fileName?: string;
+  /** When any of the CVs last changed (for syncing). */
   updatedAt: string;
+  /** When the main CV's own text last changed. Missing until one changes after it was added. */
+  mainUpdatedAt?: string;
   /** The main CV's name, once there are others to tell it from. */
   name?: string;
   others?: CvVersion[];
@@ -97,6 +100,13 @@ export interface TailoredDocs {
   jobDescription?: string;
   /** Drafted answers to the questions on the job's application form. */
   answers?: ApplicationAnswer[];
+  /**
+   * The candidate key (lib/candidate.ts) the analysis, CV and cover letter were each made from, to tell
+   * when one was made from an earlier CV. Missing on ones made before it was recorded.
+   */
+  analysisFrom?: string;
+  cvFrom?: string;
+  coverLetterFrom?: string;
   updatedAt: string;
 }
 

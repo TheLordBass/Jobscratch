@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { candidateFor } from "@/lib/candidate";
+import { candidateFor, madeFromCurrent, stampMadeFrom } from "@/lib/candidate";
 import { MAIN_CV, cvVersions } from "@/lib/cvs";
-import { EMPTY_PROFILE, type StoredCv } from "@/lib/store";
+import { EMPTY_PROFILE, type StoredCv, type TailoredDocs } from "@/lib/store";
 
 const text = (who: string) => `${who}. ${"Five years of reporting, stakeholder work and process improvement. ".repeat(2)}`;
 
@@ -43,5 +43,34 @@ describe("more than one CV", () => {
     expect(candidateFor(edited, EMPTY_PROFILE).key).not.toBe(key);
     const renamed = { ...cv, name: "Generalist", others: cv.others!.map((v) => ({ ...v, name: `${v.name}!` })) };
     expect(candidateFor(renamed, EMPTY_PROFILE).key).toBe(key);
+  });
+});
+
+describe("documents made from an earlier CV", () => {
+  const candidate = candidateFor(cv, EMPTY_PROFILE);
+  const uploaded = candidateFor({ ...cv, text: text("New main"), updatedAt: "2026-11-05T09:00:00.000Z" }, EMPTY_PROFILE);
+
+  it("sends each CV's date, so the newest wins where they disagree", () => {
+    expect(candidate.cvs?.[0]).toMatchObject({ name: "Main CV", updated: "2026-10-28 08:00" });
+    // The main CV keeps its own date when another one changes.
+    const later = { ...cv, updatedAt: "2026-11-05T09:00:00.000Z", mainUpdatedAt: "2026-10-01T10:00:00.000Z" };
+    expect(candidateFor(later, EMPTY_PROFILE).cvs?.[0].updated).toBe("2026-10-01 10:00");
+  });
+
+  it("goes by what each was made from, once that's recorded", () => {
+    const docs: TailoredDocs = { cv: "# CV", cvFrom: candidate.key, coverLetter: "Dear", coverLetterFrom: "earlier", updatedAt: "2026-11-01T00:00:00.000Z" };
+    expect(madeFromCurrent(docs, "cv", candidate)).toBe(true);
+    expect(madeFromCurrent(docs, "cv", uploaded)).toBe(false);
+    expect(madeFromCurrent(docs, "coverLetter", candidate)).toBe(false);
+    expect(madeFromCurrent(docs, "analysis", candidate)).toBe(false);
+  });
+
+  it("goes by date for ones made before that, and records it", () => {
+    const docs: TailoredDocs = { cv: "# CV", coverLetter: "Dear", coverLetterFrom: candidate.key, updatedAt: "2026-11-01T00:00:00.000Z" };
+    expect(madeFromCurrent(docs, "cv", candidate)).toBe(true);
+    expect(madeFromCurrent(docs, "cv", uploaded)).toBe(false);
+    expect(stampMadeFrom(docs, uploaded)).toEqual({ cvFrom: "earlier" });
+    expect(stampMadeFrom(docs, candidate)).toEqual({ cvFrom: candidate.key });
+    expect(stampMadeFrom({ ...docs, cvFrom: "earlier" }, candidate)).toBeUndefined();
   });
 });

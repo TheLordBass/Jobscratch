@@ -8,6 +8,7 @@ import { CompanyMark, MatchBadge } from "@/components/JobCard";
 import { JobFilters } from "@/components/JobFilters";
 import { MatchAllButton, useCurrentMatches } from "@/components/MatchAll";
 import { MY_JOBS_TABS, SectionTabs } from "@/components/Nav";
+import { madeFromCurrent } from "@/lib/candidate";
 import { downloadBlob, formatPosted, formatSalary, olderThan } from "@/lib/format";
 import { ANY_JOB, filterJobs, jobSite, type JobFilter } from "@/lib/job-filters";
 import { useSessionState } from "@/lib/session-state";
@@ -77,7 +78,7 @@ export function SavedView() {
   const [tailored, setTailored] = useTailored();
   // How the list is shown is kept for the session, so coming back from a job finds it as you left it.
   const [statusFilter, setStatusFilter] = useSessionState<ApplicationStatus | "all">("saved:status", "all");
-  const { matchFor } = useCurrentMatches();
+  const { matchFor, candidate } = useCurrentMatches();
   const [order, setOrder] = useSessionState<Order>("saved:order", "saved");
   const [jobFilter, setJobFilter] = useSessionState<JobFilter>("saved:jobFilter", ANY_JOB);
   // Clear only jobs saved more than this many days ago; empty clears them whatever their age.
@@ -95,8 +96,9 @@ export function SavedView() {
     return result;
   }, [entries]);
   const byStatus = statusFilter === "all" ? entries : entries.filter((e) => e.status === statusFilter);
-  // The job's analysis (from its page or Match all); unscored jobs go last.
-  const scoreOf = (job: Job) => tailored[job.id]?.analysis?.matchScore ?? matchFor(job)?.score;
+  // The job's analysis (from its page or Match all); unscored jobs go last, as do ones scored from an earlier CV.
+  const scoreOf = (job: Job) =>
+    (madeFromCurrent(tailored[job.id], "analysis", candidate) ? tailored[job.id]?.analysis?.matchScore : undefined) ?? matchFor(job)?.score;
   // The From and Show filters narrow the list further, and Match all and the rest act on what's left.
   const isMatched = (job: Job) => scoreOf(job) !== undefined;
   const shown = filterJobs(byStatus, (entry) => entry.job, jobFilter, isMatched);

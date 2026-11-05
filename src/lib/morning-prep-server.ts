@@ -11,7 +11,7 @@ import {
   type DocumentKind,
 } from "@/lib/ai/claude";
 import { DEFAULT_QUESTIONS, type MatchAnalysis, type TailorMaterials, type TailorOptions } from "@/lib/ai/prompts";
-import { canMatch, candidateFor, matchFromAnalysis, matchKey, type Candidate } from "@/lib/candidate";
+import { canMatch, candidateFor, madeFromCurrent, matchFromAnalysis, matchKey, type Candidate } from "@/lib/candidate";
 import { hasCvText } from "@/lib/cvs";
 import { dismissKeys, findSavedCopy } from "@/lib/import";
 import { RUN_JOBS_KEY, RUN_PREP_KEY, readRun, type JobspyRun, type RunJob } from "@/lib/jobspy-runs";
@@ -173,7 +173,7 @@ export async function prepareStep(
     const tailored: Record<string, TailoredDocs> = {};
     for (const { job, analysis, key } of found) {
       items[job.id] = matches[job.id] = matchFromAnalysis(analysis, key, at);
-      if (saved[job.id]) tailored[job.id] = { ...docs[job.id], analysis, updatedAt: at };
+      if (saved[job.id]) tailored[job.id] = { ...docs[job.id], analysis, analysisFrom: candidate.key, updatedAt: at };
     }
     const ops: Parameters<typeof applyOps>[1] = [{ key: "matches", items }];
     if (savedIds.length) ops.push({ key: "tailored", items: tailored });
@@ -308,9 +308,10 @@ export async function prepareStep(
       // Applied to, interviewing and the like: not one to get ready.
       if (copy && copy.status !== "saved") continue;
       const docs = (await readSomeItems<TailoredDocs>(backend, "tailored", [id]))[id];
+      // A CV or cover letter written from an earlier CV is written again.
       const needs = {
-        cv: !docs?.cv,
-        coverLetter: settings.coverLetters && !docs?.coverLetter,
+        cv: !madeFromCurrent(docs, "cv", candidate),
+        coverLetter: settings.coverLetters && !madeFromCurrent(docs, "coverLetter", candidate),
         answers: settings.answers && !docs?.answers?.length,
       };
       if (!needs.cv && !needs.coverLetter && !needs.answers) {
@@ -338,9 +339,9 @@ export async function prepareStep(
             items: {
               [id]: {
                 ...docs,
-                analysis: docs?.analysis ?? match.analysis,
-                ...(cvText && { cv: cvText }),
-                ...(letter && { coverLetter: letter }),
+                ...(!madeFromCurrent(docs, "analysis", candidate) && { analysis: match.analysis, analysisFrom: candidate.key }),
+                ...(cvText && { cv: cvText, cvFrom: candidate.key }),
+                ...(letter && { coverLetter: letter, coverLetterFrom: candidate.key }),
                 ...(answers?.length && { answers }),
                 updatedAt: at,
               },
