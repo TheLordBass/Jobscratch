@@ -135,6 +135,13 @@ class Uploader:
         self.last = clock()
         self.total = 0
 
+    def begin(self, query):
+        """As the run starts, before anything's found: so JobScratch shows it's running. Never stops the run."""
+        try:
+            self.send(query, [], [], done=False)
+        except RunError as error:
+            print(f"    Couldn't tell JobScratch the run has started ({error}).", file=sys.stderr)
+
     def unsent(self, document):
         return [row for row in document["jobs"] if self.sent.get(job_key(row)) != tuple(row.get("lists", []))]
 
@@ -273,6 +280,8 @@ def run(config, scrape_jobs, keep_awake=lambda on: None, upload_call=call, prepa
     part = f", part {batch['index'] + 1} of {batch['count']} of your title lists" if batch.get("count", 1) > 1 else ""
     search.log(f"Searching {', '.join(options.sites)} for {len(terms)} job titles{where} ({len(searches)} searches{part})…")
     uploader = Uploader(config, started_at, saved.get("batch"), upload_call)
+    # Otherwise JobScratch only hears of the run once its first jobs go up, which can be a while.
+    uploader.begin(search.results_file(terms, locations, [], search.unique(name for _, _, name in options.pairs or [] if name))["query"])
     preparer = Preparer(config, uploader.id, prepare_call or upload_call, log=search.log)
     keep_awake(True)
     try:

@@ -9,6 +9,8 @@ import type { Job } from "@/lib/types";
 
 /** Older runs aren't news on Find jobs any more; they're still in Add a job. */
 const RECENT_MS = 36 * 3_600_000;
+/** How often to look again while a run is still going, or its jobs are still being matched. */
+const CHECK_MS = 60_000;
 
 /**
  * The latest morning JobSpy run, once fetched: undefined while loading, null when there's none. And
@@ -20,13 +22,29 @@ function useLatestRun() {
     prep: null,
     recent: false,
   });
+  // Looked at again every minute while there's a run under way, and on coming back to the app, so a
+  // run that starts (or finishes) while the page is open shows without reloading it.
   useEffect(() => {
     let active = true;
-    void fetchLatestRun().then(({ run, prep }) => {
-      if (active) setState({ run, prep, recent: Boolean(run && Date.now() - Date.parse(run.startedAt) < RECENT_MS) });
-    });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const check = () => {
+      clearTimeout(timer);
+      void fetchLatestRun().then(({ run, prep }) => {
+        if (!active) return;
+        const recent = Boolean(run && Date.now() - Date.parse(run.startedAt) < RECENT_MS);
+        setState({ run, prep, recent });
+        if (recent && (!run?.finishedAt || (prep && !prep.finished))) timer = setTimeout(check, CHECK_MS);
+      });
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") check();
+    };
+    check();
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       active = false;
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, []);
   return state;
@@ -36,7 +54,7 @@ function summary(run: JobspyRun): string {
   const found = `${run.count} ${run.count === 1 ? "job" : "jobs"}`;
   return run.finishedAt
     ? `The morning JobSpy run ${runTime(run.startedAt)} found ${found}`
-    : `The morning JobSpy run ${runTime(run.startedAt)} is still sending its jobs (${found} so far)`;
+    : `The morning JobSpy run that started ${runTime(run.startedAt)} is still going (${found} found so far)`;
 }
 
 /** What the run did with its jobs before you were up: "48 matched, 5 ready to apply". */
@@ -141,7 +159,8 @@ export function MorningRunBanner({
 /** On Find jobs: a one-line pointer to the morning run's jobs, if there's a recent one. */
 export function MorningRunNotice() {
   const { run, prep, recent } = useLatestRun();
-  if (!run?.count || !recent) return null;
+  // Shown from the moment a run starts, before it's found anything.
+  if (!run || !recent || (!run.count && run.finishedAt)) return null;
   const ready = prep?.ready.length ?? 0;
   return (
     <Link
@@ -154,7 +173,7 @@ export function MorningRunNotice() {
         {prep?.matched ? `, ${prep.matched} matched` : ""}
         {ready ? `, ${ready} ready to apply` : ""}.
       </span>
-      <span className="link shrink-0">Show them</span>
+      {run.count > 0 && <span className="link shrink-0">Show them</span>}
     </Link>
   );
 }

@@ -102,7 +102,10 @@ class Run(unittest.TestCase):
         total = scheduled.run(CONFIG, FakeJobSpy(), keep_awake=awake.append, upload_call=app)
         self.assertEqual(total, 2)
         self.assertEqual(awake, [True, False])
-        [part] = app.parts
+        # The first part, before anything's found, shows the run has started.
+        begin, part = app.parts
+        self.assertEqual((begin["jobs"], begin["done"], begin["id"]), ([], False, part["id"]))
+        self.assertEqual(begin["query"], part["query"])
         self.assertTrue(part["done"])
         self.assertEqual(part["query"], {"search": ["data analyst"], "location": ["Manchester"]})
         self.assertEqual({job["site"] for job in part["jobs"]}, {"indeed", "linkedin"})
@@ -124,7 +127,8 @@ class Run(unittest.TestCase):
         jobspy = FakeJobSpy()
         scheduled.run(CONFIG, jobspy, upload_call=app)
         self.assertEqual([term for _, term in jobspy.calls], ["data analyst", "BI analyst", "operations analyst"])
-        [part] = app.parts
+        begin, part = app.parts
+        self.assertEqual(begin["query"]["lists"], ["Data roles", "Operations"])
         self.assertEqual(part["batch"], {"index": 1, "count": 3})
         self.assertEqual(part["query"]["lists"], ["Data roles", "Operations"])
         lists = {job["title"]: job["lists"] for job in part["jobs"]}
