@@ -545,12 +545,13 @@ function TailorWorkspace({ entry, initialTab }: { entry: SavedJob; initialTab?: 
   const { cvs: payloadCvs, profile: payloadProfile, skills: payloadSkills, staleDetails } = candidate;
   const payloadNotes = settings.useJobNotes ? entry.notes.trim().slice(0, 4000) || undefined : undefined;
 
+  // Cut to what the server takes, so a long pasted description doesn't fail every request.
   const payloadJob = {
-    title: job.title,
-    company: job.company,
-    location: job.location,
-    url: job.url,
-    description,
+    title: job.title.slice(0, 300),
+    company: job.company.slice(0, 200),
+    location: job.location.slice(0, 200),
+    url: job.url.slice(0, 2000),
+    description: description.slice(0, 40_000),
   };
 
   function analyse() {
@@ -566,6 +567,16 @@ function TailorWorkspace({ entry, initialTab }: { entry: SavedJob; initialTab?: 
   }
 
   function generate(kind: DocKind) {
+    // From a snippet, Claude has next to nothing to tailor to, and the result reads generic.
+    if (
+      !fullDescription &&
+      !window.confirm(
+        `This job only has a snippet of its description, so the ${kind === "cv" ? "CV" : "cover letter"} can't be tailored to much. ` +
+          "Paste the full description first (on the Job tab) for a better one. Write it anyway?",
+      )
+    ) {
+      return;
+    }
     setTab(kind);
     startDocument(
       job.id,

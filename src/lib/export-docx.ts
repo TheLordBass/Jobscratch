@@ -7,6 +7,7 @@ export async function markdownToDocx(markdown: string, title: string): Promise<B
 
   const runs = (inlines: Inline[]) =>
     inlines.map((inline) => {
+      if (inline.br) return new TextRun({ break: 1 });
       const run = new TextRun({ text: inline.text, bold: inline.bold, italics: inline.italic });
       return inline.href
         ? new ExternalHyperlink({

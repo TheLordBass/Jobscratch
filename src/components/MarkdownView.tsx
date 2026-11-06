@@ -3,6 +3,7 @@ import { parseMarkdown, type Inline } from "@/lib/markdown";
 
 function Inlines({ inlines }: { inlines: Inline[] }) {
   return inlines.map((inline, i) => {
+    if (inline.br) return <br key={i} />;
     let node: React.ReactNode = inline.text;
     if (inline.bold) node = <strong>{node}</strong>;
     if (inline.italic) node = <em>{node}</em>;
