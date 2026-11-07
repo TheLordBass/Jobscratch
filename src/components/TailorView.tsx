@@ -262,7 +262,19 @@ function JobDescription({ text }: { text: string }) {
 /** How long the CV prints, and whether that's more than the length chosen. */
 function PageCount({ markdown, wanted }: { markdown: string; wanted: 1 | 2 }) {
   const pages = estimatePages(markdown);
-  const shown = pages <= 1.04 ? "About 1 page" : `About ${(Math.round(pages * 10) / 10).toFixed(1)} pages`;
+  const shown =
+    pages < 0.9
+      ? `Fills about ${Math.round(pages * 10) * 10}% of a page`
+      : pages <= 1.04
+        ? "About 1 page"
+        : `About ${(Math.round(pages * 10) / 10).toFixed(1)} pages`;
+  if (wanted === 1 && pages < 0.8) {
+    return (
+      <p className="muted text-xs">
+        {shown} when printed: there&apos;s room for more. Regenerate it to fill the page with more of your experience.
+      </p>
+    );
+  }
   if (pages <= wanted * 1.04) return <p className="muted text-xs">{shown} when printed.</p>;
   return (
     <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-200">

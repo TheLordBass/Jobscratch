@@ -14,6 +14,7 @@ import {
   jobBlock,
   notesBlock,
   severalCvs,
+  lengthenCvInstruction,
   shortenCvInstruction,
   type ApplicationAnswer,
   type ApplicationDetails,
@@ -263,16 +264,18 @@ export type StreamEvent =
   | { type: "thinking"; text: string }
   | { type: "text"; text: string }
   | { type: "notice"; text: string }
-  /** What's been written so far is being replaced: a CV that ran long is being shortened. */
+  /** What's been written so far is being replaced: a CV that ran long or short is being rewritten to fit. */
   | { type: "restart" }
   | { type: "done"; model: string }
   | { type: "error"; message: string; status: number };
 
-/** How many times a CV that runs over its pages is shortened, at most, and not once it's taken this long. */
-const MAX_SHORTENINGS = 2;
-const SHORTEN_BEFORE_MS = 150_000;
+/** How many times a CV is rewritten to fit its pages, at most, and not once it's taken this long. */
+const MAX_ADJUSTMENTS = 2;
+const ADJUST_BEFORE_MS = 150_000;
 /** A little over is let through: the page estimate is close, not exact. */
 const PAGE_LEEWAY = 1.04;
+/** A one-page CV filling less of its page than this gets the most relevant detail added back. */
+const FILL_BELOW = 0.8;
 
 /** One request's text, streamed as events; what it wrote and how it stopped. */
 async function* streamPass(
@@ -300,8 +303,9 @@ async function* streamPass(
 
 /**
  * Streams a tailored CV or cover letter as text deltas (plus reasoning summaries for progress). A CV
- * that would print longer than the pages asked for is shortened before it's done: the events then
- * carry a notice and a restart, and the shorter CV.
+ * that would print longer than the pages asked for is shortened before it's done, and a one-page CV
+ * that leaves much of its page empty is filled out: the events then carry a notice and a restart,
+ * and the new CV.
  */
 export async function* streamDocument(
   kind: DocumentKind,
@@ -326,12 +330,23 @@ export async function* streamDocument(
     };
     let result = yield* streamPass(client, params, signal, kind);
     const pagesWanted = options.length === "one-page" ? 1 : 2;
-    for (let shortened = 0; kind === "cv" && result.stopReason === "end_turn" && shortened < MAX_SHORTENINGS; shortened++) {
+    let lengthened = false;
+    for (let adjusted = 0; kind === "cv" && result.stopReason === "end_turn" && adjusted < MAX_ADJUSTMENTS; adjusted++) {
+      if (Date.now() - started > ADJUST_BEFORE_MS) break;
       const pages = estimatePages(result.text);
-      if (pages <= pagesWanted * PAGE_LEEWAY || Date.now() - started > SHORTEN_BEFORE_MS) break;
+      const over = pages > pagesWanted * PAGE_LEEWAY;
+      // Filled out once at most, so it can't go back and forth.
+      const short = pagesWanted === 1 && !lengthened && pages < FILL_BELOW;
+      if (!over && !short) break;
       const words = result.text.trim().split(/\s+/).length;
-      yield { type: "notice", text: `That came to about ${pages.toFixed(1)} pages, so it's being cut to ${pagesWanted === 1 ? "one page" : "two"}.` };
+      yield {
+        type: "notice",
+        text: over
+          ? `That came to about ${pages.toFixed(1)} pages, so it's being cut to ${pagesWanted === 1 ? "one page" : "two"}.`
+          : `That only filled about ${Math.round(pages * 100)}% of the page, so more of your experience is being added.`,
+      };
       yield { type: "restart" };
+      const previous = result;
       // The same conversation, so the CV, job and instructions are read from the cache.
       result = yield* streamPass(
         client,
@@ -340,13 +355,23 @@ export async function* streamDocument(
           output_config: { effort: "medium" },
           messages: [
             ...params.messages,
-            { role: "assistant", content: result.text.trim() },
-            { role: "user", content: shortenCvInstruction(options, pages, words) },
+            { role: "assistant", content: previous.text.trim() },
+            { role: "user", content: over ? shortenCvInstruction(options, pages, words) : lengthenCvInstruction(pages, words) },
           ],
         },
         signal,
-        "cv (shortened)",
+        over ? "cv (shortened)" : "cv (filled out)",
       );
+      if (!over) {
+        lengthened = true;
+        // Filling it out mustn't push it onto a second page: then the shorter one stands.
+        if (result.stopReason !== "end_turn" || estimatePages(result.text) > PAGE_LEEWAY) {
+          yield { type: "restart" };
+          yield { type: "text", text: previous.text };
+          result = previous;
+          break;
+        }
+      }
     }
     if (result.stopReason === "refusal") {
       yield { type: "error", message: REFUSAL_MESSAGE, status: 422 };

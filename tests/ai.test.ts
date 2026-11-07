@@ -121,29 +121,52 @@ describe("streamDocument", () => {
     expect(instruction.text).toContain("UK/European CV conventions");
   });
 
+  /** A CV of `count` one-line bullets: 20 fill about half a page, 38 most of one, 60 about one and a half. */
+  const cvOf = (count: number) => ["# Jane Doe\n", ...Array.from({ length: count }, (_, i) => `- Built reporting for team ${i} that cut weekly manual work by a third\n`)];
+  const texts = (events: StreamEvent[]) => events.filter((event) => event.type === "text").map((event) => (event as { text: string }).text);
+
   it("shortens a CV that would print longer than the pages chosen", async () => {
-    const bullets = Array.from({ length: 60 }, (_, i) => `- Built reporting for team ${i} that cut weekly manual work by a third\n`);
-    fetchMock.mockResolvedValueOnce(streamOf(["# Jane Doe\n", ...bullets])).mockResolvedValueOnce(streamOf(["# Jane Doe\n", "- Short"]));
+    fetchMock.mockResolvedValueOnce(streamOf(cvOf(60))).mockResolvedValueOnce(streamOf(cvOf(38)));
     const events = await collect(streamDocument("cv", { cv: CV, job: JOB }, { ...OPTIONS, length: "one-page" }, ENV));
     const restart = events.findIndex((event) => event.type === "restart");
     expect(restart).toBeGreaterThan(0);
     expect(events[restart - 1]).toMatchObject({ type: "notice", text: expect.stringContaining("cut to one page") });
-    expect(events.slice(restart + 1).filter((event) => event.type === "text").map((event) => (event as { text: string }).text)).toEqual(["# Jane Doe\n", "- Short"]);
+    expect(texts(events.slice(restart + 1))).toEqual(cvOf(38));
     expect(events.at(-1)).toEqual({ type: "done", model: "claude-opus-5-5" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     // The same conversation, with the long CV as Claude's reply and a request to cut it.
     const { body } = lastRequest();
     expect(body.messages).toHaveLength(3);
     expect(body.messages[1]).toMatchObject({ role: "assistant", content: expect.stringContaining("team 59") });
-    expect(body.messages[2].content).toMatch(/fit on one page\. Rewrite it to at most \d+ words/);
+    expect(body.messages[2].content).toMatch(/fit on one page\. Rewrite it to about \d+ words/);
     expect(body.output_config).toEqual({ effort: "medium" });
   });
 
-  it("leaves a CV that fits, and a cover letter, as they are", async () => {
-    fetchMock.mockResolvedValueOnce(streamOf(["# Jane Doe\n", "- One line"]));
+  it("fills out a one-page CV that leaves much of its page empty", async () => {
+    fetchMock.mockResolvedValueOnce(streamOf(cvOf(20))).mockResolvedValueOnce(streamOf(cvOf(38)));
+    const events = await collect(streamDocument("cv", { cv: CV, job: JOB }, { ...OPTIONS, length: "one-page" }, ENV));
+    expect(events).toContainEqual({ type: "notice", text: expect.stringContaining("so more of your experience is being added") });
+    expect(texts(events.slice(events.findIndex((event) => event.type === "restart") + 1))).toEqual(cvOf(38));
+    expect(lastRequest().body.messages[2].content).toMatch(/only fill about \d+% of its page[\s\S]*no filler/);
+  });
+
+  it("keeps the shorter CV if filling it out spills onto a second page", async () => {
+    fetchMock.mockResolvedValueOnce(streamOf(cvOf(20))).mockResolvedValueOnce(streamOf(cvOf(60)));
+    const events = await collect(streamDocument("cv", { cv: CV, job: JOB }, { ...OPTIONS, length: "one-page" }, ENV));
+    const lastRestart = events.map((event) => event.type).lastIndexOf("restart");
+    expect(texts(events.slice(lastRestart + 1))).toEqual([cvOf(20).join("")]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(events.at(-1)).toMatchObject({ type: "done" });
+  });
+
+  it("leaves a CV that fits, and a short two-page one, as they are", async () => {
+    fetchMock.mockResolvedValueOnce(streamOf(cvOf(38)));
     const events = await collect(streamDocument("cv", { cv: CV, job: JOB }, { ...OPTIONS, length: "one-page" }, ENV));
     expect(events.some((event) => event.type === "restart")).toBe(false);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(lastRequest().body.messages[0].content[2].text).toMatch(/^Rewrite the candidate's CV[\s\S]*must fit on ONE printed A4 page/);
+    expect(lastRequest().body.messages[0].content[2].text).toMatch(/^Rewrite the candidate's CV[\s\S]*must fill ONE printed A4 page/);
+    fetchMock.mockResolvedValueOnce(streamOf(cvOf(20)));
+    await collect(streamDocument("cv", { cv: CV, job: JOB }, OPTIONS, ENV));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("uses the cover-letter prompt and a lower effort", async () => {
