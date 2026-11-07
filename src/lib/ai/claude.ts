@@ -269,8 +269,11 @@ export type StreamEvent =
   | { type: "done"; model: string }
   | { type: "error"; message: string; status: number };
 
-/** How many times a CV is rewritten to fit its pages, at most, and not once it's taken this long. */
-const MAX_ADJUSTMENTS = 2;
+/**
+ * How many times a CV is rewritten to fit its pages, at most, and not once it's taken this long: a
+ * long draft can take two cuts and still be filled out after. A rewrite takes 15–20 seconds.
+ */
+const MAX_ADJUSTMENTS = 3;
 const ADJUST_BEFORE_MS = 150_000;
 /** A little over is let through: the page estimate errs long. */
 const PAGE_LEEWAY = 1.04;

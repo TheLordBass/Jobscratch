@@ -219,6 +219,8 @@ export function blocksToHtml(blocks: Block[]): string {
 export const ROOM_ON_PAGE = 0.88;
 const PAGE_HEIGHT = 751; // A4's 297mm less 16mm margins top and bottom
 const LINE = 10.5 * 1.45;
+/** Lines of body text a printed page holds, for telling Claude how much to write or cut. */
+export const LINES_PER_PAGE = Math.round(PAGE_HEIGHT / LINE);
 const CHARS_PER_LINE = 95;
 const CHARS_PER_ITEM_LINE = 88; // list items are indented
 
