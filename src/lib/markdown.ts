@@ -212,17 +212,21 @@ export function blocksToHtml(blocks: Block[]): string {
 /*
  * How many A4 pages a document fills when printed (printableHtml below; the Word file uses the same
  * spacing), worked out from its text rather than a browser: so the server can tell a CV that runs
- * over the length asked for. Heights are in points, from the print stylesheet's sizes. It errs a
- * little long: checked in Chrome and Word, the real page is about 4–6% shorter.
+ * over the length asked for. Heights are in points, from the print stylesheet's sizes. Checked
+ * against real tailored CVs printed from Edge and opened in Word, it errs a little long: the printed
+ * page is 1–3% shorter, and Word a few per cent shorter again.
  */
-/** A one-page CV the estimate puts below this (about 85% of the real page) has room for more. */
-export const ROOM_ON_PAGE = 0.88;
+/** A one-page CV the estimate puts below this (about 90% of the printed page) has room for more. */
+export const ROOM_ON_PAGE = 0.93;
+/** A little over is let through, as the estimate errs long: up to this still fits the pages. */
+export const PAGE_LEEWAY = 1.02;
 const PAGE_HEIGHT = 751; // A4's 297mm less 16mm margins top and bottom
 const LINE = 10.5 * 1.45;
 /** Lines of body text a printed page holds, for telling Claude how much to write or cut. */
 export const LINES_PER_PAGE = Math.round(PAGE_HEIGHT / LINE);
-const CHARS_PER_LINE = 95;
-const CHARS_PER_ITEM_LINE = 88; // list items are indented
+// Calibri (or Carlito, its metric twin) at 10.5pt across 178mm, allowing for words that wrap early.
+const CHARS_PER_LINE = 112;
+const CHARS_PER_ITEM_LINE = 106; // list items are indented
 
 function linesOf(inlines: Inline[], perLine: number): number {
   // Each line written on its own (a line break) starts a new printed line.
@@ -243,12 +247,19 @@ export function estimatePages(markdown: string): number {
   return height / PAGE_HEIGHT;
 }
 
+/**
+ * Carlito has Calibri's letter widths, so where Calibri isn't installed (phones, Macs) the PDF
+ * still fills the page estimatePages expects. Only downloaded where Calibri is missing.
+ */
+const CARLITO = "https://fonts.googleapis.com/css2?family=Carlito:ital,wght@0,400;0,700;1,400;1,700&amp;display=block";
+
 /** A standalone, print-ready HTML document (used for "Save as PDF"). */
 export function printableHtml(title: string, markdown: string): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>
+<link rel="stylesheet" href="${CARLITO}">
 <style>
-  @page { margin: 16mm 16mm; }
-  body { font: 10.5pt/1.45 Calibri, "Segoe UI", Arial, sans-serif; color: #111; max-width: 180mm; margin: 0 auto; }
+  @page { size: A4; margin: 16mm 16mm; }
+  body { font: 10.5pt/1.45 Calibri, Carlito, "Segoe UI", Arial, sans-serif; color: #111; max-width: 180mm; margin: 0 auto; }
   h1 { font-size: 20pt; margin: 0 0 2pt; }
   h1 + p { margin-top: 0; color: #444; }
   h2 { font-size: 12pt; text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid #bbb; padding-bottom: 2pt; margin: 14pt 0 6pt; }

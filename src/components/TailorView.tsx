@@ -18,7 +18,14 @@ import { dismissTask, startAnalysis, startAnswers, startDocument, stopJobTasks, 
 import { jobKeys } from "@/lib/import";
 import { documentFileName } from "@/lib/apply";
 import { downloadBlob, formatPosted } from "@/lib/format";
-import { estimatePages, hasProjectSections, printableHtml, removeProjectSections, ROOM_ON_PAGE } from "@/lib/markdown";
+import {
+  estimatePages,
+  hasProjectSections,
+  PAGE_LEEWAY,
+  printableHtml,
+  removeProjectSections,
+  ROOM_ON_PAGE,
+} from "@/lib/markdown";
 import { useSessionState } from "@/lib/session-state";
 import {
   APPLICATION_STATUSES,
@@ -265,7 +272,7 @@ function PageCount({ markdown, wanted }: { markdown: string; wanted: 1 | 2 }) {
   const shown =
     pages < 0.9
       ? `Fills about ${Math.round(pages * 10) * 10}% of a page`
-      : pages <= 1.04
+      : pages <= PAGE_LEEWAY
         ? "About 1 page"
         : `About ${(Math.round(pages * 10) / 10).toFixed(1)} pages`;
   if (wanted === 1 && pages < ROOM_ON_PAGE) {
@@ -275,7 +282,7 @@ function PageCount({ markdown, wanted }: { markdown: string; wanted: 1 | 2 }) {
       </p>
     );
   }
-  if (pages <= wanted * 1.04) return <p className="muted text-xs">{shown} when printed.</p>;
+  if (pages <= wanted * PAGE_LEEWAY) return <p className="muted text-xs">{shown} when printed.</p>;
   return (
     <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-200">
       {shown} when printed: longer than the {wanted === 1 ? "one page" : "two pages"} chosen in Writing options. Regenerate
@@ -337,8 +344,16 @@ function DocumentPanel({
     if (!win) return;
     win.document.write(printableHtml(`${label} – ${job.title} at ${job.company}`, content));
     win.document.close();
-    win.focus();
-    win.print();
+    // Once the font has loaded (where Calibri is missing), or after a few seconds regardless.
+    let printed = false;
+    const printNow = () => {
+      if (printed) return;
+      printed = true;
+      win.focus();
+      win.print();
+    };
+    win.addEventListener("load", () => void win.document.fonts.ready.then(printNow));
+    setTimeout(printNow, 3000);
   };
 
   if (!content && !streaming) {

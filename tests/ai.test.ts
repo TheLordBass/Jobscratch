@@ -121,17 +121,17 @@ describe("streamDocument", () => {
     expect(instruction.text).toContain("UK/European CV conventions");
   });
 
-  /** A CV of `count` one-line bullets: 20 fill about half a page, 33 four-fifths, 38 most of one, 60 about one and a half. */
+  /** A CV of `count` one-line bullets: 20 fill about half a page, 33 four-fifths, 40 nearly all of one, 45 a little over, 60 about one and a half. */
   const cvOf = (count: number) => ["# Jane Doe\n", ...Array.from({ length: count }, (_, i) => `- Built reporting for team ${i} that cut weekly manual work by a third\n`)];
   const texts = (events: StreamEvent[]) => events.filter((event) => event.type === "text").map((event) => (event as { text: string }).text);
 
   it("shortens a CV that would print longer than the pages chosen", async () => {
-    fetchMock.mockResolvedValueOnce(streamOf(cvOf(60))).mockResolvedValueOnce(streamOf(cvOf(38)));
+    fetchMock.mockResolvedValueOnce(streamOf(cvOf(60))).mockResolvedValueOnce(streamOf(cvOf(40)));
     const events = await collect(streamDocument("cv", { cv: CV, job: JOB }, { ...OPTIONS, length: "one-page" }, ENV));
     const restart = events.findIndex((event) => event.type === "restart");
     expect(restart).toBeGreaterThan(0);
     expect(events[restart - 1]).toMatchObject({ type: "notice", text: expect.stringContaining("cut to one page") });
-    expect(texts(events.slice(restart + 1))).toEqual(cvOf(38));
+    expect(texts(events.slice(restart + 1))).toEqual(cvOf(40));
     expect(events.at(-1)).toEqual({ type: "done", model: "claude-opus-5-5" });
     expect(fetchMock).toHaveBeenCalledTimes(2);
     // The same conversation, with the long CV as Claude's reply and a request to cut it.
@@ -144,10 +144,10 @@ describe("streamDocument", () => {
 
   it("fills out a one-page CV that leaves room on its page", async () => {
     // Four-fifths of a page looks short once printed.
-    fetchMock.mockResolvedValueOnce(streamOf(cvOf(33))).mockResolvedValueOnce(streamOf(cvOf(38)));
+    fetchMock.mockResolvedValueOnce(streamOf(cvOf(33))).mockResolvedValueOnce(streamOf(cvOf(40)));
     const events = await collect(streamDocument("cv", { cv: CV, job: JOB }, { ...OPTIONS, length: "one-page" }, ENV));
     expect(events).toContainEqual({ type: "notice", text: expect.stringContaining("so more of your experience is being added") });
-    expect(texts(events.slice(events.findIndex((event) => event.type === "restart") + 1))).toEqual(cvOf(38));
+    expect(texts(events.slice(events.findIndex((event) => event.type === "restart") + 1))).toEqual(cvOf(40));
     expect(lastRequest().body.messages[2].content).toMatch(/only fill about 8\d% of its page[\s\S]*no filler/);
   });
 
@@ -156,11 +156,11 @@ describe("streamDocument", () => {
       .mockResolvedValueOnce(streamOf(cvOf(60)))
       .mockResolvedValueOnce(streamOf(cvOf(45)))
       .mockResolvedValueOnce(streamOf(cvOf(33)))
-      .mockResolvedValueOnce(streamOf(cvOf(38)));
+      .mockResolvedValueOnce(streamOf(cvOf(40)));
     const events = await collect(streamDocument("cv", { cv: CV, job: JOB }, { ...OPTIONS, length: "one-page" }, ENV));
     expect(fetchMock).toHaveBeenCalledTimes(4);
     const lastRestart = events.map((event) => event.type).lastIndexOf("restart");
-    expect(texts(events.slice(lastRestart + 1))).toEqual(cvOf(38));
+    expect(texts(events.slice(lastRestart + 1))).toEqual(cvOf(40));
     expect(lastRequest().body.messages[2].content).toMatch(/leaving about \d+ printed lines empty/);
   });
 
@@ -174,7 +174,7 @@ describe("streamDocument", () => {
   });
 
   it("leaves a CV that fits, and a short two-page one, as they are", async () => {
-    fetchMock.mockResolvedValueOnce(streamOf(cvOf(38)));
+    fetchMock.mockResolvedValueOnce(streamOf(cvOf(40)));
     const events = await collect(streamDocument("cv", { cv: CV, job: JOB }, { ...OPTIONS, length: "one-page" }, ENV));
     expect(events.some((event) => event.type === "restart")).toBe(false);
     expect(lastRequest().body.messages[0].content[2].text).toMatch(/^Rewrite the candidate's CV[\s\S]*must fill ONE printed A4 page/);
