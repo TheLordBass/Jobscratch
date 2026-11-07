@@ -70,6 +70,8 @@ async function writeDocument(kind: DocumentKind, materials: TailorMaterials, opt
   let text = "";
   for await (const event of streamDocument(kind, materials, options, env)) {
     if (event.type === "text") text += event.text;
+    // A CV that ran long, being shortened: the shorter one replaces it.
+    if (event.type === "restart") text = "";
     if (event.type === "error") throw new AiError(event.message, event.status);
   }
   if (!text.trim()) throw new AiError("Claude didn't write anything. Try again.", 502);

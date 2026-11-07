@@ -39,6 +39,8 @@ export interface StreamHandlers {
   /** Claude's reasoning summary so far. */
   onThinking?: (thinking: string) => void;
   onNotice?: (notice: string) => void;
+  /** A CV that ran long is being shortened: the finished draft, which the next text replaces. */
+  onRestart?: (draft: string) => void;
 }
 
 /** Streams a tailored CV or cover letter from /api/tailor/generate and resolves with the finished text. */
@@ -60,6 +62,8 @@ export async function streamTailored(request: TailorRequest, handlers: StreamHan
   let text = "";
   let thinking = "";
   let finished = false;
+  // The long draft stays on screen until the shorter one starts arriving.
+  let restarting = false;
   while (true) {
     const { value, done } = await reader.read();
     if (done) break;
@@ -70,11 +74,15 @@ export async function streamTailored(request: TailorRequest, handlers: StreamHan
       if (!line.trim()) continue;
       const event = JSON.parse(line);
       if (event.type === "text") {
+        if (restarting) [text, restarting] = ["", false];
         text += event.text;
         handlers.onText?.(text);
       } else if (event.type === "thinking") {
         thinking += event.text;
         handlers.onThinking?.(thinking);
+      } else if (event.type === "restart") {
+        handlers.onRestart?.(text);
+        restarting = true;
       } else if (event.type === "notice") {
         handlers.onNotice?.(event.text);
       } else if (event.type === "error") {
