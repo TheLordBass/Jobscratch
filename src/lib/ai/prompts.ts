@@ -220,7 +220,7 @@ const STYLE_GUIDE: Record<TailorOptions["style"], string> = {
 export const CV_WORD_LIMIT: Record<TailorOptions["length"], number> = { "one-page": 500, "two-pages": 1000 };
 
 const LENGTH_GUIDE: Record<TailorOptions["length"], string> = {
-  "one-page": `Length: it must fill ONE printed A4 page, without spilling onto a second. Use the whole page (a CV that fills half of it wastes room for evidence), but never run over. Plan it in printed lines: the page holds about ${LINES_PER_PAGE} lines, a section heading takes about two, a role's title and dates about three, and a bullet one line for every 15 words or so. Roughly:
+  "one-page": `Length: it must fill ONE printed A4 page, without spilling onto a second. Use the whole page (a CV that fills half of it wastes room for evidence), but never run over. Plan it in printed lines: the page holds about ${LINES_PER_PAGE} lines, a section heading takes about two, a role's title and dates about three, and a bullet one line for every 17 words or so. Roughly:
   - name and contact details: 3 lines;
   - profile, two or three sentences: 5–6 lines with its heading;
   - key skills as one or two lines of comma-separated items (up to 15), not a bullet per skill: 4–5 lines with its heading;
@@ -314,7 +314,7 @@ export function shortenCvInstruction(options: TailorOptions, pages: number, word
   // half empty. The words are at this CV's own density, not the usual word count.
   const lines = Math.ceil((pages - wanted) * LINES_PER_PAGE) + 1;
   const limit = Math.floor(words * (wanted / pages) * 0.97);
-  return `That CV would print at about ${pages.toFixed(2)} pages, but it must fit on ${target}: it's about ${lines} printed lines too long. Cut about ${lines} lines, to about ${limit} words (it's ${words} now): a bullet is a line for every 15 words or so, a role's title and dates about three, a section heading about two. Take out the bullets, roles and sections that help this application least, rather than squeezing every one. Don't cut much more than that: it should still fill the page. Keep the same format, and keep everything true to the candidate's materials.
+  return `That CV would print at about ${pages.toFixed(2)} pages, but it must fit on ${target}: it's about ${lines} printed lines too long. Cut about ${lines} lines, to about ${limit} words (it's ${words} now): a bullet is a line for every 17 words or so, a role's title and dates about three, a section heading about two. Take out the bullets, roles and sections that help this application least, rather than squeezing every one. Don't cut much more than that: it should still fill the page. Keep the same format, and keep everything true to the candidate's materials.
 
 Reply with only the CV in Markdown: no introduction, notes, or code fences.`;
 }
@@ -328,7 +328,7 @@ export function lengthenCvInstruction(pages: number, words: number): string {
   // how much of it is headings and short lines, so it isn't held to the usual word count.
   const target = Math.min(Math.round(CV_WORD_LIMIT["one-page"] * 1.3), Math.floor(words / pages));
   const lines = Math.floor((1 - pages) * LINES_PER_PAGE);
-  return `That CV would only fill about ${Math.round(pages * 100)}% of its page, leaving about ${lines} printed lines empty at the bottom. Use the space: add about ${lines} lines, to about ${target} words (it's ${words} now; a bullet is a line for every 15 words or so), by adding back the detail from the candidate's materials that helps this application most, such as more bullets with achievements for the most relevant roles, or a role or project left out. Only use what the materials say, with no filler; if they have nothing more that helps, keep it as it is. It must still fit on one page.
+  return `That CV would only fill about ${Math.round(pages * 100)}% of its page, leaving about ${lines} printed lines empty at the bottom. Use the space: add about ${lines} lines, to about ${target} words (it's ${words} now; a bullet is a line for every 17 words or so), by adding back the detail from the candidate's materials that helps this application most, such as more bullets with achievements for the most relevant roles, or a role or project left out. Only use what the materials say, with no filler; if they have nothing more that helps, keep it as it is. It must still fit on one page.
 
 Reply with only the CV in Markdown: no introduction, notes, or code fences.`;
 }

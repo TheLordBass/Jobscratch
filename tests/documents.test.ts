@@ -78,15 +78,18 @@ describe("parseMarkdown", () => {
   });
 
   it("works out how many printed pages a CV fills", () => {
-    // Checked against a browser's print layout: within a few per cent, erring long.
+    // Checked against real CVs printed from Edge and opened in Word: within a few per cent, erring long.
     const role = (n: number) =>
       `### Analyst ${n}, Company ${n}\n*2019 – 2021*\n` +
       Array.from({ length: 4 }, () => "- Built automated SQL and Power BI reporting that cut weekly manual work by 30% and improved accuracy").join("\n");
     const cv = (roles: number) => `# Jane Doe\nManchester\n\n## Experience\n${Array.from({ length: roles }, (_, i) => role(i)).join("\n\n")}`;
     expect(estimatePages(cv(1))).toBeLessThan(0.5);
-    expect(estimatePages(cv(3))).toBeGreaterThan(0.8);
-    expect(estimatePages(cv(3))).toBeLessThan(1);
-    expect(estimatePages(cv(8))).toBeGreaterThan(2);
+    expect(estimatePages(cv(5))).toBeGreaterThan(0.85);
+    expect(estimatePages(cv(5))).toBeLessThan(1);
+    expect(estimatePages(cv(10))).toBeGreaterThan(1.5);
+    // A printed line holds about 112 characters of Calibri at this size.
+    expect(estimatePages("x".repeat(110))).toBe(estimatePages("x"));
+    expect(estimatePages("x".repeat(120))).toBeGreaterThan(estimatePages("x"));
     // A line break starts a new printed line.
     expect(estimatePages("a\nb\nc")).toBeGreaterThan(estimatePages("a b c"));
   });
@@ -95,6 +98,9 @@ describe("parseMarkdown", () => {
     const html = printableHtml("CV <x>", "```markdown\n# Name <script>\n```");
     expect(html).toContain("<h1>Name &lt;script&gt;</h1>");
     expect(html).toContain("<title>CV &lt;x&gt;</title>");
+    // A4, and Calibri's metric twin where Calibri is missing, so the page estimate holds.
+    expect(html).toMatch(/@page \{ size: A4;/);
+    expect(html).toContain("Calibri, Carlito,");
   });
 });
 

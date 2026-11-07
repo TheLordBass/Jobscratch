@@ -22,7 +22,7 @@ import {
   type TailorMaterials,
   type TailorOptions,
 } from "./prompts";
-import { estimatePages, ROOM_ON_PAGE } from "@/lib/markdown";
+import { estimatePages, PAGE_LEEWAY, ROOM_ON_PAGE } from "@/lib/markdown";
 
 export const DEFAULT_MODEL = "claude-opus-5-5";
 
@@ -275,8 +275,6 @@ export type StreamEvent =
  */
 const MAX_ADJUSTMENTS = 3;
 const ADJUST_BEFORE_MS = 150_000;
-/** A little over is let through: the page estimate errs long. */
-const PAGE_LEEWAY = 1.04;
 
 /** One request's text, streamed as events; what it wrote and how it stopped. */
 async function* streamPass(
