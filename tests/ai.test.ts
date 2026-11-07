@@ -121,7 +121,7 @@ describe("streamDocument", () => {
     expect(instruction.text).toContain("UK/European CV conventions");
   });
 
-  /** A CV of `count` one-line bullets: 20 fill about half a page, 38 most of one, 60 about one and a half. */
+  /** A CV of `count` one-line bullets: 20 fill about half a page, 33 four-fifths, 38 most of one, 60 about one and a half. */
   const cvOf = (count: number) => ["# Jane Doe\n", ...Array.from({ length: count }, (_, i) => `- Built reporting for team ${i} that cut weekly manual work by a third\n`)];
   const texts = (events: StreamEvent[]) => events.filter((event) => event.type === "text").map((event) => (event as { text: string }).text);
 
@@ -138,16 +138,30 @@ describe("streamDocument", () => {
     const { body } = lastRequest();
     expect(body.messages).toHaveLength(3);
     expect(body.messages[1]).toMatchObject({ role: "assistant", content: expect.stringContaining("team 59") });
-    expect(body.messages[2].content).toMatch(/fit on one page\. Rewrite it to about \d+ words/);
+    expect(body.messages[2].content).toMatch(/fit on one page: it's about (2[0-9]) printed lines too long\. Cut about \1 lines, to about \d+ words/);
     expect(body.output_config).toEqual({ effort: "medium" });
   });
 
-  it("fills out a one-page CV that leaves much of its page empty", async () => {
-    fetchMock.mockResolvedValueOnce(streamOf(cvOf(20))).mockResolvedValueOnce(streamOf(cvOf(38)));
+  it("fills out a one-page CV that leaves room on its page", async () => {
+    // Four-fifths of a page looks short once printed.
+    fetchMock.mockResolvedValueOnce(streamOf(cvOf(33))).mockResolvedValueOnce(streamOf(cvOf(38)));
     const events = await collect(streamDocument("cv", { cv: CV, job: JOB }, { ...OPTIONS, length: "one-page" }, ENV));
     expect(events).toContainEqual({ type: "notice", text: expect.stringContaining("so more of your experience is being added") });
     expect(texts(events.slice(events.findIndex((event) => event.type === "restart") + 1))).toEqual(cvOf(38));
-    expect(lastRequest().body.messages[2].content).toMatch(/only fill about \d+% of its page[\s\S]*no filler/);
+    expect(lastRequest().body.messages[2].content).toMatch(/only fill about 8\d% of its page[\s\S]*no filler/);
+  });
+
+  it("can cut a CV twice and then fill it out", async () => {
+    fetchMock
+      .mockResolvedValueOnce(streamOf(cvOf(60)))
+      .mockResolvedValueOnce(streamOf(cvOf(45)))
+      .mockResolvedValueOnce(streamOf(cvOf(33)))
+      .mockResolvedValueOnce(streamOf(cvOf(38)));
+    const events = await collect(streamDocument("cv", { cv: CV, job: JOB }, { ...OPTIONS, length: "one-page" }, ENV));
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    const lastRestart = events.map((event) => event.type).lastIndexOf("restart");
+    expect(texts(events.slice(lastRestart + 1))).toEqual(cvOf(38));
+    expect(lastRequest().body.messages[2].content).toMatch(/leaving about \d+ printed lines empty/);
   });
 
   it("keeps the shorter CV if filling it out spills onto a second page", async () => {

@@ -22,7 +22,7 @@ import {
   type TailorMaterials,
   type TailorOptions,
 } from "./prompts";
-import { estimatePages } from "@/lib/markdown";
+import { estimatePages, ROOM_ON_PAGE } from "@/lib/markdown";
 
 export const DEFAULT_MODEL = "claude-opus-5-5";
 
@@ -269,13 +269,14 @@ export type StreamEvent =
   | { type: "done"; model: string }
   | { type: "error"; message: string; status: number };
 
-/** How many times a CV is rewritten to fit its pages, at most, and not once it's taken this long. */
-const MAX_ADJUSTMENTS = 2;
+/**
+ * How many times a CV is rewritten to fit its pages, at most, and not once it's taken this long: a
+ * long draft can take two cuts and still be filled out after. A rewrite takes 15–20 seconds.
+ */
+const MAX_ADJUSTMENTS = 3;
 const ADJUST_BEFORE_MS = 150_000;
-/** A little over is let through: the page estimate is close, not exact. */
+/** A little over is let through: the page estimate errs long. */
 const PAGE_LEEWAY = 1.04;
-/** A one-page CV filling less of its page than this gets the most relevant detail added back. */
-const FILL_BELOW = 0.8;
 
 /** One request's text, streamed as events; what it wrote and how it stopped. */
 async function* streamPass(
@@ -336,7 +337,7 @@ export async function* streamDocument(
       const pages = estimatePages(result.text);
       const over = pages > pagesWanted * PAGE_LEEWAY;
       // Filled out once at most, so it can't go back and forth.
-      const short = pagesWanted === 1 && !lengthened && pages < FILL_BELOW;
+      const short = pagesWanted === 1 && !lengthened && pages < ROOM_ON_PAGE;
       if (!over && !short) break;
       const words = result.text.trim().split(/\s+/).length;
       yield {

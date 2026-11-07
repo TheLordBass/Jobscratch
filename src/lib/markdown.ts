@@ -210,12 +210,17 @@ export function blocksToHtml(blocks: Block[]): string {
 }
 
 /*
- * How many A4 pages a document fills when printed (printableHtml below; the Word file is laid out
- * much the same), worked out from its text rather than a browser: so the server can tell a CV that
- * runs over the length asked for. Heights are in points, from the print stylesheet's sizes.
+ * How many A4 pages a document fills when printed (printableHtml below; the Word file uses the same
+ * spacing), worked out from its text rather than a browser: so the server can tell a CV that runs
+ * over the length asked for. Heights are in points, from the print stylesheet's sizes. It errs a
+ * little long: checked in Chrome and Word, the real page is about 4–6% shorter.
  */
+/** A one-page CV the estimate puts below this (about 85% of the real page) has room for more. */
+export const ROOM_ON_PAGE = 0.88;
 const PAGE_HEIGHT = 751; // A4's 297mm less 16mm margins top and bottom
 const LINE = 10.5 * 1.45;
+/** Lines of body text a printed page holds, for telling Claude how much to write or cut. */
+export const LINES_PER_PAGE = Math.round(PAGE_HEIGHT / LINE);
 const CHARS_PER_LINE = 95;
 const CHARS_PER_ITEM_LINE = 88; // list items are indented
 

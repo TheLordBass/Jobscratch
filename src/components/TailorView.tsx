@@ -18,7 +18,7 @@ import { dismissTask, startAnalysis, startAnswers, startDocument, stopJobTasks, 
 import { jobKeys } from "@/lib/import";
 import { documentFileName } from "@/lib/apply";
 import { downloadBlob, formatPosted } from "@/lib/format";
-import { estimatePages, hasProjectSections, printableHtml, removeProjectSections } from "@/lib/markdown";
+import { estimatePages, hasProjectSections, printableHtml, removeProjectSections, ROOM_ON_PAGE } from "@/lib/markdown";
 import { useSessionState } from "@/lib/session-state";
 import {
   APPLICATION_STATUSES,
@@ -268,7 +268,7 @@ function PageCount({ markdown, wanted }: { markdown: string; wanted: 1 | 2 }) {
       : pages <= 1.04
         ? "About 1 page"
         : `About ${(Math.round(pages * 10) / 10).toFixed(1)} pages`;
-  if (wanted === 1 && pages < 0.8) {
+  if (wanted === 1 && pages < ROOM_ON_PAGE) {
     return (
       <p className="muted text-xs">
         {shown} when printed: there&apos;s room for more. Regenerate it to fill the page with more of your experience.
