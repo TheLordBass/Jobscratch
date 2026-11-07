@@ -121,6 +121,31 @@ describe("streamDocument", () => {
     expect(instruction.text).toContain("UK/European CV conventions");
   });
 
+  it("shortens a CV that would print longer than the pages chosen", async () => {
+    const bullets = Array.from({ length: 60 }, (_, i) => `- Built reporting for team ${i} that cut weekly manual work by a third\n`);
+    fetchMock.mockResolvedValueOnce(streamOf(["# Jane Doe\n", ...bullets])).mockResolvedValueOnce(streamOf(["# Jane Doe\n", "- Short"]));
+    const events = await collect(streamDocument("cv", { cv: CV, job: JOB }, { ...OPTIONS, length: "one-page" }, ENV));
+    const restart = events.findIndex((event) => event.type === "restart");
+    expect(restart).toBeGreaterThan(0);
+    expect(events[restart - 1]).toMatchObject({ type: "notice", text: expect.stringContaining("cut to one page") });
+    expect(events.slice(restart + 1).filter((event) => event.type === "text").map((event) => (event as { text: string }).text)).toEqual(["# Jane Doe\n", "- Short"]);
+    expect(events.at(-1)).toEqual({ type: "done", model: "claude-opus-5-5" });
+    // The same conversation, with the long CV as Claude's reply and a request to cut it.
+    const { body } = lastRequest();
+    expect(body.messages).toHaveLength(3);
+    expect(body.messages[1]).toMatchObject({ role: "assistant", content: expect.stringContaining("team 59") });
+    expect(body.messages[2].content).toMatch(/fit on one page\. Rewrite it to at most \d+ words/);
+    expect(body.output_config).toEqual({ effort: "medium" });
+  });
+
+  it("leaves a CV that fits, and a cover letter, as they are", async () => {
+    fetchMock.mockResolvedValueOnce(streamOf(["# Jane Doe\n", "- One line"]));
+    const events = await collect(streamDocument("cv", { cv: CV, job: JOB }, { ...OPTIONS, length: "one-page" }, ENV));
+    expect(events.some((event) => event.type === "restart")).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(lastRequest().body.messages[0].content[2].text).toMatch(/^Rewrite the candidate's CV[\s\S]*must fit on ONE printed A4 page/);
+  });
+
   it("uses the cover-letter prompt and a lower effort", async () => {
     fetchMock.mockResolvedValueOnce(streamOf(["Dear hiring team"]));
     await collect(streamDocument("cover-letter", { cv: CV, job: JOB }, { ...OPTIONS, extraInstructions: "Mention I can start in May" }, ENV));

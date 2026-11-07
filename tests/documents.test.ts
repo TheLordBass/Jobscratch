@@ -3,6 +3,7 @@ import { extractCvText, CvParseError } from "@/lib/cv-parse";
 import { markdownToDocx } from "@/lib/export-docx";
 import {
   blocksToHtml,
+  estimatePages,
   hasProjectSections,
   markdownToPlainText,
   parseInline,
@@ -74,6 +75,20 @@ describe("parseMarkdown", () => {
     expect(blocks).toHaveLength(2);
     expect(blocksToHtml(blocks)).toBe("<p><strong>Analyst</strong> | Globex | London<br><em>March 2021 – Present</em></p>\n<p>Kind regards,<br>Jane Doe</p>");
     expect(markdownToPlainText(letter)).toBe("Analyst | Globex | London\nMarch 2021 – Present\n\nKind regards,\nJane Doe");
+  });
+
+  it("works out how many printed pages a CV fills", () => {
+    // Checked against a browser's print layout: within a few per cent, erring long.
+    const role = (n: number) =>
+      `### Analyst ${n}, Company ${n}\n*2019 – 2021*\n` +
+      Array.from({ length: 4 }, () => "- Built automated SQL and Power BI reporting that cut weekly manual work by 30% and improved accuracy").join("\n");
+    const cv = (roles: number) => `# Jane Doe\nManchester\n\n## Experience\n${Array.from({ length: roles }, (_, i) => role(i)).join("\n\n")}`;
+    expect(estimatePages(cv(1))).toBeLessThan(0.5);
+    expect(estimatePages(cv(3))).toBeGreaterThan(0.8);
+    expect(estimatePages(cv(3))).toBeLessThan(1);
+    expect(estimatePages(cv(8))).toBeGreaterThan(2);
+    // A line break starts a new printed line.
+    expect(estimatePages("a\nb\nc")).toBeGreaterThan(estimatePages("a b c"));
   });
 
   it("unwraps a fenced document and escapes HTML", () => {

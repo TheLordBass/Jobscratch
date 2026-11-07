@@ -18,7 +18,7 @@ import { dismissTask, startAnalysis, startAnswers, startDocument, stopJobTasks, 
 import { jobKeys } from "@/lib/import";
 import { documentFileName } from "@/lib/apply";
 import { downloadBlob, formatPosted } from "@/lib/format";
-import { hasProjectSections, printableHtml, removeProjectSections } from "@/lib/markdown";
+import { estimatePages, hasProjectSections, printableHtml, removeProjectSections } from "@/lib/markdown";
 import { useSessionState } from "@/lib/session-state";
 import {
   APPLICATION_STATUSES,
@@ -259,6 +259,19 @@ function JobDescription({ text }: { text: string }) {
   );
 }
 
+/** How long the CV prints, and whether that's more than the length chosen. */
+function PageCount({ markdown, wanted }: { markdown: string; wanted: 1 | 2 }) {
+  const pages = estimatePages(markdown);
+  const shown = pages <= 1.04 ? "About 1 page" : `About ${(Math.round(pages * 10) / 10).toFixed(1)} pages`;
+  if (pages <= wanted * 1.04) return <p className="muted text-xs">{shown} when printed.</p>;
+  return (
+    <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+      {shown} when printed: longer than the {wanted === 1 ? "one page" : "two pages"} chosen in Writing options. Regenerate
+      it, or edit it down.
+    </p>
+  );
+}
+
 function DocumentPanel({
   kind,
   job,
@@ -266,6 +279,7 @@ function DocumentPanel({
   generation,
   blocker,
   outOfDate,
+  pagesWanted,
   onEdit,
   onGenerate,
   onStop,
@@ -276,6 +290,8 @@ function DocumentPanel({
   generation: Generation;
   /** Written from an earlier CV (or website and GitHub details) than there is now. */
   outOfDate: boolean;
+  /** The CV length chosen in Writing options. */
+  pagesWanted: 1 | 2;
   /** Why a document can't be written yet (no CV or job description). */
   blocker: string | undefined;
   onEdit: (text: string) => void;
@@ -446,6 +462,7 @@ function DocumentPanel({
           <MarkdownView markdown={content} />
         </div>
       )}
+      {!streaming && kind === "cv" && content.trim() && <PageCount markdown={content} wanted={pagesWanted} />}
       {!streaming && kind === "cv" && (
         <p className="muted text-xs">
           Check every line before you send it. Claude is told to use only facts from your CV, but you know your history
@@ -865,6 +882,7 @@ function TailorWorkspace({ entry, initialTab }: { entry: SavedJob; initialTab?: 
               generation={generations[tab]}
               blocker={blocker}
               outOfDate={Boolean(docs?.[tab]) && !madeFromCurrent(docs, tab, candidate)}
+              pagesWanted={options.length === "one-page" ? 1 : 2}
               onEdit={(text) => updateDocs({ [tab]: text })}
               onGenerate={() => {
                 if (ready) void generate(tab);

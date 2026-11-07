@@ -209,6 +209,35 @@ export function blocksToHtml(blocks: Block[]): string {
     .join("\n");
 }
 
+/*
+ * How many A4 pages a document fills when printed (printableHtml below; the Word file is laid out
+ * much the same), worked out from its text rather than a browser: so the server can tell a CV that
+ * runs over the length asked for. Heights are in points, from the print stylesheet's sizes.
+ */
+const PAGE_HEIGHT = 751; // A4's 297mm less 16mm margins top and bottom
+const LINE = 10.5 * 1.45;
+const CHARS_PER_LINE = 95;
+const CHARS_PER_ITEM_LINE = 88; // list items are indented
+
+function linesOf(inlines: Inline[], perLine: number): number {
+  // Each line written on its own (a line break) starts a new printed line.
+  return inlinesToText(inlines)
+    .split("\n")
+    .reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / perLine)), 0);
+}
+
+export function estimatePages(markdown: string): number {
+  let height = 0;
+  for (const block of parseMarkdown(markdown)) {
+    // Headings less the space above them that overlaps the space below what comes before.
+    if (block.type === "heading") height += block.level === 1 ? 31 : block.level === 2 ? 34 : 22;
+    else if (block.type === "paragraph") height += linesOf(block.inlines, CHARS_PER_LINE) * LINE + 6;
+    else if (block.type === "list") height += block.items.reduce((sum, item) => sum + linesOf(item, CHARS_PER_ITEM_LINE) * LINE + 2, 6);
+    else height += 21;
+  }
+  return height / PAGE_HEIGHT;
+}
+
 /** A standalone, print-ready HTML document (used for "Save as PDF"). */
 export function printableHtml(title: string, markdown: string): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>

@@ -123,6 +123,8 @@ export function startAnalysis(
 export function startDocument(jobId: string, label: string, kind: "cv" | "coverLetter", request: Omit<TailorRequest, "kind">, from: string) {
   const controller = begin(jobId, kind, label);
   let text = "";
+  // A whole CV, while a shorter one is being written in its place.
+  let draft = "";
   void (async () => {
     try {
       const finished = await streamTailored(
@@ -135,14 +137,23 @@ export function startDocument(jobId: string, label: string, kind: "cv" | "coverL
           },
           onThinking: (thinking) => set(jobId, kind, { thinking }),
           onNotice: (notice) => set(jobId, kind, { notice }),
+          onRestart: (previous) => {
+            draft = previous;
+          },
         },
       );
       save(jobId, { [kind]: finished, [`${kind}From`]: from });
       set(jobId, kind, { status: "done", text: "" });
     } catch (error) {
       if (controller.signal.aborted) {
-        if (text.trim()) save(jobId, { [kind]: text.trim(), [`${kind}From`]: from });
-        set(jobId, kind, { status: "stopped", text: "", notice: text ? "Stopped early, so this draft may be incomplete." : undefined });
+        // Stopped while a long CV was being shortened: the whole long one, rather than half a short one.
+        const kept = (draft || text).trim();
+        if (kept) save(jobId, { [kind]: kept, [`${kind}From`]: from });
+        set(jobId, kind, {
+          status: "stopped",
+          text: "",
+          notice: draft ? "Stopped before it was shortened, so it's longer than you asked for." : text ? "Stopped early, so this draft may be incomplete." : undefined,
+        });
       } else if (await pausedInBackground(controller.signal)) {
         startDocument(jobId, label, kind, request, from);
       } else {

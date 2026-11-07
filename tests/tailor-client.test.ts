@@ -53,6 +53,25 @@ describe("streamTailored", () => {
     expect(JSON.parse(String(init?.body))).toMatchObject({ kind: "cv", job: { title: "Data Analyst" } });
   });
 
+  it("replaces a long CV with the shortened one, keeping the long one on screen until it starts", async () => {
+    fetchMock.mockResolvedValueOnce(
+      ndjson([
+        { type: "text", text: "# Long CV" },
+        { type: "notice", text: "That came to about 1.4 pages, so it's being cut to one page." },
+        { type: "restart" },
+        { type: "text", text: "# Short" },
+        { type: "text", text: " CV" },
+        { type: "done", model: "claude-opus-5-5" },
+      ]),
+    );
+    const texts: string[] = [];
+    const drafts: string[] = [];
+    const result = await streamTailored(REQUEST, { onText: (t) => texts.push(t), onRestart: (d) => drafts.push(d) });
+    expect(result).toBe("# Short CV");
+    expect(texts).toEqual(["# Long CV", "# Short", "# Short CV"]);
+    expect(drafts).toEqual(["# Long CV"]);
+  });
+
   it("turns error events, failed requests and cut-off streams into errors", async () => {
     fetchMock.mockResolvedValueOnce(ndjson([{ type: "text", text: "# Al" }, { type: "error", message: "Rate limited." }]));
     await expect(streamTailored(REQUEST)).rejects.toThrow("Rate limited.");

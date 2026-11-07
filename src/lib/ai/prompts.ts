@@ -212,9 +212,17 @@ const STYLE_GUIDE: Record<TailorOptions["style"], string> = {
     "US resume conventions: no photo or personal details beyond contact information; American spelling unless the CV uses British spelling.",
 };
 
+/** The most words a CV can have and still fit its pages when printed (A4, 10.5pt; see estimatePages). */
+export const CV_WORD_LIMIT: Record<TailorOptions["length"], number> = { "one-page": 400, "two-pages": 850 };
+
 const LENGTH_GUIDE: Record<TailorOptions["length"], string> = {
-  "one-page": "Aim for one page (roughly 450–600 words): keep only the most relevant roles and bullets.",
-  "two-pages": "Aim for no more than two pages (roughly 700–1,000 words).",
+  "one-page": `Length: it must fit on ONE printed A4 page. That's a hard limit, not a target: at most ${CV_WORD_LIMIT["one-page"]} words in all, headings included. To fit, cut rather than squeeze:
+  - a profile of two sentences;
+  - key skills as one or two lines of comma-separated items (at most 12), not a bullet per skill;
+  - in full, only the two or three roles that matter most for this job: up to 4 bullets for the most relevant and 2–3 for the others, each bullet one line (under 20 words);
+  - every other role on a single line (title, employer, dates) under an "Earlier experience" heading, with no bullets; drop very old or irrelevant ones if it still doesn't fit;
+  - education and certifications one line each; projects (if any) at most two, one line each; no other sections, and no references line.`,
+  "two-pages": `Length: at most two printed A4 pages: no more than ${CV_WORD_LIMIT["two-pages"]} words in all, headings included. Give the most space to the roles that matter most for this job; older or less relevant roles get one or two bullets, or a single line.`,
 };
 
 const TONE_GUIDE: Record<TailorOptions["tone"], string> = {
@@ -276,15 +284,28 @@ export function cvInstruction(options: TailorOptions, withProfile = false): stri
       : "";
   return `Rewrite the candidate's CV so it is tailored to this job.
 
+${LENGTH_GUIDE[options.length]}
+
 - Start with the candidate's name as a level-1 heading ("# Name"), ${contact}.
-- Then a short profile (2–4 sentences) aimed at this role.
+- Then a short profile aimed at this role.
 - Then a "Key skills" section listing only ${skills}, most relevant to this job first.
 - Then experience in reverse-chronological order. Keep every employer, job title and date exactly as written. Rewrite bullets to bring forward what matters for this job; shorten or cut what doesn't.${projects}
-- Then education, certifications and any other sections from the original that help this application.
+- Then education, certifications and any other sections from the original that help this application, as the length allows.
 ${LINK_RULE}
 - ${STYLE_GUIDE[options.style]}
-- ${LENGTH_GUIDE[options.length]}
 - ${TONE_GUIDE[options.tone]}${extras(options)}
+
+Reply with only the CV in Markdown: no introduction, notes, or code fences.`;
+}
+
+/**
+ * Sent after a tailored CV that came out longer than the pages asked for (see estimatePages), with
+ * the CV as Claude's own previous reply: cut it down, true to the same materials.
+ */
+export function shortenCvInstruction(options: TailorOptions, pages: number, words: number): string {
+  const target = options.length === "one-page" ? "one page" : "two pages";
+  const limit = Math.min(CV_WORD_LIMIT[options.length], Math.floor(words * ((options.length === "one-page" ? 1 : 2) / pages) * 0.9));
+  return `That CV would print at about ${pages.toFixed(1)} pages, but it must fit on ${target}. Rewrite it to at most ${limit} words (it's ${words} now), following the same length rules: cut whole bullets, roles and sections that help this application least, rather than squeezing every one. Keep the same format, and keep everything true to the candidate's materials.
 
 Reply with only the CV in Markdown: no introduction, notes, or code fences.`;
 }

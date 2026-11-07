@@ -14,12 +14,14 @@ import {
   jobBlock,
   notesBlock,
   severalCvs,
+  shortenCvInstruction,
   type ApplicationAnswer,
   type ApplicationDetails,
   type MatchAnalysis,
   type TailorMaterials,
   type TailorOptions,
 } from "./prompts";
+import { estimatePages } from "@/lib/markdown";
 
 export const DEFAULT_MODEL = "claude-opus-5-5";
 
@@ -261,10 +263,46 @@ export type StreamEvent =
   | { type: "thinking"; text: string }
   | { type: "text"; text: string }
   | { type: "notice"; text: string }
+  /** What's been written so far is being replaced: a CV that ran long is being shortened. */
+  | { type: "restart" }
   | { type: "done"; model: string }
   | { type: "error"; message: string; status: number };
 
-/** Streams a tailored CV or cover letter as text deltas (plus reasoning summaries for progress). */
+/** How many times a CV that runs over its pages is shortened, at most, and not once it's taken this long. */
+const MAX_SHORTENINGS = 2;
+const SHORTEN_BEFORE_MS = 150_000;
+/** A little over is let through: the page estimate is close, not exact. */
+const PAGE_LEEWAY = 1.04;
+
+/** One request's text, streamed as events; what it wrote and how it stopped. */
+async function* streamPass(
+  client: Anthropic,
+  params: Anthropic.Beta.MessageCreateParamsNonStreaming,
+  signal: AbortSignal | undefined,
+  task: string,
+): AsyncGenerator<StreamEvent, { text: string; stopReason: string | null; model: string }> {
+  const stream = client.beta.messages.stream(params, { signal });
+  let text = "";
+  for await (const event of stream) {
+    if (event.type === "content_block_start" && event.content_block.type === "fallback") {
+      yield { type: "notice", text: `Continuing with ${event.content_block.to.model}.` };
+    } else if (event.type === "content_block_delta") {
+      if (event.delta.type === "text_delta") {
+        text += event.delta.text;
+        yield { type: "text", text: event.delta.text };
+      } else if (event.delta.type === "thinking_delta") yield { type: "thinking", text: event.delta.thinking };
+    }
+  }
+  const final = await stream.finalMessage();
+  logUsage(task, final);
+  return { text, stopReason: final.stop_reason, model: final.model };
+}
+
+/**
+ * Streams a tailored CV or cover letter as text deltas (plus reasoning summaries for progress). A CV
+ * that would print longer than the pages asked for is shortened before it's done: the events then
+ * carry a notice and a restart, and the shorter CV.
+ */
 export async function* streamDocument(
   kind: DocumentKind,
   materials: TailorMaterials,
@@ -272,38 +310,50 @@ export async function* streamDocument(
   env: Env,
   signal?: AbortSignal,
 ): AsyncGenerator<StreamEvent> {
+  const started = Date.now();
   try {
     const client = getClient(env);
     const withProfile = hasProfile(materials.profile);
     const instruction =
       kind === "cv" ? cvInstruction(options, withProfile) : coverLetterInstruction(options, withProfile);
-    const stream = client.beta.messages.stream(
-      {
-        ...modelParams(env, "document"),
-        max_tokens: 64000,
-        thinking: { type: "adaptive", display: "summarized" },
-        output_config: { effort: kind === "cv" ? "high" : "medium" },
-        system: SYSTEM_PROMPT,
-        messages: buildMessages(materials, instruction),
-      },
-      { signal },
-    );
-    for await (const event of stream) {
-      if (event.type === "content_block_start" && event.content_block.type === "fallback") {
-        yield { type: "notice", text: `Continuing with ${event.content_block.to.model}.` };
-      } else if (event.type === "content_block_delta") {
-        if (event.delta.type === "text_delta") yield { type: "text", text: event.delta.text };
-        else if (event.delta.type === "thinking_delta") yield { type: "thinking", text: event.delta.thinking };
-      }
+    const params = {
+      ...modelParams(env, "document"),
+      max_tokens: 64000,
+      thinking: { type: "adaptive" as const, display: "summarized" as const },
+      output_config: { effort: kind === "cv" ? ("high" as const) : ("medium" as const) },
+      system: SYSTEM_PROMPT,
+      messages: buildMessages(materials, instruction),
+    };
+    let result = yield* streamPass(client, params, signal, kind);
+    const pagesWanted = options.length === "one-page" ? 1 : 2;
+    for (let shortened = 0; kind === "cv" && result.stopReason === "end_turn" && shortened < MAX_SHORTENINGS; shortened++) {
+      const pages = estimatePages(result.text);
+      if (pages <= pagesWanted * PAGE_LEEWAY || Date.now() - started > SHORTEN_BEFORE_MS) break;
+      const words = result.text.trim().split(/\s+/).length;
+      yield { type: "notice", text: `That came to about ${pages.toFixed(1)} pages, so it's being cut to ${pagesWanted === 1 ? "one page" : "two"}.` };
+      yield { type: "restart" };
+      // The same conversation, so the CV, job and instructions are read from the cache.
+      result = yield* streamPass(
+        client,
+        {
+          ...params,
+          output_config: { effort: "medium" },
+          messages: [
+            ...params.messages,
+            { role: "assistant", content: result.text.trim() },
+            { role: "user", content: shortenCvInstruction(options, pages, words) },
+          ],
+        },
+        signal,
+        "cv (shortened)",
+      );
     }
-    const final = await stream.finalMessage();
-    logUsage(kind, final);
-    if (final.stop_reason === "refusal") {
+    if (result.stopReason === "refusal") {
       yield { type: "error", message: REFUSAL_MESSAGE, status: 422 };
-    } else if (final.stop_reason === "max_tokens") {
+    } else if (result.stopReason === "max_tokens") {
       yield { type: "error", message: "The response was cut off before it finished. Try again.", status: 502 };
     } else {
-      yield { type: "done", model: final.model };
+      yield { type: "done", model: result.model };
     }
   } catch (error) {
     if (signal?.aborted) return;
