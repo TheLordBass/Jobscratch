@@ -308,7 +308,8 @@ Reply with only the CV in Markdown: no introduction, notes, or code fences.`;
 export function shortenCvInstruction(options: TailorOptions, pages: number, words: number): string {
   const target = options.length === "one-page" ? "one page" : "two pages";
   // Just under what fits: cutting much more leaves the page half empty.
-  const limit = Math.min(CV_WORD_LIMIT[options.length], Math.floor(words * ((options.length === "one-page" ? 1 : 2) / pages) * 0.95));
+  // At this CV's own density, not the usual word count, which may fit less than the page holds.
+  const limit = Math.floor(words * ((options.length === "one-page" ? 1 : 2) / pages) * 0.97);
   return `That CV would print at about ${pages.toFixed(1)} pages, but it must fit on ${target}. Rewrite it to about ${limit} words (it's ${words} now), following the same length rules: cut the bullets, roles and sections that help this application least, rather than squeezing every one. Don't cut more than that: it should still fill the page. Keep the same format, and keep everything true to the candidate's materials.
 
 Reply with only the CV in Markdown: no introduction, notes, or code fences.`;
@@ -319,7 +320,9 @@ Reply with only the CV in Markdown: no introduction, notes, or code fences.`;
  * from the candidate's materials, without padding.
  */
 export function lengthenCvInstruction(pages: number, words: number): string {
-  const target = Math.min(CV_WORD_LIMIT["one-page"], Math.floor((words / pages) * 0.95));
+  // Enough to reach the bottom of the page at this CV's own density: how many words fit depends on
+  // how much of it is headings and short lines, so it isn't held to the usual word count.
+  const target = Math.min(Math.round(CV_WORD_LIMIT["one-page"] * 1.3), Math.floor(words / pages));
   return `That CV would only fill about ${Math.round(pages * 100)}% of its page. Use the space: rewrite it to about ${target} words (it's ${words} now) by adding back the detail from the candidate's materials that helps this application most, such as more bullets with achievements for the most relevant roles, or a role or project left out. Only use what the materials say, with no filler; if they have nothing more that helps, keep it as it is. It must still fit on one page.
 
 Reply with only the CV in Markdown: no introduction, notes, or code fences.`;
