@@ -47,6 +47,18 @@ export function unwrapFence(markdown: string): string {
   return match ? match[1] : markdown;
 }
 
+/*
+ * A date range written with a plain hyphen: "Apr 2023 - Present", not "Apr 2023 – Present".
+ * Applicant tracking systems that read a CV into a form (Workday among them) can split a range
+ * only on a hyphen, and drop the dates of one written with an en or em dash.
+ */
+const DATE_RANGE_DASH =
+  /(\b(?:19|20)\d{2})([ \t]*)[–—]([ \t]*)(?=(?:[A-Za-z]{3,9}\.?\s+)?(?:(?:19|20)\d{2}\b|present\b|current\b|now\b|today\b|date\b))/gi;
+
+export function plainDateRanges(text: string): string {
+  return text.replace(DATE_RANGE_DASH, "$1$2-$3");
+}
+
 export function parseMarkdown(markdown: string): Block[] {
   const blocks: Block[] = [];
   let paragraph: string[] = [];
@@ -68,7 +80,7 @@ export function parseMarkdown(markdown: string): Block[] {
     list = null;
   };
 
-  for (const rawLine of unwrapFence(markdown).replace(/\r\n?/g, "\n").split("\n")) {
+  for (const rawLine of plainDateRanges(unwrapFence(markdown).replace(/\r\n?/g, "\n")).split("\n")) {
     const line = rawLine.trimEnd();
     const trimmed = line.trim();
     if (!trimmed) {

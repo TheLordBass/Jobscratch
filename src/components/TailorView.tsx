@@ -17,6 +17,7 @@ import { cvVersions, hasCvText } from "@/lib/cvs";
 import { dismissTask, startAnalysis, startAnswers, startDocument, stopJobTasks, stopTask, useJobTask, type JobTask } from "@/lib/job-tasks";
 import { jobKeys } from "@/lib/import";
 import { documentFileName } from "@/lib/apply";
+import { unsupportedFigures } from "@/lib/figures";
 import { downloadBlob, formatPosted } from "@/lib/format";
 import {
   estimatePages,
@@ -291,6 +292,19 @@ function PageCount({ markdown, wanted }: { markdown: string; wanted: 1 | 2 }) {
   );
 }
 
+/** Figures in the document that aren't in the candidate's materials: worth checking before it's sent. */
+function FigureCheck({ markdown, sources }: { markdown: string; sources: string[] }) {
+  const unsupported = unsupportedFigures(markdown, sources);
+  if (!unsupported.length) return null;
+  return (
+    <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+      {unsupported.length === 1 ? "This figure isn’t" : "These figures aren’t"} in your CV, skills or notes:{" "}
+      <strong>{unsupported.slice(0, 12).join(", ")}</strong>
+      {unsupported.length > 12 ? "…" : ""}. Check {unsupported.length === 1 ? "it’s" : "they’re"} right before you send it.
+    </p>
+  );
+}
+
 function DocumentPanel({
   kind,
   job,
@@ -299,6 +313,7 @@ function DocumentPanel({
   blocker,
   outOfDate,
   pagesWanted,
+  sources,
   onEdit,
   onGenerate,
   onStop,
@@ -311,6 +326,8 @@ function DocumentPanel({
   outOfDate: boolean;
   /** The CV length chosen in Writing options. */
   pagesWanted: 1 | 2;
+  /** What the document's facts should come from, for checking its figures. */
+  sources: string[];
   /** Why a document can't be written yet (no CV or job description). */
   blocker: string | undefined;
   onEdit: (text: string) => void;
@@ -490,6 +507,7 @@ function DocumentPanel({
         </div>
       )}
       {!streaming && kind === "cv" && content.trim() && <PageCount markdown={content} wanted={pagesWanted} />}
+      {!streaming && content.trim() && <FigureCheck markdown={content} sources={sources} />}
       {!streaming && kind === "cv" && (
         <p className="muted text-xs">
           Check every line before you send it. Claude is told to use only facts from your CV, but you know your history
@@ -588,6 +606,15 @@ function TailorWorkspace({ entry, initialTab }: { entry: SavedJob; initialTab?: 
     "website and GitHub details";
   const { cvs: payloadCvs, profile: payloadProfile, skills: payloadSkills, staleDetails } = candidate;
   const payloadNotes = settings.useJobNotes ? entry.notes.trim().slice(0, 4000) || undefined : undefined;
+  // Where a document's figures should come from. A cover letter may also quote the job ad; a CV
+  // shouldn't take a figure from it ("5 years of SQL" because the ad asks for it).
+  const factSources = [
+    cvText,
+    ...(payloadCvs ?? []).map((version) => version.text),
+    ...(payloadSkills ?? []).map((skill) => `${skill.name} ${skill.detail}`),
+    payloadProfile?.evidence ?? "",
+    entry.notes,
+  ];
 
   // Cut to what the server takes, so a long pasted description doesn't fail every request.
   const payloadJob = {
@@ -910,6 +937,7 @@ function TailorWorkspace({ entry, initialTab }: { entry: SavedJob; initialTab?: 
               blocker={blocker}
               outOfDate={Boolean(docs?.[tab]) && !madeFromCurrent(docs, tab, candidate)}
               pagesWanted={options.length === "one-page" ? 1 : 2}
+              sources={tab === "cv" ? factSources : [...factSources, job.title, job.company, description]}
               onEdit={(text) => updateDocs({ [tab]: text })}
               onGenerate={() => {
                 if (ready) void generate(tab);
