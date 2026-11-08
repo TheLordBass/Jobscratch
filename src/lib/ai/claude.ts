@@ -9,6 +9,7 @@ import {
   answersInstruction,
   candidateBlock,
   coverLetterInstruction,
+  interviewPrepInstruction,
   cvInstruction,
   hasProfile,
   jobBlock,
@@ -258,7 +259,7 @@ export async function draftAnswers(
     .filter((entry) => entry.answer);
 }
 
-export type DocumentKind = "cv" | "cover-letter";
+export type DocumentKind = "cv" | "cover-letter" | "interview";
 
 export type StreamEvent =
   | { type: "thinking"; text: string }
@@ -304,7 +305,7 @@ async function* streamPass(
  * Streams a tailored CV or cover letter as text deltas (plus reasoning summaries for progress). A CV
  * that would print longer than the pages asked for is shortened before it's done, and a one-page CV
  * that leaves much of its page empty is filled out: the events then carry a notice and a restart,
- * and the new CV.
+ * and the new CV. An interview prep pack is written from the CV the candidate applied with (`sentCv`), when there is one.
  */
 export async function* streamDocument(
   kind: DocumentKind,
@@ -312,13 +313,18 @@ export async function* streamDocument(
   options: TailorOptions,
   env: Env,
   signal?: AbortSignal,
+  sentCv?: string,
 ): AsyncGenerator<StreamEvent> {
   const started = Date.now();
   try {
     const client = getClient(env);
     const withProfile = hasProfile(materials.profile);
     const instruction =
-      kind === "cv" ? cvInstruction(options, withProfile) : coverLetterInstruction(options, withProfile);
+      kind === "cv"
+        ? cvInstruction(options, withProfile)
+        : kind === "cover-letter"
+          ? coverLetterInstruction(options, withProfile)
+          : interviewPrepInstruction(options, sentCv);
     const params = {
       ...modelParams(env, "document"),
       max_tokens: 64000,

@@ -192,6 +192,31 @@ describe("streamDocument", () => {
     expect(body.messages[0].content[2].text).toContain("Mention I can start in May");
   });
 
+  it("writes interview prep from the CV the candidate sent, with the job and materials still cached", async () => {
+    fetchMock.mockResolvedValueOnce(streamOf(["# Interview prep"]));
+    const sent = cvOf(60).join("");
+    const events = await collect(streamDocument("interview", { cv: CV, job: JOB }, { ...OPTIONS, length: "one-page" }, ENV, undefined, sent));
+    // Never shortened, however long it is.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(events.at(-1)).toMatchObject({ type: "done" });
+    const { body } = lastRequest();
+    expect(body.output_config).toEqual({ effort: "medium" });
+    const [candidate, job, instruction] = body.messages[0].content;
+    expect(candidate.cache_control).toEqual({ type: "ephemeral" });
+    expect(job.cache_control).toEqual({ type: "ephemeral" });
+    expect(instruction.text).toMatch(/^Prepare the candidate for an interview/);
+    for (const section of ["Tell me about yourself", "Likely questions", "Your stories", "Tough questions", "Questions to ask them"]) {
+      expect(instruction.text).toContain(`## ${section}`);
+    }
+    expect(instruction.text).toContain("<cv_sent>");
+    expect(instruction.text).toContain("team 59");
+    expect(instruction.text).toContain("rather than inventing one");
+
+    fetchMock.mockResolvedValueOnce(streamOf(["# Interview prep"]));
+    await collect(streamDocument("interview", { cv: CV, job: JOB }, OPTIONS, ENV));
+    expect(lastRequest().body.messages[0].content[2].text).not.toContain("<cv_sent>");
+  });
+
   it("reports refusals and truncation as errors", async () => {
     fetchMock.mockResolvedValueOnce(streamOf(["partial"], "refusal"));
     const refused = await collect(streamDocument("cv", { cv: CV, job: JOB }, OPTIONS, ENV));

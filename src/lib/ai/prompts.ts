@@ -355,6 +355,37 @@ ${LINK_RULE}
 Reply with only the letter in Markdown (plain paragraphs): no introduction, notes, or code fences.`;
 }
 
+/**
+ * A prep pack for an interview for this job: likely questions, answers built from the candidate's own
+ * stories, the hard questions their profile invites, and questions to ask. `sentCv` is the tailored CV
+ * they applied with, which the interviewer will have read.
+ */
+export function interviewPrepInstruction(options: TailorOptions, sentCv?: string): string {
+  const cv = sentCv?.trim()
+    ? `
+
+<cv_sent>
+The tailored CV the candidate applied with. The interviewer has read it, so build on what it says, and prepare them to expand on any line of it.
+
+${sentCv.trim()}
+</cv_sent>`
+    : "";
+  return `Prepare the candidate for an interview for this job: a pack they can read the night before. Address them as "you"; write the answers in the first person, as they'd say them out loud.${cv}
+
+- Start with "# Interview prep: <job title> at <company>".
+- "## Tell me about yourself": a 60–90 second answer: where they are now, the thread of their experience that leads to this job, and why this role.
+- "## Likely questions": the 8–10 questions this interview is most likely to bring, from the job's key requirements and responsibilities, and the usual openers ("Why this role?", "Why us?"). Under each, one line on what the interviewer is really testing and which of the stories below answers it.
+- "## Your stories": 4–6 short STAR stories (situation, task, action, result) from the candidate's materials, each as four short bullets that can be told in about two minutes, with the real figures the materials give. Where the materials don't give a result, write "(add the result: what changed?)" rather than inventing one. Give each a short title.
+- "## Tough questions": 3–5 hard questions this candidate in particular should expect, from the gaps between their materials and the job (a skill they lack, a change of field, a short role, a gap in dates), each with an honest answer that bridges from real experience. Never suggest claiming what they don't have.
+- "## Questions to ask them": 5 specific questions about this role, team and how success is measured, drawn from the job ad. Nothing the ad already answers, and nothing about pay or holidays.
+- "## On the day": a short checklist: the ad's three key requirements to steer back to, the stories to have ready, and anything practical the ad mentions (the interview format, a test, the location).
+- Say nothing about the company that isn't in the job ad or the candidate's materials: no guessed facts, values or news.
+${LINK_RULE}
+- ${options.style === "us-resume" ? "Use American spelling unless the CV uses British spelling." : "Use British spelling unless the CV uses American spelling."}
+
+Reply with only the prep pack in Markdown: no introduction, notes, or code fences.`;
+}
+
 /** The candidate's own answers to the practical questions forms ask (Profile → Application details). */
 export const ApplicationDetailsSchema = z.object({
   rightToWork: z.string().max(300).default(""),

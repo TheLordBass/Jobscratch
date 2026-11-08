@@ -183,6 +183,7 @@ const TASK_NAMES: Record<TaskKind, string> = {
   analysis: "Match analysis",
   cv: "Tailored CV",
   coverLetter: "Cover letter",
+  interview: "Interview prep",
   answers: "Application answers",
 };
 
