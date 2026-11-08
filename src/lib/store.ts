@@ -107,6 +107,9 @@ export interface TailoredDocs {
   analysisFrom?: string;
   cvFrom?: string;
   coverLetterFrom?: string;
+  /** An interview prep pack, and the candidate key it was made from. */
+  interview?: string;
+  interviewFrom?: string;
   updatedAt: string;
 }
 

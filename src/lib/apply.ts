@@ -27,7 +27,7 @@ export function applyQueue(
 }
 
 /** "jane-doe-cv-acme": the name from the CV's first heading, what it is, and the company. */
-export function documentFileName(markdown: string, kind: "cv" | "cover-letter", company: string): string {
+export function documentFileName(markdown: string, kind: "cv" | "cover-letter" | "interview-prep", company: string): string {
   const first = parseMarkdown(markdown).find((block) => block.type === "heading");
   const name = first?.type === "heading" && kind === "cv" ? inlinesToText(first.inlines) : "";
   return [name, kind, company].filter(Boolean).map(slugify).join("-");

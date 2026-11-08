@@ -14,9 +14,20 @@ import type { MatchAnalysis, TailorOptions } from "@/lib/ai/prompts";
 import { markdownToDocx } from "@/lib/export-docx";
 import { canMatch, hasFullDescription, madeFromCurrent, matchKey } from "@/lib/candidate";
 import { cvVersions, hasCvText } from "@/lib/cvs";
-import { dismissTask, startAnalysis, startAnswers, startDocument, stopJobTasks, stopTask, useJobTask, type JobTask } from "@/lib/job-tasks";
+import {
+  dismissTask,
+  startAnalysis,
+  startAnswers,
+  startDocument,
+  stopJobTasks,
+  stopTask,
+  useJobTask,
+  type DocumentTaskKind,
+  type JobTask,
+} from "@/lib/job-tasks";
 import { jobKeys } from "@/lib/import";
 import { documentFileName } from "@/lib/apply";
+import { unsupportedFigures } from "@/lib/figures";
 import { downloadBlob, formatPosted } from "@/lib/format";
 import {
   estimatePages,
@@ -42,9 +53,11 @@ import {
 } from "@/lib/store";
 import type { Job } from "@/lib/types";
 
-type DocKind = "cv" | "coverLetter";
+type DocKind = DocumentTaskKind;
 type Tab = "job" | "analysis" | DocKind | "answers";
-const TABS: Tab[] = ["job", "analysis", "cv", "coverLetter", "answers"];
+const TABS: Tab[] = ["job", "analysis", "cv", "coverLetter", "answers", "interview"];
+const DOC_LABEL: Record<DocKind, string> = { cv: "tailored CV", coverLetter: "cover letter", interview: "interview prep" };
+const isDocKind = (tab: Tab): tab is DocKind => tab === "cv" || tab === "coverLetter" || tab === "interview";
 
 interface Generation {
   status: "idle" | "streaming" | "error";
@@ -291,6 +304,19 @@ function PageCount({ markdown, wanted }: { markdown: string; wanted: 1 | 2 }) {
   );
 }
 
+/** Figures in the document that aren't in the candidate's materials: worth checking before it's sent. */
+function FigureCheck({ markdown, sources }: { markdown: string; sources: string[] }) {
+  const unsupported = unsupportedFigures(markdown, sources);
+  if (!unsupported.length) return null;
+  return (
+    <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+      {unsupported.length === 1 ? "This figure isn’t" : "These figures aren’t"} in your CV, skills or notes:{" "}
+      <strong>{unsupported.slice(0, 12).join(", ")}</strong>
+      {unsupported.length > 12 ? "…" : ""}. Check {unsupported.length === 1 ? "it’s" : "they’re"} right before you send it.
+    </p>
+  );
+}
+
 function DocumentPanel({
   kind,
   job,
@@ -299,6 +325,8 @@ function DocumentPanel({
   blocker,
   outOfDate,
   pagesWanted,
+  sources,
+  hasSentCv,
   onEdit,
   onGenerate,
   onStop,
@@ -311,6 +339,10 @@ function DocumentPanel({
   outOfDate: boolean;
   /** The CV length chosen in Writing options. */
   pagesWanted: 1 | 2;
+  /** What the document's facts should come from, for checking its figures. */
+  sources: string[];
+  /** For interview prep: whether there's a tailored CV to write it from. */
+  hasSentCv?: boolean;
   /** Why a document can't be written yet (no CV or job description). */
   blocker: string | undefined;
   onEdit: (text: string) => void;
@@ -323,7 +355,7 @@ function DocumentPanel({
   const [beforeRemoval, setBeforeRemoval] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const streaming = generation.status === "streaming";
-  const label = kind === "cv" ? "tailored CV" : "cover letter";
+  const label = DOC_LABEL[kind];
 
   useEffect(() => {
     if (!streaming) return;
@@ -337,7 +369,8 @@ function DocumentPanel({
   const canUndoRemoval = beforeRemoval !== null && content === removeProjectSections(beforeRemoval);
   const lastThought = generation.thinking.trim().split("\n").filter(Boolean).at(-1);
 
-  const fileBase = () => documentFileName(content, kind === "cv" ? "cv" : "cover-letter", job.company);
+  const fileBase = () =>
+    documentFileName(content, kind === "cv" ? "cv" : kind === "coverLetter" ? "cover-letter" : "interview-prep", job.company);
 
   const print = () => {
     const win = window.open("", "_blank");
@@ -364,8 +397,15 @@ function DocumentPanel({
         ) : (
           <p className="mb-3">No {label} yet.</p>
         )}
+        {kind === "interview" && (
+          <p className="mx-auto mb-4 max-w-md">
+            Got an interview? Get the questions you’re likely to be asked, answers built from your own experience, the
+            tough questions to expect and what to ask them.{" "}
+            {hasSentCv ? "It’s written from the tailored CV you sent." : "Tailor your CV first and it’s written from that."}
+          </p>
+        )}
         <button type="button" className="btn btn-primary" disabled={Boolean(blocker)} onClick={onGenerate}>
-          <Sparkles size={15} aria-hidden /> Write my {label}
+          <Sparkles size={15} aria-hidden /> {kind === "interview" ? "Prepare me for the interview" : `Write my ${label}`}
         </button>
         {blocker && <p className="mt-2 text-xs">{blocker}</p>}
       </div>
@@ -490,6 +530,7 @@ function DocumentPanel({
         </div>
       )}
       {!streaming && kind === "cv" && content.trim() && <PageCount markdown={content} wanted={pagesWanted} />}
+      {!streaming && content.trim() && <FigureCheck markdown={content} sources={sources} />}
       {!streaming && kind === "cv" && (
         <p className="muted text-xs">
           Check every line before you send it. Claude is told to use only facts from your CV, but you know your history
@@ -543,6 +584,7 @@ function TailorWorkspace({ entry, initialTab }: { entry: SavedJob; initialTab?: 
   const analysisTask = useJobTask(job.id, "analysis");
   const cvTask = useJobTask(job.id, "cv");
   const letterTask = useJobTask(job.id, "coverLetter");
+  const interviewTask = useJobTask(job.id, "interview");
   const answersTask = useJobTask(job.id, "answers");
   const analysisState =
     analysisTask?.status === "running"
@@ -550,11 +592,17 @@ function TailorWorkspace({ entry, initialTab }: { entry: SavedJob; initialTab?: 
       : analysisTask?.status === "error"
         ? { status: "error" as const, error: analysisTask.error }
         : { status: "idle" as const };
-  const generations: Record<DocKind, Generation> = { cv: toGeneration(cvTask), coverLetter: toGeneration(letterTask) };
+  const generations: Record<DocKind, Generation> = {
+    cv: toGeneration(cvTask),
+    coverLetter: toGeneration(letterTask),
+    interview: toGeneration(interviewTask),
+  };
   // Anything that finished while you were elsewhere has now been seen.
   useEffect(() => {
-    for (const task of [analysisTask, cvTask, letterTask, answersTask]) if (task?.status === "done") dismissTask(task.jobId, task.kind);
-  }, [analysisTask, cvTask, letterTask, answersTask]);
+    for (const task of [analysisTask, cvTask, letterTask, interviewTask, answersTask]) {
+      if (task?.status === "done") dismissTask(task.jobId, task.kind);
+    }
+  }, [analysisTask, cvTask, letterTask, interviewTask, answersTask]);
   const label = `${job.title} at ${job.company}`;
 
   const description = docs?.jobDescription ?? job.description;
@@ -588,6 +636,15 @@ function TailorWorkspace({ entry, initialTab }: { entry: SavedJob; initialTab?: 
     "website and GitHub details";
   const { cvs: payloadCvs, profile: payloadProfile, skills: payloadSkills, staleDetails } = candidate;
   const payloadNotes = settings.useJobNotes ? entry.notes.trim().slice(0, 4000) || undefined : undefined;
+  // Where a document's figures should come from. A cover letter may also quote the job ad; a CV
+  // shouldn't take a figure from it ("5 years of SQL" because the ad asks for it).
+  const factSources = [
+    cvText,
+    ...(payloadCvs ?? []).map((version) => version.text),
+    ...(payloadSkills ?? []).map((skill) => `${skill.name} ${skill.detail}`),
+    payloadProfile?.evidence ?? "",
+    entry.notes,
+  ];
 
   // Cut to what the server takes, so a long pasted description doesn't fail every request.
   const payloadJob = {
@@ -615,18 +672,20 @@ function TailorWorkspace({ entry, initialTab }: { entry: SavedJob; initialTab?: 
     if (
       !fullDescription &&
       !window.confirm(
-        `This job only has a snippet of its description, so the ${kind === "cv" ? "CV" : "cover letter"} can't be tailored to much. ` +
+        `This job only has a snippet of its description, so the ${kind === "cv" ? "CV" : DOC_LABEL[kind]} can't be tailored to much. ` +
           "Paste the full description first (on the Job tab) for a better one. Write it anyway?",
       )
     ) {
       return;
     }
     setTab(kind);
+    // Interview prep is written from the CV they applied with, which the interviewer has read.
+    const sentCv = kind === "interview" ? docs?.cv?.slice(0, 30_000) : undefined;
     startDocument(
       job.id,
       label,
       kind,
-      { cv: cvText, cvs: payloadCvs, job: payloadJob, profile: payloadProfile, skills: payloadSkills, notes: payloadNotes, options },
+      { cv: cvText, cvs: payloadCvs, job: payloadJob, profile: payloadProfile, skills: payloadSkills, notes: payloadNotes, options, sentCv },
       candidate.key,
     );
   }
@@ -723,6 +782,15 @@ function TailorWorkspace({ entry, initialTab }: { entry: SavedJob; initialTab?: 
         </p>
       )}
 
+      {entry.status === "interviewing" && !docs?.interview && !generations.interview.text && tab !== "interview" && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg bg-indigo-50 px-3 py-2 text-sm text-indigo-800 dark:bg-indigo-950 dark:text-indigo-200">
+          <p className="flex-1">Got an interview? Get likely questions, answers from your own experience, and what to ask them.</p>
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => setTab("interview")}>
+            Interview prep
+          </button>
+        </div>
+      )}
+
       <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
         <div className="card min-w-0 p-4 lg:self-start">
           <div className="-mx-1 mb-4 flex gap-1 overflow-x-auto border-b border-zinc-100 px-1 pb-2 dark:border-zinc-800" role="tablist">
@@ -737,6 +805,7 @@ function TailorWorkspace({ entry, initialTab }: { entry: SavedJob; initialTab?: 
                 ["cv", "Tailored CV", Boolean(docs?.cv)],
                 ["coverLetter", "Cover letter", Boolean(docs?.coverLetter)],
                 ["answers", "Answers", Boolean(docs?.answers?.length)],
+                ["interview", "Interview prep", Boolean(docs?.interview)],
               ] as const
             ).map(([id, label, done]) => (
               <button
@@ -755,10 +824,10 @@ function TailorWorkspace({ entry, initialTab }: { entry: SavedJob; initialTab?: 
                 className={`btn btn-sm shrink-0 ${tab === id ? "bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-white" : "btn-ghost"}`}
               >
                 {label}
-                {(id === "cv" || id === "coverLetter" || id === "answers") && done && (
+                {(isDocKind(id) || id === "answers") && done && (
                   <Check size={13} className="text-emerald-600 dark:text-emerald-400" aria-label="(written)" />
                 )}
-                {(id === "cv" || id === "coverLetter"
+                {(isDocKind(id)
                   ? generations[id].status === "streaming"
                   : id === "answers" && answersTask?.status === "running") && (
                   <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-indigo-500" />
@@ -900,7 +969,7 @@ function TailorWorkspace({ entry, initialTab }: { entry: SavedJob; initialTab?: 
             />
           )}
 
-          {(tab === "cv" || tab === "coverLetter") && (
+          {isDocKind(tab) && (
             <DocumentPanel
               key={tab}
               kind={tab}
@@ -910,6 +979,8 @@ function TailorWorkspace({ entry, initialTab }: { entry: SavedJob; initialTab?: 
               blocker={blocker}
               outOfDate={Boolean(docs?.[tab]) && !madeFromCurrent(docs, tab, candidate)}
               pagesWanted={options.length === "one-page" ? 1 : 2}
+              sources={tab === "cv" ? factSources : [...factSources, job.title, job.company, description]}
+              hasSentCv={Boolean(docs?.cv)}
               onEdit={(text) => updateDocs({ [tab]: text })}
               onGenerate={() => {
                 if (ready) void generate(tab);

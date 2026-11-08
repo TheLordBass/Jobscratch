@@ -8,6 +8,7 @@ import {
   markdownToPlainText,
   parseInline,
   parseMarkdown,
+  plainDateRanges,
   printableHtml,
   removeProjectSections,
 } from "@/lib/markdown";
@@ -73,8 +74,19 @@ describe("parseMarkdown", () => {
     const letter = "**Analyst** | Globex | London\n*March 2021 – Present*\n\nKind regards,\nJane Doe";
     const blocks = parseMarkdown(letter);
     expect(blocks).toHaveLength(2);
-    expect(blocksToHtml(blocks)).toBe("<p><strong>Analyst</strong> | Globex | London<br><em>March 2021 – Present</em></p>\n<p>Kind regards,<br>Jane Doe</p>");
-    expect(markdownToPlainText(letter)).toBe("Analyst | Globex | London\nMarch 2021 – Present\n\nKind regards,\nJane Doe");
+    expect(blocksToHtml(blocks)).toBe("<p><strong>Analyst</strong> | Globex | London<br><em>March 2021 - Present</em></p>\n<p>Kind regards,<br>Jane Doe</p>");
+    expect(markdownToPlainText(letter)).toBe("Analyst | Globex | London\nMarch 2021 - Present\n\nKind regards,\nJane Doe");
+  });
+
+  it("writes date ranges with a plain hyphen, which applicant tracking systems can read", () => {
+    expect(plainDateRanges("Apr 2023 – Present")).toBe("Apr 2023 - Present");
+    expect(plainDateRanges("Mar 2016 — Jul 2016")).toBe("Mar 2016 - Jul 2016");
+    expect(plainDateRanges("(2020–2025)")).toBe("(2020-2025)");
+    expect(plainDateRanges("2019 – current")).toBe("2019 - current");
+    // Not a date range: left as written.
+    expect(plainDateRanges("Revenue grew 2019 – a record year")).toBe("Revenue grew 2019 – a record year");
+    expect(plainDateRanges("£600k–1M")).toBe("£600k–1M");
+    expect(plainDateRanges("2021\n– 2023")).toBe("2021\n– 2023");
   });
 
   it("works out how many printed pages a CV fills", () => {

@@ -15,7 +15,10 @@ import { requestAnswers, streamTailored, type AnswersRequest, type TailorRequest
  * app in the background starts again when you're back.
  */
 
-export type TaskKind = "analysis" | "cv" | "coverLetter" | "answers";
+export type TaskKind = "analysis" | "cv" | "coverLetter" | "interview" | "answers";
+export type DocumentTaskKind = "cv" | "coverLetter" | "interview";
+
+const REQUEST_KIND: Record<DocumentTaskKind, TailorRequest["kind"]> = { cv: "cv", coverLetter: "cover-letter", interview: "interview" };
 
 export interface JobTask {
   jobId: string;
@@ -120,7 +123,7 @@ export function startAnalysis(
 }
 
 /** `from` is the candidate's key (see lib/candidate.ts), saved with the document. */
-export function startDocument(jobId: string, label: string, kind: "cv" | "coverLetter", request: Omit<TailorRequest, "kind">, from: string) {
+export function startDocument(jobId: string, label: string, kind: DocumentTaskKind, request: Omit<TailorRequest, "kind">, from: string) {
   const controller = begin(jobId, kind, label);
   let text = "";
   // A whole CV, while a shorter one is being written in its place.
@@ -128,7 +131,7 @@ export function startDocument(jobId: string, label: string, kind: "cv" | "coverL
   void (async () => {
     try {
       const finished = await streamTailored(
-        { ...request, kind: kind === "cv" ? "cv" : "cover-letter" },
+        { ...request, kind: REQUEST_KIND[kind] },
         {
           signal: controller.signal,
           onText: (current) => {
@@ -189,7 +192,7 @@ export function stopTask(jobId: string, kind: TaskKind) {
 
 /** Stops everything for a job and forgets it (when the job is removed). */
 export function stopJobTasks(jobId: string) {
-  for (const kind of ["analysis", "cv", "coverLetter", "answers"] as const) {
+  for (const kind of ["analysis", "cv", "coverLetter", "interview", "answers"] as const) {
     stopTask(jobId, kind);
     tasks.delete(keyOf(jobId, kind));
   }

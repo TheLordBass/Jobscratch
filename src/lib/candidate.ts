@@ -53,7 +53,7 @@ function candidateForText(text: string, profile: StoredProfile): Candidate {
   return { cv: text, profile: payload, skills: skills.length ? skills : undefined, staleDetails, key };
 }
 
-export type MadePart = "analysis" | "cv" | "coverLetter";
+export type MadePart = "analysis" | "cv" | "coverLetter" | "interview";
 
 /**
  * Whether a job's analysis, tailored CV or cover letter was made from the candidate as they are now,
