@@ -73,10 +73,32 @@ export function jobKeys(job: Pick<Job, "url" | "applyOptions">): string[] {
   return [...new Set(keys as string[])];
 }
 
+/**
+ * A job brought in with the page's own title as its title, e.g. "Junior Data Analyst | Dexter
+ * Talent | LinkedIn" or "Fraud Analyst - Manchester - Indeed.com", split into its title, company
+ * and location. Other jobs come back as they are.
+ */
+export function repairSiteTitle<T extends Pick<Job, "title" | "company" | "location">>(job: T): T {
+  const unknown = !job.company.trim() || job.company === "Unknown company";
+  const linkedIn = job.title.split(" | ");
+  if (linkedIn.length >= 3 && /^linkedin$/i.test(linkedIn[linkedIn.length - 1].trim())) {
+    const company = linkedIn[linkedIn.length - 2].trim();
+    return { ...job, title: linkedIn.slice(0, -2).join(" | ").trim(), company: unknown ? company : job.company };
+  }
+  const indeed = /^(.+) - ([^-]+) - Indeed(?:\.[a-z.]+)?$/i.exec(job.title.trim());
+  if (indeed) return { ...job, title: indeed[1].trim(), location: job.location || indeed[2].trim() };
+  return job;
+}
+
 export function payloadToJob(payload: ImportPayload): Job {
   const url = isHttpUrl(payload.url) ? payload.url : "";
-  const title = tidyText(payload.title) || "Untitled job";
-  const company = tidyText(payload.company) || "Unknown company";
+  const named = repairSiteTitle({
+    title: tidyText(payload.title),
+    company: tidyText(payload.company),
+    location: tidyText(payload.location),
+  });
+  const title = named.title || "Untitled job";
+  const company = named.company || "Unknown company";
   const sourceName = payload.sourceName || (url ? new URL(url).hostname.replace(/^www\./, "") : "Manual entry");
   return {
     id: `import:${hashString(siteJobKey(url) ?? (url || `${title}|${company}`))}`,
@@ -84,8 +106,8 @@ export function payloadToJob(payload: ImportPayload): Job {
     sourceName,
     title,
     company,
-    location: tidyText(payload.location),
-    remote: Boolean(payload.remote) || /\bremote\b/i.test(payload.location),
+    location: named.location,
+    remote: Boolean(payload.remote) || /\bremote\b/i.test(named.location),
     url,
     applyOptions: url ? [{ label: sourceName, url }] : [],
     description: tidyText(payload.description),

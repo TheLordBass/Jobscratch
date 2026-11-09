@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import type { ApplicationAnswer, ApplicationDetails, ExtraSkill, MatchAnalysis, TailorOptions } from "@/lib/ai/prompts";
-import { dismissKeys, findSavedCopy, mergeJobs } from "@/lib/import";
+import { dismissKeys, findSavedCopy, mergeJobs, repairSiteTitle } from "@/lib/import";
 import { DEFAULT_JOBSPY_SEARCH, type HelperSearch } from "@/lib/jobspy-helper";
 import type { JobspyList } from "@/lib/jobspy-lists";
 import type { CvVersion } from "@/lib/cvs";
@@ -498,8 +498,24 @@ function withJobSaved(
   };
 }
 
+/**
+ * Jobs added before the importer split "Role | Company | LinkedIn" titles, with their title and
+ * company as they should be (see repairSiteTitle). The rest are left as they are.
+ */
+function withNamesRepaired(saved: Record<string, SavedJob>): Record<string, SavedJob> {
+  let repaired: Record<string, SavedJob> | undefined;
+  for (const [id, entry] of Object.entries(saved)) {
+    const job = repairSiteTitle(entry.job);
+    if (job === entry.job) continue;
+    repaired ??= { ...saved };
+    repaired[id] = { ...entry, job };
+  }
+  return repaired ?? saved;
+}
+
 export function useSavedJobs() {
-  const [saved, setSaved] = useStored("saved", EMPTY_SAVED);
+  const [stored, setSaved] = useStored("saved", EMPTY_SAVED);
+  const saved = useMemo(() => withNamesRepaired(stored), [stored]);
 
   /**
    * Saves a job (see withJobSaved). Returns the id it's saved under, which is the saved copy's when it

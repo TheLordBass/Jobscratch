@@ -7,10 +7,12 @@ import { EMPTY_DETAILS } from "@/components/ApplicationDetailsForm";
 import { BulkTailor } from "@/components/BulkTailor";
 import { CopyButton } from "@/components/CopyButton";
 import { CompanyMark, MatchBadge } from "@/components/JobCard";
+import { JobFlagNotes, PostedDate } from "@/components/JobFlags";
 import { useCurrentMatches } from "@/components/MatchAll";
 import { MY_JOBS_TABS, SectionTabs } from "@/components/Nav";
 import { APPLICATION_DETAIL_LABELS, type ApplicationDetails } from "@/lib/ai/prompts";
-import { applyQueue, documentFileName } from "@/lib/apply";
+import { applyQueue, documentFileName, type ApplyOrder } from "@/lib/apply";
+import { currentScore } from "@/lib/candidate";
 import { markdownToDocx } from "@/lib/export-docx";
 import { downloadBlob } from "@/lib/format";
 import { markdownToPlainText } from "@/lib/markdown";
@@ -29,10 +31,12 @@ export function ApplyView() {
   const { saved, updateJob } = useSavedJobs();
   const [tailored] = useTailored();
   const [profile] = useProfile();
-  const { matchFor } = useCurrentMatches();
+  const { matchFor, candidate } = useCurrentMatches();
+  const scoreOf = (entry: SavedJob) => currentScore(tailored[entry.job.id], candidate, matchFor(entry.job)?.score);
   const details = { ...EMPTY_DETAILS, ...profile.application };
   const hasDetails = Object.values(details).some((value) => value.trim());
-  const { ready, notReady } = applyQueue(saved, tailored, (entry) => matchFor(entry.job)?.score);
+  const [order, setOrder] = useSessionState<ApplyOrder>("apply:order", "match");
+  const { ready, notReady } = applyQueue(saved, tailored, scoreOf, order);
   const [applied, setApplied] = useSessionState("apply:applied", NONE_APPLIED);
 
   return (
@@ -76,13 +80,25 @@ export function ApplyView() {
                 : "Nothing to apply to: save some jobs first, from Find jobs."}
             </div>
           ) : (
+            <>
+            {ready.length > 1 && (
+              <select
+                className="input w-auto py-1.5 text-xs"
+                value={order}
+                onChange={(e) => setOrder(e.target.value as ApplyOrder)}
+                aria-label="Order"
+              >
+                <option value="match">Best match first</option>
+                <option value="posted">Newest posted first</option>
+              </select>
+            )}
             <ul className="space-y-3">
               {ready.map((entry) => (
                 <ApplyCard
                   key={entry.job.id}
                   entry={entry}
                   docs={tailored[entry.job.id]}
-                  score={matchFor(entry.job)?.score}
+                  score={scoreOf(entry)}
                   details={details}
                   onApplied={() => {
                     updateJob(entry.job.id, { status: "applied" });
@@ -91,6 +107,7 @@ export function ApplyView() {
                 />
               ))}
             </ul>
+            </>
           )}
 
           {notReady.length > 0 && (
@@ -156,9 +173,12 @@ function ApplyCard({
             <span>✓ Tailored CV</span>
             <span>{letter ? "✓ Cover letter" : "No cover letter"}</span>
             <span>{answers.length ? `✓ ${answers.length} ${answers.length === 1 ? "answer" : "answers"}` : "No answers"}</span>
+            <PostedDate job={job} />
           </p>
         </div>
       </div>
+
+      <JobFlagNotes job={job} score={score} />
 
       <div className="flex flex-wrap items-center gap-1.5">
         {apply && (

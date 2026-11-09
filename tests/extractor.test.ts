@@ -58,6 +58,19 @@ describe("page extractor", () => {
       extractedFrom: "page",
     });
     expect(job.description).toBe("We are hiring a data analyst to own our reporting.\n\n• SQL\n• Python");
+    // "2 days ago" on the page is when it was posted.
+    expect(job.postedAt).toBe(new Date(Date.now() - 2 * 86_400_000).toISOString().slice(0, 10));
+  });
+
+  it("reads LinkedIn's posting age in weeks, as reposted, and as 30+ days", () => {
+    const daysAgo = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
+    const page = (age: string) =>
+      LINKEDIN_LOGGED_IN.replace('<span class="tvm__text">2 days ago</span>', `<span class="tvm__text">${age}</span>`);
+    const url = "https://www.linkedin.com/jobs/view/4012345678/";
+    expect(extract(page("Reposted 3 weeks ago"), url).postedAt).toBe(daysAgo(21));
+    expect(extract(page("30+ days ago"), url).postedAt).toBe(daysAgo(30));
+    expect(extract(page("5 hours ago"), url).postedAt).toBe(daysAgo(0));
+    expect(extract(page("Over 100 applicants"), url).postedAt).toBe("");
   });
 
   it("falls back to the LinkedIn page title when the layout changes", () => {
