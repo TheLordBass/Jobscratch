@@ -2,7 +2,8 @@
 
 import { ArrowUpRight, Banknote, Bookmark, BookmarkCheck, Clock, Eye, EyeOff, MapPin, Sparkles, Wifi } from "lucide-react";
 import { hasFullDescription } from "@/lib/candidate";
-import { formatPosted, formatSalary } from "@/lib/format";
+import { JobFlagChips, PostedDate } from "@/components/JobFlags";
+import { formatSalary } from "@/lib/format";
 import type { ApplicationStatus, StoredMatch } from "@/lib/store";
 import type { Job } from "@/lib/types";
 
@@ -82,7 +83,6 @@ export function CompanyMark({ job, size = "md" }: { job: Job; size?: "md" | "lg"
 
 export function JobCard({ job, status, expanded, onToggle, onSave, onTailor, match, onDismiss, dismissed }: Props) {
   const salary = formatSalary(job.salary);
-  const posted = formatPosted(job.postedAt);
   const isSnippet = job.description.trim().length > 0 && !hasFullDescription(job.description);
 
   return (
@@ -105,6 +105,9 @@ export function JobCard({ job, status, expanded, onToggle, onSave, onTailor, mat
               {match && <MatchBadge score={match.score} />}
             </div>
             <p className="mt-0.5 text-sm font-medium text-zinc-700 dark:text-zinc-300">{job.company}</p>
+            <div className="mt-1 empty:hidden">
+              <JobFlagChips job={job} score={match?.score} />
+            </div>
             <div className="muted mt-2 flex flex-wrap items-center gap-x-3.5 gap-y-1 text-xs">
               {job.location && (
                 <span className="inline-flex items-center gap-1">
@@ -121,9 +124,9 @@ export function JobCard({ job, status, expanded, onToggle, onSave, onTailor, mat
                   <Banknote size={13} aria-hidden /> {salary}
                 </span>
               )}
-              {posted && (
+              {job.postedAt && (
                 <span className="inline-flex items-center gap-1">
-                  <Clock size={13} aria-hidden /> {posted}
+                  <Clock size={13} aria-hidden /> <PostedDate job={job} prefix="" />
                 </span>
               )}
               {job.employmentType && <span className="capitalize">{job.employmentType}</span>}

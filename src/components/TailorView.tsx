@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AnswersPanel } from "@/components/AnswersPanel";
 import { ApplyButton, CompanyMark, OtherApplyLinks } from "@/components/JobCard";
+import { JobFlagNotes } from "@/components/JobFlags";
 import { useCurrentMatches } from "@/components/MatchAll";
 import { MarkdownView } from "@/components/MarkdownView";
 import { STATUS_LABEL, STATUS_STYLE, SavedView } from "@/components/SavedView";
@@ -774,6 +775,8 @@ function TailorWorkspace({ entry, initialTab }: { entry: SavedJob; initialTab?: 
           </button>
         </div>
       </div>
+
+      {entry.status === "saved" && <JobFlagNotes job={job} score={analysis?.matchScore} />}
 
       {sources && !sources.aiConfigured && (
         <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-200">

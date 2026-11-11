@@ -168,6 +168,23 @@
     return null;
   }
 
+  /* "2 days ago", "Reposted 3 weeks ago", "30+ days ago", "Just now": the day it means (YYYY-MM-DD), or "". */
+  function relativeDate(text) {
+    var match = /\b(\d+)\+?\s+(minute|hour|day|week|month|year)s?\s+ago\b/i.exec(text);
+    var date = new Date();
+    if (match) {
+      var n = Number(match[1]);
+      var unit = match[2].toLowerCase();
+      if (unit === "day") date.setUTCDate(date.getUTCDate() - n);
+      else if (unit === "week") date.setUTCDate(date.getUTCDate() - 7 * n);
+      else if (unit === "month") date.setUTCMonth(date.getUTCMonth() - n);
+      else if (unit === "year") date.setUTCFullYear(date.getUTCFullYear() - n);
+    } else if (!/\b(just now|just posted|posted today)\b/i.test(text)) {
+      return "";
+    }
+    return date.toISOString().slice(0, 10);
+  }
+
   /* ---------- Job sites that can't be searched through an API ---------- */
 
   var SITES = [
@@ -195,6 +212,13 @@
         ".job-details-jobs-unified-top-card__bullet",
         ".jobs-unified-top-card__bullet",
         ".topcard__flavor--bullet"
+      ],
+      /* "London, England, United Kingdom · 2 days ago · Over 100 applicants" */
+      posted: [
+        ".job-details-jobs-unified-top-card__tertiary-description-container",
+        ".job-details-jobs-unified-top-card__primary-description-container",
+        ".jobs-unified-top-card__posted-date",
+        ".posted-time-ago__text"
       ],
       description: [
         "#job-details",
@@ -294,12 +318,13 @@
     for (var i = 0; url && i < SITES.length; i++) if (SITES[i].host.test(url.hostname)) site = SITES[i];
 
     var ld = fromJsonLd(doc) || {};
-    var page = { title: "", company: "", location: "", description: "" };
+    var page = { title: "", company: "", location: "", description: "", posted: "" };
     if (site) {
       page.title = firstText(doc, site.title).replace(/\s*-\s*job post$/i, "");
       page.company = firstText(doc, site.company);
       page.location = firstText(doc, site.location);
       page.description = firstText(doc, site.description);
+      page.posted = site.posted ? relativeDate(firstText(doc, site.posted)) : "";
       var titled = site.fromTitle ? site.fromTitle(doc, url) : null;
       if (titled) {
         page.title = page.title || titled.title;
@@ -332,7 +357,7 @@
       description: description.slice(0, MAX_DESCRIPTION),
       url: jobUrl,
       sourceName: site ? site.name : url ? url.hostname.replace(/^www\./, "") : "",
-      postedAt: ld.postedAt || "",
+      postedAt: ld.postedAt || page.posted,
       employmentType: ld.employmentType || "",
       salaryText: ld.salaryText || "",
       remote: Boolean(ld.remote) || /\bremote\b/i.test(location),

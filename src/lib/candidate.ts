@@ -66,6 +66,11 @@ export function madeFromCurrent(docs: TailoredDocs | undefined, part: MadePart, 
   return !candidate.since || docs.updatedAt >= candidate.since;
 }
 
+/** A job's match score: from its own analysis if that's up to date, else from Match all (`listScore`). */
+export function currentScore(docs: TailoredDocs | undefined, candidate: Candidate, listScore: number | undefined): number | undefined {
+  return (madeFromCurrent(docs, "analysis", candidate) ? docs?.analysis?.matchScore : undefined) ?? listScore;
+}
+
 /**
  * Records what a job's older documents were made from (see madeFromCurrent), going by their date
  * while it still tells: once anything else about the job is saved, its date moves on. Undefined

@@ -5,10 +5,11 @@ import Link from "next/link";
 import { Fragment, useMemo } from "react";
 import { BulkTailor } from "@/components/BulkTailor";
 import { CompanyMark, MatchBadge } from "@/components/JobCard";
+import { JobFlagChips, PostedDate } from "@/components/JobFlags";
 import { JobFilters } from "@/components/JobFilters";
 import { MatchAllButton, useCurrentMatches } from "@/components/MatchAll";
 import { MY_JOBS_TABS, SectionTabs } from "@/components/Nav";
-import { madeFromCurrent } from "@/lib/candidate";
+import { currentScore } from "@/lib/candidate";
 import { downloadBlob, formatPosted, formatSalary, olderThan } from "@/lib/format";
 import { ANY_JOB, filterJobs, jobSite, type JobFilter } from "@/lib/job-filters";
 import { useSessionState } from "@/lib/session-state";
@@ -70,7 +71,7 @@ function csvSafe(cell: string): string {
   return /^[=+\-@\t\r]/.test(cell) ? `'${cell}` : cell;
 }
 
-type Order = "saved" | "source" | "match" | "unmatched";
+type Order = "saved" | "posted" | "source" | "match" | "unmatched";
 
 export function SavedView() {
   const hydrated = useHydrated();
@@ -97,8 +98,7 @@ export function SavedView() {
   }, [entries]);
   const byStatus = statusFilter === "all" ? entries : entries.filter((e) => e.status === statusFilter);
   // The job's analysis (from its page or Match all); unscored jobs go last, as do ones scored from an earlier CV.
-  const scoreOf = (job: Job) =>
-    (madeFromCurrent(tailored[job.id], "analysis", candidate) ? tailored[job.id]?.analysis?.matchScore : undefined) ?? matchFor(job)?.score;
+  const scoreOf = (job: Job) => currentScore(tailored[job.id], candidate, matchFor(job)?.score);
   // The From and Show filters narrow the list further, and Match all and the rest act on what's left.
   const isMatched = (job: Job) => scoreOf(job) !== undefined;
   const shown = filterJobs(byStatus, (entry) => entry.job, jobFilter, isMatched);
@@ -110,7 +110,10 @@ export function SavedView() {
       : order === "unmatched" && anyScored
         ? // Jobs without a score first (newest saved first, as the sort keeps their order), then best match.
           [...shown].sort((a, b) => Number(isMatched(a.job)) - Number(isMatched(b.job)) || byScore(a, b))
-        : order === "source"
+        : order === "posted"
+          ? // Newest posted first; jobs without a posting date go last, newest saved first.
+            [...shown].sort((a, b) => (b.job.postedAt ?? "").localeCompare(a.job.postedAt ?? ""))
+          : order === "source"
           ? // Grouped by site, A to Z (LinkedIn found by JobSpy with LinkedIn), newest saved first within each.
             [...shown].sort((a, b) => jobSite(a.job).localeCompare(jobSite(b.job)))
           : shown;
@@ -123,7 +126,7 @@ export function SavedView() {
 
   function exportCsv() {
     const rows = [
-      ["Title", "Company", "Location", "Status", "Link", "Source", "Saved", "Notes"],
+      ["Title", "Company", "Location", "Status", "Link", "Source", "Posted", "Saved", "Notes"],
       ...entries.map((e) => [
         e.job.title,
         e.job.company,
@@ -131,6 +134,7 @@ export function SavedView() {
         STATUS_LABEL[e.status],
         e.job.url,
         e.job.sourceName,
+        e.job.postedAt?.slice(0, 10) ?? "",
         e.savedAt.slice(0, 10),
         e.notes,
       ]),
@@ -288,6 +292,7 @@ export function SavedView() {
               aria-label="Order"
             >
               <option value="saved">Newest saved first</option>
+              <option value="posted">Newest posted first</option>
               <option value="source">By job site</option>
               {anyScored && <option value="match">Best match to my CV</option>}
               {anyScored && <option value="unmatched">Not matched first</option>}
@@ -339,6 +344,11 @@ export function SavedView() {
                           {job.company}
                           {job.location && <span className="muted"> · {job.location}</span>}
                         </p>
+                        {status === "saved" && (
+                          <div className="mt-1 empty:hidden">
+                            <JobFlagChips job={job} score={score} />
+                          </div>
+                        )}
                         <p className="muted mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs">
                           {docs?.cv && (
                             <span className="inline-flex items-center gap-1">
@@ -356,6 +366,7 @@ export function SavedView() {
                             </span>
                           )}
                           <span>{[salary, `saved ${formatPosted(savedAt)}`].filter(Boolean).join(" · ")}</span>
+                          <PostedDate job={job} />
                         </p>
                       </div>
                     </div>
