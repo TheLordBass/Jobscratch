@@ -1,6 +1,6 @@
 "use client";
 
-import { Gauge, Square } from "lucide-react";
+import { Gauge, History, Square } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo } from "react";
 import { useSources } from "@/components/useSources";
@@ -82,7 +82,7 @@ export function MatchAllButton({ jobs, onMatched }: MatchAllProps) {
   const sources = useSources();
   const { saved } = useSavedJobs();
   const [settings] = useSettings();
-  const { matchFor, candidate, hasCv } = useCurrentMatches();
+  const { matchFor, scoreFor, candidate, hasCv } = useCurrentMatches();
   // Runs in the background (lib/batch-runs.ts), so going to another page doesn't stop it.
   const page = usePathname();
   const progress = useBatch("match", page);
@@ -96,6 +96,8 @@ export function MatchAllButton({ jobs, onMatched }: MatchAllProps) {
   const matchable = jobs.filter(canMatch);
   // A saved job analysed on its own page counts as matched (see useCurrentMatches), unless that was from an earlier CV.
   const todo = matchable.filter((job) => !matchFor(job));
+  // Jobs scored with an earlier version of the CVs: Match all brings them up to date.
+  const outdated = todo.filter((job) => scoreFor(job)?.stale).length;
   const withoutDescription = jobs.length - matchable.length;
   // The bookmarklet can add the full description for jobs it recognises (LinkedIn, Indeed, Glassdoor).
   const fillable = jobs.filter((job) => !canMatch(job) && siteJobKey(job.url)).length;
@@ -240,6 +242,11 @@ export function MatchAllButton({ jobs, onMatched }: MatchAllProps) {
               </span>
             )}
             {disabledReason && <span className="muted text-xs">{disabledReason}</span>}
+            {!disabledReason && !progress && outdated > 0 && (
+              <span className="inline-flex items-center gap-1 text-xs text-amber-700 dark:text-amber-300">
+                <History size={12} aria-hidden /> {outdated} {outdated === 1 ? "score is" : "scores are"} outdated: your CVs have changed since
+              </span>
+            )}
           </>
         )}
       </div>
@@ -262,5 +269,31 @@ export function MatchAllButton({ jobs, onMatched }: MatchAllProps) {
         </p>
       )}
     </div>
+  );
+}
+
+/**
+ * For the CV page: once the CVs have changed, the saved jobs you haven't applied to whose scores are
+ * now outdated, with Match all to bring them up to date. Nothing while every score is current.
+ */
+export function OutdatedScores() {
+  const { saved } = useSavedJobs();
+  const { scoreFor } = useCurrentMatches();
+  const outdated = Object.values(saved)
+    .filter((entry) => entry.status === "saved" && canMatch(entry.job) && scoreFor(entry.job)?.stale)
+    .map((entry) => entry.job);
+  if (outdated.length === 0) return null;
+  return (
+    <section className="card space-y-2 border-amber-200 p-4 dark:border-amber-900" aria-labelledby="outdated-scores">
+      <h2 id="outdated-scores" className="flex items-center gap-2 text-sm font-semibold">
+        <History size={15} aria-hidden className="text-amber-600" /> {outdated.length} saved{" "}
+        {outdated.length === 1 ? "job’s score is" : "jobs’ scores are"} outdated
+      </h2>
+      <p className="muted text-sm">
+        They were matched with an earlier version of your CVs. Once you’ve finished editing, match them again so the
+        scores in My jobs are up to date.
+      </p>
+      <MatchAllButton jobs={outdated} />
+    </section>
   );
 }

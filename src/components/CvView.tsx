@@ -6,6 +6,7 @@ import { useState, type ChangeEvent, type DragEvent } from "react";
 import { useSessionState } from "@/lib/session-state";
 import { PROFILE_TABS, SectionTabs } from "@/components/Nav";
 import { ApplicationDetailsForm } from "@/components/ApplicationDetailsForm";
+import { OutdatedScores } from "@/components/MatchAll";
 import { SkillsProfile } from "@/components/SkillsProfile";
 import { ProfileLinks } from "@/components/ProfileLinks";
 import { useFieldDraft } from "@/components/useFieldDraft";
@@ -148,6 +149,8 @@ export function CvView() {
           setOpenId(MAIN_CV);
         }}
       />
+
+      <OutdatedScores />
 
       <SkillsProfile />
       <ApplicationDetailsForm />

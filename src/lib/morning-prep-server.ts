@@ -165,17 +165,26 @@ export async function prepareStep(
     return match?.analysis && match.key === matchKey(job, candidate) ? match : undefined;
   };
 
+  // Saved jobs you haven't applied to whose score is from an earlier version of the CVs: matched again
+  // after the run's own jobs, so a CV change doesn't leave My jobs with outdated scores.
+  const inRun = new Set(runJobs.map((job) => job.id));
+  const outdatedSaved = Object.values(saved)
+    .filter((entry) => entry.status === "saved" && !inRun.has(entry.job.id) && matches[entry.job.id] && !current(entry.job))
+    .map((entry) => entry.job);
+  const toMatch = [...runJobs, ...outdatedSaved];
+
   // Saved with the job's match, and with its tailored documents if it's saved, as the app does.
-  const saveMatches = async (found: Array<{ job: Job; analysis: MatchAnalysis; key: string }>) => {
+  // `from`: the candidate it was matched with (a batch's can be older than the CVs are now).
+  const saveMatches = async (found: Array<{ job: Job; analysis: MatchAnalysis; key: string; from?: string }>) => {
     if (!found.length) return;
     const at = new Date().toISOString();
     const savedIds = found.filter(({ job }) => saved[job.id]).map(({ job }) => job.id);
     const docs = savedIds.length ? await readSomeItems<TailoredDocs>(backend, "tailored", savedIds) : {};
     const items: Record<string, StoredMatch> = {};
     const tailored: Record<string, TailoredDocs> = {};
-    for (const { job, analysis, key } of found) {
+    for (const { job, analysis, key, from } of found) {
       items[job.id] = matches[job.id] = matchFromAnalysis(analysis, key, at);
-      if (saved[job.id]) tailored[job.id] = { ...docs[job.id], analysis, analysisFrom: candidate.key, updatedAt: at };
+      if (saved[job.id]) tailored[job.id] = { ...docs[job.id], analysis, analysisFrom: from ?? candidate.key, updatedAt: at };
     }
     const ops: Parameters<typeof applyOps>[1] = [{ key: "matches", items }];
     if (savedIds.length) ops.push({ key: "tailored", items: tailored });
@@ -214,15 +223,15 @@ export async function prepareStep(
       }
       return waitForBatch(`${batch.jobs.length} ${batch.jobs.length === 1 ? "job is" : "jobs are"} with Claude to match.`);
     }
-    const byId = new Map(runJobs.map((job) => [job.id, job]));
-    const found: Array<{ job: Job; analysis: MatchAnalysis; key: string }> = [];
+    const byId = new Map(toMatch.map((job) => [job.id, job]));
+    const found: Array<{ job: Job; analysis: MatchAnalysis; key: string; from?: string }> = [];
     batch.jobs.forEach((entry, i) => {
       const outcome = outcomes[`job-${i}`];
       const job = byId.get(entry.id);
       if (!job) return;
       // Cancelled before Claude got to it: matched one at a time instead.
       if (outcome && "canceled" in outcome) prep.live = true;
-      else if (outcome && "analysis" in outcome) found.push({ job, analysis: outcome.analysis, key: entry.key });
+      else if (outcome && "analysis" in outcome) found.push({ job, analysis: outcome.analysis, key: entry.key, from: batch.from });
       else prep.failed.push(entry.id);
     });
     await saveMatches(found);
@@ -233,7 +242,7 @@ export async function prepareStep(
 
   // 1b. Match: the jobs uploaded so far, up to the morning's limit.
   if (settings.match && canWork && matchesLeft > 0) {
-    const todo = runJobs.filter((job) => canMatch(job) && !isDismissed(job) && !current(job) && !prep.failed.includes(job.id));
+    const todo = toMatch.filter((job) => canMatch(job) && !isDismissed(job) && !current(job) && !prep.failed.includes(job.id));
     const notesOf = (job: Job) => (useNotes ? saved[job.id]?.notes.trim().slice(0, 4000) || undefined : undefined);
 
     // All of them in one batch, read back on a later step.
@@ -248,6 +257,7 @@ export async function prepareStep(
         prep.batch = {
           id,
           sentAt: now,
+          from: candidate.key,
           jobs: sending.map(({ job }) => ({ id: job.id, key: matchKey(job, candidate) })),
         };
       } catch (error) {

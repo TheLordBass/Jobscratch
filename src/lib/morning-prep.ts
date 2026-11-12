@@ -70,6 +70,8 @@ export interface PrepBatch {
   sentAt: string;
   /** Each request's job (its custom id is `job-<index>`) and the key its match is saved with. */
   jobs: Array<{ id: string; key: string }>;
+  /** The candidate (lib/candidate.ts) it was sent with: the CVs may have changed by the time it's back. */
+  from?: string;
   /** Cancelled for taking too long: what it finished still comes back. */
   canceled?: boolean;
 }

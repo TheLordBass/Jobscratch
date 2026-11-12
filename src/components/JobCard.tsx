@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUpRight, Banknote, Bookmark, BookmarkCheck, Clock, Eye, EyeOff, MapPin, Sparkles, Wifi } from "lucide-react";
+import { ArrowUpRight, Banknote, Bookmark, BookmarkCheck, Clock, Eye, EyeOff, History, MapPin, Sparkles, Wifi } from "lucide-react";
 import { hasFullDescription } from "@/lib/candidate";
 import { JobFlagChips, PostedDate } from "@/components/JobFlags";
 import { formatSalary } from "@/lib/format";
@@ -208,19 +208,11 @@ export function JobCard({ job, status, expanded, onToggle, onSave, onTailor, mat
   );
 }
 
-/** A quick match score, coloured by how good it is; grey when it's from an earlier CV (`stale`). */
+/**
+ * A quick match score, coloured by how good it is. One from an earlier version of the CVs (`stale`)
+ * keeps its colour and says it's outdated.
+ */
 export function MatchBadge({ score, stale = false }: { score: number; stale?: boolean }) {
-  if (stale) {
-    return (
-      <span
-        className="mt-0.5 inline-flex shrink-0 items-center rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-semibold text-zinc-500 tabular-nums ring-1 ring-zinc-400/30 dark:bg-zinc-800 dark:text-zinc-400"
-        title="From an earlier version of your CV. Match all to update it."
-      >
-        {score}%<span className="ml-1 font-normal">· old CV</span>
-        <span className="sr-only"> match, from an earlier CV</span>
-      </span>
-    );
-  }
   const tone =
     score >= 75
       ? "bg-emerald-50 text-emerald-700 ring-emerald-600/20 dark:bg-emerald-950 dark:text-emerald-300"
@@ -229,10 +221,20 @@ export function MatchBadge({ score, stale = false }: { score: number; stale?: bo
         : "bg-red-50 text-red-700 ring-red-600/20 dark:bg-red-950 dark:text-red-300";
   return (
     <span
-      className={`mt-0.5 inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-xs font-bold tabular-nums ring-1 ${tone}`}
-      title="Match with your CV"
+      className={`mt-0.5 inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold tabular-nums ring-1 ${tone}`}
+      title={stale ? "Matched with an earlier version of your CVs. Match all to update it." : "Match with your CV"}
     >
       {score}%<span className="sr-only"> match</span>
+      {stale && <Outdated />}
+    </span>
+  );
+}
+
+/** "outdated", with an icon: a score or document made from an earlier version of the CVs. */
+export function Outdated({ className = "" }: { className?: string }) {
+  return (
+    <span className={`inline-flex items-center gap-0.5 text-[0.7rem] font-medium opacity-80 ${className}`}>
+      <History size={11} aria-hidden /> outdated
     </span>
   );
 }
