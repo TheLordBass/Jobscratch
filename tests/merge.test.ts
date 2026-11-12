@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { canMatch, candidateFor, matchKey } from "@/lib/candidate";
 import { findSavedCopy, jobKeys, mergeJobs, payloadToJob, siteJobKey } from "@/lib/import";
 import { parseJobspyFile } from "@/lib/jobspy";
-import { EMPTY_PROFILE } from "@/lib/store";
+import { EMPTY_PROFILE, withJobsSaved } from "@/lib/store";
 import type { Job } from "@/lib/types";
 
 const jobspyLinkedIn = parseJobspyFile(
@@ -118,5 +118,57 @@ describe("quick match freshness", () => {
     // A few lines, as Adzuna, Reed or a LinkedIn teaser give, would make a misleading score.
     expect(canMatch(bookmarklet)).toBe(false);
     expect(canMatch({ ...bookmarklet, description: bookmarklet.description.repeat(8) })).toBe(true);
+  });
+});
+
+describe("saving many jobs at once", () => {
+  const at = "2026-11-12T15:42:00.000Z";
+  const listing = (id: string, extra: Partial<Job> = {}): Job => ({
+    id,
+    source: "import",
+    sourceName: "LinkedIn",
+    title: "Data Analyst",
+    company: "Acme",
+    location: "Manchester",
+    remote: false,
+    url: `https://www.linkedin.com/jobs/view/${id.replace(/\D/g, "")}`,
+    applyOptions: [],
+    description: "Short.",
+    tags: [],
+    ...extra,
+  });
+
+  it("adds new jobs, fills in saved copies and keeps their status, and merges copies within the batch", () => {
+    const saved = {
+      "import:1": { job: listing("import:1"), status: "applied" as const, notes: "Sent", savedAt: "2026-11-01T00:00:00.000Z", updatedAt: "2026-11-01T00:00:00.000Z" },
+    };
+    const longer = "A full description. ".repeat(40);
+    const result = withJobsSaved(
+      saved,
+      [
+        // The saved job again (same LinkedIn job), now with a full description.
+        listing("import:99", { url: "https://www.linkedin.com/jobs/view/1", description: longer }),
+        listing("import:2", { title: "BI Analyst" }),
+        // The same posting twice in one go.
+        listing("import:3", { title: "Reporting Analyst", url: "https://www.linkedin.com/jobs/view/3" }),
+        listing("import:4", { title: "Reporting Analyst", url: "https://www.linkedin.com/jobs/view/3/" }),
+      ],
+      "saved",
+      at,
+    );
+    expect(Object.keys(result).sort()).toEqual(["import:1", "import:2", "import:3"]);
+    expect(result["import:1"]).toMatchObject({ status: "applied", notes: "Sent", updatedAt: at });
+    expect(result["import:1"].job.description).toBe(longer);
+    expect(result["import:2"]).toMatchObject({ status: "saved", savedAt: at, history: [{ status: "saved", at }] });
+    // What was saved before isn't changed in place.
+    expect(saved["import:1"].job.description).toBe("Short.");
+  });
+
+  it("saves a few hundred quickly", () => {
+    const jobs = Array.from({ length: 500 }, (_, i) => listing(`import:${1000 + i}`, { title: `Analyst ${i}`, company: `Company ${i}` }));
+    const started = performance.now();
+    const result = withJobsSaved({}, jobs, "saved", at);
+    expect(Object.keys(result)).toHaveLength(500);
+    expect(performance.now() - started).toBeLessThan(500);
   });
 });

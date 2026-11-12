@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import type { ApplicationAnswer, ApplicationDetails, ExtraSkill, MatchAnalysis, TailorOptions } from "@/lib/ai/prompts";
-import { dismissKeys, findSavedCopy, mergeJobs, repairSiteTitle } from "@/lib/import";
+import { dismissKeys, findSavedCopy, mergeJobs, repairSiteTitle, savedCopyIndex } from "@/lib/import";
 import { DEFAULT_JOBSPY_SEARCH, type HelperSearch } from "@/lib/jobspy-helper";
 import type { JobspyList } from "@/lib/jobspy-lists";
 import type { CvVersion } from "@/lib/cvs";
@@ -499,6 +499,33 @@ function withJobSaved(
 }
 
 /**
+ * Saves several jobs at once, as withJobSaved does each one. One index of the saved jobs serves the
+ * lot, added to as they're saved: looking each job up afresh made saving a few hundred freeze the page.
+ */
+export function withJobsSaved(
+  previous: Record<string, SavedJob>,
+  jobs: Job[],
+  status: ApplicationStatus,
+  now: string,
+): Record<string, SavedJob> {
+  const next = { ...previous };
+  const copies = savedCopyIndex(next);
+  for (const job of jobs) {
+    const found = next[job.id] ?? copies.find(job);
+    const existing = found && next[found.job.id];
+    if (existing) {
+      const merged = existing.job.id === job.id ? { ...existing.job, ...job } : mergeJobs(existing.job, job);
+      next[existing.job.id] = { ...existing, job: merged, updatedAt: now };
+    } else {
+      const entry: SavedJob = { job, status, notes: "", savedAt: now, updatedAt: now, history: [{ status, at: now }] };
+      next[job.id] = entry;
+      copies.add(entry);
+    }
+  }
+  return next;
+}
+
+/**
  * Jobs added before the importer split "Role | Company | LinkedIn" titles, with their title and
  * company as they should be (see repairSiteTitle). The rest are left as they are.
  */
@@ -538,10 +565,7 @@ export function useSavedJobs() {
   const saveJobs = useCallback(
     (jobs: Job[], status: ApplicationStatus = "saved") => {
       if (jobs.length === 0) return;
-      setSaved((previous) => {
-        const now = new Date().toISOString();
-        return jobs.reduce((saved, job) => withJobSaved(saved, job, status, now).saved, previous);
-      });
+      setSaved((previous) => withJobsSaved(previous, jobs, status, new Date().toISOString()));
     },
     [setSaved],
   );

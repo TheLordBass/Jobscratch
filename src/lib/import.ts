@@ -191,9 +191,15 @@ export function sameArea(a: string, b: string): boolean {
  * Built once for a list, so checking many jobs stays quick.
  */
 export function savedCopyFinder<T extends { job: Job }>(saved: Record<string, T>): (job: Job) => T | undefined {
+  const index = savedCopyIndex(saved);
+  return (job) => saved[job.id] ?? index.find(job);
+}
+
+/** The same, with saved jobs added as you go (e.g. while saving many at once). */
+export function savedCopyIndex<T extends { job: Job }>(saved: Record<string, T>) {
   const index = copyIndex<T>();
   for (const entry of Object.values(saved)) index.add(entry);
-  return (job) => saved[job.id] ?? index.find(job);
+  return index;
 }
 
 /** Jobs looked up by everything that can show two of them are one (see savedCopyFinder); entries can be added as you go. */

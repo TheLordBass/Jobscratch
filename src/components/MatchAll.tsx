@@ -42,26 +42,47 @@ export function useCurrentMatches(): {
   const [tailored] = useTailored();
   // Worked out once rather than for every job in a list.
   const candidate = useMemo(() => candidateFor(cv, profile), [cv, profile]);
-  const matchFor = (job: Job) => {
-    // A saved job analysed on its own page (or by the morning run) has its analysis there, and Match
-    // all leaves it out, so every list shows that one while it's from the current CV.
-    const docs = tailored[job.id];
-    if (docs?.analysis && madeFromCurrent(docs, "analysis", candidate)) {
-      return matchFromAnalysis(docs.analysis, matchKey(job, candidate), docs.updatedAt);
-    }
-    const match = matches[job.id];
-    // A score made from a snippet (before snippets stopped being matched) isn't shown.
-    return match?.analysis && canMatch(job) && match.key === matchKey(job, candidate) ? match : undefined;
-  };
-  // For lists: the current score, else the last one, made from an earlier CV or description, so a
-  // job's score shows at a glance until Match all brings it up to date (as its page shows it).
-  const scoreFor = (job: Job): ListScore | undefined => {
-    const current = matchFor(job);
-    if (current) return { score: current.score, stale: false };
-    const earlier = tailored[job.id]?.analysis?.matchScore ?? (canMatch(job) ? matches[job.id]?.score : undefined);
-    return earlier === undefined ? undefined : { score: earlier, stale: true };
-  };
-  return { matchFor, scoreFor, candidate, hasCv: hasCvText(cv) };
+  // Lists ask for every job's score many times over (sorting, filters, badges): each job's answer is
+  // kept until the scores, documents or CVs change, and the functions stay the same until then, so
+  // lists that depend on them aren't worked out again on every render.
+  const lookups = useMemo(() => {
+    const currentCache = new WeakMap<Job, { match: StoredMatch | undefined }>();
+    const scoreCache = new WeakMap<Job, { score: ListScore | undefined }>();
+    const matchFor = (job: Job): StoredMatch | undefined => {
+      const known = currentCache.get(job);
+      if (known) return known.match;
+      let match: StoredMatch | undefined;
+      // A saved job analysed on its own page (or by the morning run) has its analysis there, and Match
+      // all leaves it out, so every list shows that one while it's from the current CV.
+      const docs = tailored[job.id];
+      if (docs?.analysis && madeFromCurrent(docs, "analysis", candidate)) {
+        match = matchFromAnalysis(docs.analysis, matchKey(job, candidate), docs.updatedAt);
+      } else {
+        const stored = matches[job.id];
+        // A score made from a snippet (before snippets stopped being matched) isn't shown.
+        match = stored?.analysis && canMatch(job) && stored.key === matchKey(job, candidate) ? stored : undefined;
+      }
+      currentCache.set(job, { match });
+      return match;
+    };
+    // For lists: the current score, else the last one, made from an earlier CV or description, so a
+    // job's score shows at a glance until Match all brings it up to date (as its page shows it).
+    const scoreFor = (job: Job): ListScore | undefined => {
+      const known = scoreCache.get(job);
+      if (known) return known.score;
+      const current = matchFor(job);
+      const earlier = current ? undefined : (tailored[job.id]?.analysis?.matchScore ?? (canMatch(job) ? matches[job.id]?.score : undefined));
+      const score: ListScore | undefined = current
+        ? { score: current.score, stale: false }
+        : earlier === undefined
+          ? undefined
+          : { score: earlier, stale: true };
+      scoreCache.set(job, { score });
+      return score;
+    };
+    return { matchFor, scoreFor };
+  }, [matches, tailored, candidate]);
+  return { ...lookups, candidate, hasCv: hasCvText(cv) };
 }
 
 /** A job's score for a list; `stale` when it was made from an earlier CV or description. */
