@@ -89,7 +89,7 @@ function Bookmarklet() {
 function JobspyImporter() {
   const router = useRouter();
   const { saved, saveJob, saveJobs, removeJob } = useSavedJobs();
-  const { matchFor } = useCurrentMatches();
+  const { matchFor, scoreFor } = useCurrentMatches();
   const { isDismissed, dismiss, restore } = useDismissed();
   // The jobs and how they're shown are kept for the session (lib/session-state.ts), so going to one
   // to apply and coming back finds the list as you left it.
@@ -148,10 +148,11 @@ function JobspyImporter() {
   const jobs = filterJobs(notHidden, (job) => job, jobFilter, isMatched);
   const listed = showHidden ? filterJobs(all, (job) => job, jobFilter, isMatched) : jobs;
   const unsaved = jobs.filter((job) => !saved[job.id]);
-  const anyMatched = notHidden.some((job) => matchFor(job));
+  // Scores from an earlier CV show (in grey) and sort too, until Match all brings them up to date.
+  const anyMatched = notHidden.some((job) => scoreFor(job));
   const shown =
     order === "match" && anyMatched
-      ? [...listed].sort((a, b) => (matchFor(b)?.score ?? -1) - (matchFor(a)?.score ?? -1))
+      ? [...listed].sort((a, b) => (scoreFor(b)?.score ?? -1) - (scoreFor(a)?.score ?? -1))
       : listed;
 
   return (
@@ -275,6 +276,7 @@ function JobspyImporter() {
               job={job}
               status={saved[job.id]?.status}
               match={matchFor(job)}
+              score={scoreFor(job)}
               dismissed={isDismissed(job)}
               onDismiss={() => (isDismissed(job) ? restore(job) : dismiss(job))}
               expanded={expanded === job.id}
