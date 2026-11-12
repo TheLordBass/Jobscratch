@@ -17,6 +17,12 @@ import type { Job } from "@/lib/types";
 const PARALLEL = 3;
 /** Ask before matching more than this many in one go: each is a full analysis. */
 const CONFIRM_ABOVE = 10;
+/**
+ * On a phone, runs bigger than this go to Claude as background batches (lib/match-batches.ts), which
+ * carry on with the app closed but can take a while to come back. Smaller ones are matched straight
+ * away, as on a computer, so the scores fill in as you watch (and carry on when you come back).
+ */
+const BATCH_ABOVE = 150;
 
 /**
  * The current match for each job: its own analysis (from its page) or the one from Match all,
@@ -98,14 +104,16 @@ export function MatchAllButton({ jobs, onMatched }: MatchAllProps) {
 
   async function start() {
     if (todo.length === 0) return;
-    // On a phone, as batches that carry on while it has the app in the background (lib/match-batches.ts).
-    const background = matchesInBackground();
+    // A big run on a phone goes as batches that carry on while it has the app in the background.
+    const background = matchesInBackground() && todo.length > BATCH_ABOVE;
     if (
       todo.length > CONFIRM_ABOVE &&
       !window.confirm(
         background
           ? `Analyse ${todo.length} jobs against your CV? Claude does them all in the background at half price, usually within a few minutes, so you can leave the app meanwhile.`
-          : `Analyse ${todo.length} jobs against your CV? Each is a full analysis, one Claude request per job, so it takes a few minutes.`,
+          : `Analyse ${todo.length} jobs against your CV? Each is a full analysis, one Claude request per job, so it takes a few minutes.${
+              matchesInBackground() ? " Keep JobScratch open: the scores fill in as each one is done, and it carries on if you come back to it." : ""
+            }`,
       )
     ) {
       return;
