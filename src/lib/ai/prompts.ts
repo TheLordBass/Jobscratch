@@ -386,6 +386,56 @@ ${LINK_RULE}
 Reply with only the prep pack in Markdown: no introduction, notes, or code fences.`;
 }
 
+function spelling(options: TailorOptions): string {
+  return options.style === "us-resume"
+    ? "Use American spelling unless the CV uses British spelling."
+    : "Use British spelling unless the CV uses American spelling.";
+}
+
+/** Prep for a pre-employment test or assessment: what's likely, practice with worked answers, and weak spots. */
+export function assessmentPrepInstruction(options: TailorOptions): string {
+  return `Prepare the candidate for the test or assessment stage of this job: an online test, a pre-screening exercise or a task set before interview. Address them as "you".
+
+- Start with "# Test prep: <job title> at <company>".
+- "## What the test is likely to cover": the kinds of test an employer typically sets for a role like this (for example numerical or verbal reasoning, situational judgement, an Excel, SQL or data task, a written exercise, a data-entry or accuracy test), most likely first, with one line each on why. If the job ad names its test, start with that; otherwise say these are likely, not known.
+- "## Practice questions": 8–10 questions in the style of those tests, pitched at this role's level and using its subject matter. Under each, "Answer:" and a short worked answer. For an Excel or SQL task, give a small sample table in Markdown, then the formula or query that solves it.
+- "## Your weak spots": the 2–3 things the job asks for that the candidate's materials show least of, each with a 20–30 minute practice plan.
+- "## On the day": a short checklist: time per question, what to have to hand, reading instructions carefully, and moving on from a question that's taking too long.
+- Say nothing about the employer's actual test that isn't in the job ad: no guessed test providers or formats presented as fact.
+- ${spelling(options)}
+
+Reply with only the prep in Markdown: no introduction, notes, or code fences.`;
+}
+
+/** Short messages to the recruiter or hiring manager: a LinkedIn note and an email. */
+export function outreachInstruction(options: TailorOptions): string {
+  return `Write short messages the candidate can send to the recruiter or hiring manager for this job, in their own voice ("I"). The person's name isn't known: write "Hi [name]," for them to fill in.
+
+- Start with "# Message: <job title> at <company>".
+- "## LinkedIn connection note": under 300 characters, spaces included: who they are, the role, one specific reason they fit, and a light ask. No links.
+- "## Email or LinkedIn message": a line "Subject: …", then 80–120 words: the role and that they're applying, two achievements from the materials that answer the ad's key requirements, and one clear ask (a short call, or who to speak to about the role). Sign off with the candidate's name and their email address or phone number from the CV.
+- "## Who to send it to": two or three short tips on finding the right person (a contact named in the ad, the hiring team's likely job titles on LinkedIn). Never guess a name.
+- Use only facts from the candidate's materials. Plain, confident and polite: no flattery, no clichés, no em dashes.
+- ${spelling(options)}
+
+Reply with only the messages in Markdown: no introduction, notes, or code fences.`;
+}
+
+/** A polite follow-up on an application, a week or so after applying. */
+export function followUpInstruction(options: TailorOptions, appliedOn?: string): string {
+  const when = appliedOn?.trim() ? ` on ${appliedOn.trim()}` : "";
+  return `Write a polite follow-up the candidate can send about their application for this job, made${when}. Write it in their own voice ("I"). The person's name isn't known: write "Hi [name]," for them to fill in.
+
+- Start with "# Follow-up: <job title> at <company>".
+- "## Email": a line "Subject: …", then 60–100 words: the role and when they applied, renewed interest with one specific, relevant achievement from the materials, and a simple question about the timeline or next steps. Not pushy, and no apology for following up. Sign off with the candidate's name and their email address or phone number from the CV.
+- "## LinkedIn message": the same in under 300 characters, for the recruiter or hiring manager.
+- "## If there's no reply": one line: follow up once more about a week later, then put the time into other applications.
+- Use only facts from the candidate's materials. No em dashes.
+- ${spelling(options)}
+
+Reply with only the follow-up in Markdown: no introduction, notes, or code fences.`;
+}
+
 /** The candidate's own answers to the practical questions forms ask (Profile → Application details). */
 export const ApplicationDetailsSchema = z.object({
   rightToWork: z.string().max(300).default(""),

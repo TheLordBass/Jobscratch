@@ -22,7 +22,18 @@ export interface MorningPrepSettings {
   answers: boolean;
   /** Send a summary to the devices that asked for one (Web Push, lib/push.ts). */
   notify: boolean;
+  /**
+   * Today's shortlist: the best few fresh jobs from employers that name themselves (TODAY_FROM or more,
+   * posted in the last TODAY_MAX_DAYS days), saved to My jobs and named in the summary. Optional, as
+   * settings saved before it was added don't have it: on unless turned off.
+   */
+  shortlist?: boolean;
 }
+
+/** Today's shortlist: at most this many jobs, matching this much or more, posted this recently. */
+export const TODAY_LIMIT = 5;
+export const TODAY_FROM = 65;
+export const TODAY_MAX_DAYS = 3;
 
 export const DEFAULT_MORNING_PREP: MorningPrepSettings = {
   match: false,
@@ -55,6 +66,8 @@ export interface PrepState {
   stopped?: string;
   /** How many jobs the run had when they were last all matched, so it waits for more before looking again. */
   checkedCount?: number;
+  /** Today's shortlist (their ids in My jobs), best first, once it's been picked. */
+  today?: string[];
   /** Analyses sent as a batch, not back yet (lib/ai/claude.ts, submitMatchBatch). */
   batch?: PrepBatch;
   /** A batch took too long: the rest are matched one at a time. */

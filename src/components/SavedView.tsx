@@ -1,11 +1,12 @@
 "use client";
 
-import { ArrowRight, BriefcaseBusiness, Download, FileText, Mail, StickyNote, Trash2, X } from "lucide-react";
+import { ArrowRight, BriefcaseBusiness, Download, FileText, Mail, MailCheck, StickyNote, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { Fragment, useMemo } from "react";
 import { BulkTailor } from "@/components/BulkTailor";
 import { CompanyMark, MatchBadge, Outdated } from "@/components/JobCard";
 import { madeFromCurrent } from "@/lib/candidate";
+import { followUpDue, noReply } from "@/lib/follow-ups";
 import { JobFlagChips, PostedDate } from "@/components/JobFlags";
 import { JobFilters } from "@/components/JobFilters";
 import { MatchAllButton, useCurrentMatches } from "@/components/MatchAll";
@@ -317,7 +318,8 @@ export function SavedView() {
             </p>
           )}
           <ul className="space-y-2.5">
-            {ordered.slice(0, limit).map(({ job, status, notes, savedAt }, i) => {
+            {ordered.slice(0, limit).map((entry, i) => {
+              const { job, status, notes, savedAt } = entry;
               const docs = tailored[job.id];
               const listScore = scoreFor(job);
               const score = listScore?.score;
@@ -376,6 +378,12 @@ export function SavedView() {
                           )}
                           <span>{[salary, `saved ${formatPosted(savedAt)}`].filter(Boolean).join(" · ")}</span>
                           <PostedDate job={job} />
+                          {followUpDue(entry) && (
+                            <span className="inline-flex items-center gap-1 font-medium text-indigo-700 dark:text-indigo-300">
+                              <MailCheck size={12} aria-hidden /> Follow up due
+                            </span>
+                          )}
+                          {noReply(entry) && <span className="font-medium">No reply in 3 weeks</span>}
                         </p>
                       </div>
                     </div>

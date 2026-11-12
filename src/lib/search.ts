@@ -84,7 +84,7 @@ function normalizeRequest(request: SearchRequest) {
     remoteOnly: Boolean(request.remoteOnly),
     includeRemoteAnywhere: request.includeRemoteAnywhere ?? true,
     postedWithinDays: request.postedWithinDays && request.postedWithinDays > 0 ? request.postedWithinDays : undefined,
-    companyBoards: request.companyBoards ?? { greenhouse: [], lever: [], ashby: [] },
+    companyBoards: request.companyBoards ?? { greenhouse: [], lever: [], ashby: [], feeds: [] },
   };
 }
 

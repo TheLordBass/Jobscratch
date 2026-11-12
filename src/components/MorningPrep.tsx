@@ -3,7 +3,7 @@
 import { BellRing } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useSources } from "@/components/useSources";
-import { MATCH_LIMITS, READY_FROM, READY_LIMITS, type MorningPrepSettings } from "@/lib/morning-prep";
+import { MATCH_LIMITS, READY_FROM, READY_LIMITS, TODAY_FROM, TODAY_LIMIT, TODAY_MAX_DAYS, type MorningPrepSettings } from "@/lib/morning-prep";
 import {
   currentSubscription,
   fetchPushStatus,
@@ -110,6 +110,21 @@ export function MorningPrep() {
             </label>
           </div>
         </div>
+
+        <label className="flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={prep.shortlist !== false}
+            disabled={!prep.match}
+            onChange={(e) => set({ shortlist: e.target.checked })}
+          />
+          <span>
+            Pick today’s shortlist: the {TODAY_LIMIT} best jobs at {TODAY_FROM}%+ posted in the last {TODAY_MAX_DAYS} days,
+            from employers that name themselves (no agencies or job sites). They’re saved to My jobs and shown at the top of
+            Apply.
+          </span>
+        </label>
 
         {(prep.match || prep.ready) && (
           <p className="muted text-xs">

@@ -2,6 +2,7 @@ import type { SearchSourceId, SourceInfo } from "@/lib/types";
 import { adzuna } from "./adzuna";
 import { arbeitnow } from "./arbeitnow";
 import { ashby } from "./ashby";
+import { feeds } from "./feeds";
 import { googleJobs } from "./google-jobs";
 import { greenhouse } from "./greenhouse";
 import { himalayas } from "./himalayas";
@@ -21,6 +22,7 @@ export const SOURCES: JobSource[] = [
   greenhouse,
   lever,
   ashby,
+  feeds,
   reed,
   nhsJobs,
   usajobs,

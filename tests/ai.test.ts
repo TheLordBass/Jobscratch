@@ -217,6 +217,28 @@ describe("streamDocument", () => {
     expect(lastRequest().body.messages[0].content[2].text).not.toContain("<cv_sent>");
   });
 
+  it("writes test prep, a message to the hiring manager and a follow-up, each once and at the right effort", async () => {
+    const cases = [
+      { kind: "test-prep" as const, effort: "medium", starts: /^Prepare the candidate for the test or assessment/, sections: ["What the test is likely to cover", "Practice questions", "Your weak spots"] },
+      { kind: "outreach" as const, effort: "low", starts: /^Write short messages the candidate can send/, sections: ["LinkedIn connection note", "Email or LinkedIn message", "Who to send it to"] },
+      { kind: "follow-up" as const, effort: "low", starts: /^Write a polite follow-up/, sections: ["Email", "LinkedIn message", "If there's no reply"] },
+    ];
+    for (const { kind, effort, starts, sections } of cases) {
+      fetchMock.mockResolvedValueOnce(streamOf(["# Done"]));
+      const events = await collect(streamDocument(kind, { cv: CV, job: JOB }, { ...OPTIONS, length: "one-page" }, ENV, undefined, undefined, "3 November"));
+      expect(events.at(-1)).toMatchObject({ type: "done" });
+      const { body } = lastRequest();
+      expect(body.output_config).toEqual({ effort });
+      const instruction = body.messages[0].content[2].text as string;
+      expect(instruction).toMatch(starts);
+      for (const section of sections) expect(instruction).toContain(`## ${section}`);
+      if (kind === "follow-up") expect(instruction).toContain("made on 3 November");
+      else expect(instruction).not.toContain("3 November");
+    }
+    // Never shortened like a CV: one request each.
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
   it("reports refusals and truncation as errors", async () => {
     fetchMock.mockResolvedValueOnce(streamOf(["partial"], "refusal"));
     const refused = await collect(streamDocument("cv", { cv: CV, job: JOB }, OPTIONS, ENV));

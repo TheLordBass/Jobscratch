@@ -158,7 +158,7 @@ describe("the morning run's preparation", () => {
     const jobs = Array.from({ length: 8 }, (_, i) => job(i + 1));
     const scores = Object.fromEntries(jobs.map((j, i) => [j.title, [95, 60, 88, 70, 91, 40, 82, 65][i]]));
     const { deps, calls } = fakes(scores);
-    await seed({ match: true, ready: true, readyFrom: 85, readyLimit: 2 }, jobs.slice(0, 7));
+    await seed({ match: true, ready: true, readyFrom: 85, readyLimit: 2, shortlist: false }, jobs.slice(0, 7));
 
     // Still searching: six a step, then it waits for more jobs rather than reading everything again.
     expect((await step(deps)).state).toBe("working");
@@ -236,6 +236,47 @@ describe("the morning run's preparation", () => {
     expect(calls.batches).toHaveLength(2);
     expect(calls.analyze).toEqual([]);
     expect(calls.write).toEqual(["cv:Data Analyst 1"]);
+  });
+
+  it("picks today's shortlist: fresh jobs at 65%+ from employers that name themselves, saved and named in the summary", async () => {
+    const posted = (daysAgo: number) => new Date(Date.parse("2026-10-27T06:00:00.000Z") - daysAgo * 86_400_000).toISOString();
+    const jobs = [
+      job(1, { postedAt: posted(1) }), // 90%: in
+      job(2, { postedAt: posted(10) }), // 95% but posted ten days ago: out
+      job(3, { company: "Halecroft Recruitment", postedAt: posted(1) }), // 92%, an agency: out
+      job(4), // 70%, no posting date: in
+      job(5, { postedAt: posted(0) }), // 60%: under 65, out
+      job(6, { postedAt: posted(2) }), // 80%, already applied to: out
+    ];
+    const scores = Object.fromEntries(jobs.map((j, i) => [j.title, [90, 95, 92, 70, 60, 80][i]]));
+    const { deps, calls } = fakes(scores);
+    await seed({ match: true, ready: false }, jobs, true);
+    const at = "2026-10-26T06:00:00.000Z";
+    await applyOps(backend, [{ key: "saved", items: { [jobs[5].id]: { job: jobs[5], status: "applied", notes: "", savedAt: at, updatedAt: at } } }]);
+
+    const now = "2026-10-27T07:00:00.000Z";
+    for (let i = 0; i < 6 && (await prepareStep(backend, {}, RUN, "https://jobscratch.example", deps, now)).state !== "done"; i++);
+    const prep = await readPrep(backend);
+    expect(prep?.today).toEqual(["linkedin:1", "linkedin:4"]);
+    const saved = await readCollection<SavedJob>(backend, "saved");
+    expect(saved["linkedin:1"]).toMatchObject({ status: "saved" });
+    expect(saved["linkedin:4"]).toMatchObject({ status: "saved" });
+    expect(saved["linkedin:2"]).toBeUndefined();
+    expect(saved["linkedin:6"].status).toBe("applied");
+    expect(calls.notify[0]).toMatchObject({ title: "Today's top 2: apply while they're fresh", url: "/apply" });
+    expect(calls.notify[0].body).toContain("Data Analyst 1 at Company 1 (90%); Data Analyst 4 at Company 4 (70%)");
+  });
+
+  it("says in the summary how many applications are due a follow-up", async () => {
+    const { deps, calls } = fakes({ "Data Analyst 1": 40 });
+    await seed({ match: true, ready: false }, [job(1)], true);
+    const applied = (n: number, daysAgo: number): SavedJob => {
+      const at = new Date(Date.parse("2026-10-27T06:00:00.000Z") - daysAgo * 86_400_000).toISOString();
+      return { job: job(n), status: "applied", notes: "", savedAt: at, updatedAt: at, history: [{ status: "applied", at }] };
+    };
+    await applyOps(backend, [{ key: "saved", items: { "linkedin:7": applied(7, 8), "linkedin:8": applied(8, 9), "linkedin:9": applied(9, 3) } }]);
+    for (let i = 0; i < 6 && (await prepareStep(backend, {}, RUN, "https://jobscratch.example", deps, "2026-10-27T07:00:00.000Z")).state !== "done"; i++);
+    expect(calls.notify[0].body).toContain("2 applications are due a follow-up.");
   });
 
   it("matches again saved jobs not applied to whose scores are from an earlier CV", async () => {

@@ -2,7 +2,9 @@ import type { ApplicationAnswer, ApplicationDetails, CandidateCv, CandidateProfi
 
 /** What /api/tailor/generate needs to write a tailored CV or cover letter. */
 export interface TailorRequest {
-  kind: "cv" | "cover-letter" | "interview";
+  kind: "cv" | "cover-letter" | "interview" | "test-prep" | "outreach" | "follow-up";
+  /** For a follow-up: when the candidate applied, e.g. "3 November". */
+  appliedOn?: string;
   /** For interview prep: the tailored CV the candidate applied with. */
   sentCv?: string;
   cv: string;

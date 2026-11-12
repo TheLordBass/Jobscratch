@@ -41,6 +41,8 @@ export interface SavedJob {
   updatedAt: string;
   /** Every status the job has had, oldest first. Missing on jobs saved before it was added. */
   history?: StatusChange[];
+  /** When you followed up on the application, or said there was no need (lib/follow-ups.ts). */
+  followedUpAt?: string;
 }
 
 /** The main CV, with any others for different kinds of job (lib/cvs.ts). */
@@ -110,13 +112,20 @@ export interface TailoredDocs {
   /** An interview prep pack, and the candidate key it was made from. */
   interview?: string;
   interviewFrom?: string;
+  /** Prep for a test or assessment, a message to the hiring manager, and a follow-up, with what each was made from. */
+  testPrep?: string;
+  testPrepFrom?: string;
+  outreach?: string;
+  outreachFrom?: string;
+  followUp?: string;
+  followUpFrom?: string;
   updatedAt: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   country: "gb",
   includeRemoteAnywhere: true,
-  companyBoards: { greenhouse: [], lever: [], ashby: [] },
+  companyBoards: { greenhouse: [], lever: [], ashby: [], feeds: [] },
   disabledSources: [],
   saveMatchesFrom: 70,
   saveUndescribed: true,

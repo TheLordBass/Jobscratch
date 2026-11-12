@@ -19,7 +19,7 @@ const SearchRequestSchema = z.object({
   postedWithinDays: z.number().int().min(0).max(365).optional(),
   sources: z.array(z.enum(SOURCE_IDS)).optional(),
   companyBoards: z
-    .object({ greenhouse: boardList, lever: boardList, ashby: boardList })
+    .object({ greenhouse: boardList, lever: boardList, ashby: boardList, feeds: boardList })
     .optional(),
 });
 
