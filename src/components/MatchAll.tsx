@@ -19,26 +19,49 @@ const PARALLEL = 3;
 const CONFIRM_ABOVE = 10;
 
 /**
- * The current match for each job: a full analysis, leaving out ones made from an older CV or
- * description, from a snippet, or quick-only scores from before every match was a full analysis.
+ * The current match for each job: its own analysis (from its page) or the one from Match all,
+ * leaving out ones made from an older CV or description, from a snippet, or quick-only scores from
+ * before every match was a full analysis.
  * `candidate` is what's sent about the candidate for every job: all their CVs, website and GitHub.
  */
 export function useCurrentMatches(): {
   matchFor: (job: Job) => StoredMatch | undefined;
+  scoreFor: (job: Job) => ListScore | undefined;
   candidate: Candidate;
   hasCv: boolean;
 } {
   const [cv] = useCv();
   const [profile] = useProfile();
   const [matches] = useMatches();
+  const [tailored] = useTailored();
   // Worked out once rather than for every job in a list.
   const candidate = useMemo(() => candidateFor(cv, profile), [cv, profile]);
   const matchFor = (job: Job) => {
+    // A saved job analysed on its own page (or by the morning run) has its analysis there, and Match
+    // all leaves it out, so every list shows that one while it's from the current CV.
+    const docs = tailored[job.id];
+    if (docs?.analysis && madeFromCurrent(docs, "analysis", candidate)) {
+      return matchFromAnalysis(docs.analysis, matchKey(job, candidate), docs.updatedAt);
+    }
     const match = matches[job.id];
     // A score made from a snippet (before snippets stopped being matched) isn't shown.
     return match?.analysis && canMatch(job) && match.key === matchKey(job, candidate) ? match : undefined;
   };
-  return { matchFor, candidate, hasCv: hasCvText(cv) };
+  // For lists: the current score, else the last one, made from an earlier CV or description, so a
+  // job's score shows at a glance until Match all brings it up to date (as its page shows it).
+  const scoreFor = (job: Job): ListScore | undefined => {
+    const current = matchFor(job);
+    if (current) return { score: current.score, stale: false };
+    const earlier = tailored[job.id]?.analysis?.matchScore ?? (canMatch(job) ? matches[job.id]?.score : undefined);
+    return earlier === undefined ? undefined : { score: earlier, stale: true };
+  };
+  return { matchFor, scoreFor, candidate, hasCv: hasCvText(cv) };
+}
+
+/** A job's score for a list; `stale` when it was made from an earlier CV or description. */
+export interface ListScore {
+  score: number;
+  stale: boolean;
 }
 
 
@@ -52,7 +75,6 @@ interface MatchAllProps {
 export function MatchAllButton({ jobs, onMatched }: MatchAllProps) {
   const sources = useSources();
   const { saved } = useSavedJobs();
-  const [tailored] = useTailored();
   const [settings] = useSettings();
   const { matchFor, candidate, hasCv } = useCurrentMatches();
   // Runs in the background (lib/batch-runs.ts), so going to another page doesn't stop it.
@@ -66,10 +88,8 @@ export function MatchAllButton({ jobs, onMatched }: MatchAllProps) {
   }, [progress?.status, page]);
 
   const matchable = jobs.filter(canMatch);
-  // A saved job analysed on its own page already has its analysis, unless it was made from an earlier CV.
-  const todo = matchable.filter(
-    (job) => !matchFor(job) && !(saved[job.id] && madeFromCurrent(tailored[job.id], "analysis", candidate)),
-  );
+  // A saved job analysed on its own page counts as matched (see useCurrentMatches), unless that was from an earlier CV.
+  const todo = matchable.filter((job) => !matchFor(job));
   const withoutDescription = jobs.length - matchable.length;
   // The bookmarklet can add the full description for jobs it recognises (LinkedIn, Indeed, Glassdoor).
   const fillable = jobs.filter((job) => !canMatch(job) && siteJobKey(job.url)).length;

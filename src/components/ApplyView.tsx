@@ -8,11 +8,10 @@ import { BulkTailor } from "@/components/BulkTailor";
 import { CopyButton } from "@/components/CopyButton";
 import { CompanyMark, MatchBadge } from "@/components/JobCard";
 import { JobFlagNotes, PostedDate } from "@/components/JobFlags";
-import { useCurrentMatches } from "@/components/MatchAll";
+import { useCurrentMatches, type ListScore } from "@/components/MatchAll";
 import { MY_JOBS_TABS, SectionTabs } from "@/components/Nav";
 import { APPLICATION_DETAIL_LABELS, type ApplicationDetails } from "@/lib/ai/prompts";
 import { applyQueue, documentFileName, type ApplyOrder } from "@/lib/apply";
-import { currentScore } from "@/lib/candidate";
 import { markdownToDocx } from "@/lib/export-docx";
 import { downloadBlob } from "@/lib/format";
 import { markdownToPlainText } from "@/lib/markdown";
@@ -31,8 +30,8 @@ export function ApplyView() {
   const { saved, updateJob } = useSavedJobs();
   const [tailored] = useTailored();
   const [profile] = useProfile();
-  const { matchFor, candidate } = useCurrentMatches();
-  const scoreOf = (entry: SavedJob) => currentScore(tailored[entry.job.id], candidate, matchFor(entry.job)?.score);
+  const { scoreFor } = useCurrentMatches();
+  const scoreOf = (entry: SavedJob) => scoreFor(entry.job)?.score;
   const details = { ...EMPTY_DETAILS, ...profile.application };
   const hasDetails = Object.values(details).some((value) => value.trim());
   const [order, setOrder] = useSessionState<ApplyOrder>("apply:order", "match");
@@ -98,7 +97,7 @@ export function ApplyView() {
                   key={entry.job.id}
                   entry={entry}
                   docs={tailored[entry.job.id]}
-                  score={scoreOf(entry)}
+                  score={scoreFor(entry.job)}
                   details={details}
                   onApplied={() => {
                     updateJob(entry.job.id, { status: "applied" });
@@ -141,7 +140,7 @@ function ApplyCard({
 }: {
   entry: SavedJob;
   docs: TailoredDocs | undefined;
-  score: number | undefined;
+  score: ListScore | undefined;
   details: ApplicationDetails;
   onApplied: () => void;
 }) {
@@ -163,7 +162,7 @@ function ApplyCard({
             <Link href={jobLink} className="font-semibold hover:underline">
               {job.title}
             </Link>
-            {score !== undefined && <MatchBadge score={score} />}
+            {score && <MatchBadge score={score.score} stale={score.stale} />}
           </p>
           <p className="text-sm">
             {job.company}
@@ -178,7 +177,7 @@ function ApplyCard({
         </div>
       </div>
 
-      <JobFlagNotes job={job} score={score} />
+      <JobFlagNotes job={job} score={score?.score} />
 
       <div className="flex flex-wrap items-center gap-1.5">
         {apply && (

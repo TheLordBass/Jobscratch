@@ -140,7 +140,7 @@ export function SearchView() {
   const savedBefore = useMemo(() => new Set(savedBeforeIds), [savedBeforeIds]);
   const [showSaved, setShowSaved] = useSessionState("search:showSaved", false);
   const { isDismissed, dismiss, restore } = useDismissed();
-  const { matchFor } = useCurrentMatches();
+  const { matchFor, scoreFor } = useCurrentMatches();
   const [filter, setFilter] = useSessionState("search:filter", "");
   const [visible, setVisible] = useSessionState("search:visible", PAGE_SIZE);
   const [jobFilter, setJobFilter] = useSessionState<JobFilter>("search:jobFilter", ANY_JOB);
@@ -264,9 +264,9 @@ export function SearchView() {
       : found;
     if (sort === "newest") return [...jobs].sort((a, b) => (b.postedAt ?? "").localeCompare(a.postedAt ?? ""));
     // Unscored jobs keep their order after the scored ones.
-    if (sort === "match") return [...jobs].sort((a, b) => (matchFor(b)?.score ?? -1) - (matchFor(a)?.score ?? -1));
+    if (sort === "match") return [...jobs].sort((a, b) => (scoreFor(b)?.score ?? -1) - (scoreFor(a)?.score ?? -1));
     return jobs;
-  }, [search, filter, sort, matchFor, findCopy]);
+  }, [search, filter, sort, scoreFor, findCopy]);
 
   // Jobs marked "Not interested" are left out, unless you ask to see them.
   const wasSaved = (job: Job) => savedBefore.has(job.id) && Boolean(saved[job.id]);
@@ -588,6 +588,7 @@ export function SearchView() {
                 job={job}
                 status={saved[job.id]?.status}
                 match={matchFor(job)}
+                score={scoreFor(job)}
                 dismissed={isDismissed(job)}
                 onDismiss={() => (isDismissed(job) ? restore(job) : dismiss(job))}
                 expanded={expanded === job.id}

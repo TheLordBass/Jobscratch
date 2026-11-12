@@ -4,6 +4,7 @@ import { ArrowUpRight, Banknote, Bookmark, BookmarkCheck, Clock, Eye, EyeOff, Ma
 import { hasFullDescription } from "@/lib/candidate";
 import { JobFlagChips, PostedDate } from "@/components/JobFlags";
 import { formatSalary } from "@/lib/format";
+import type { ListScore } from "@/components/MatchAll";
 import type { ApplicationStatus, StoredMatch } from "@/lib/store";
 import type { Job } from "@/lib/types";
 
@@ -16,6 +17,8 @@ interface Props {
   onTailor: () => void;
   /** The job's match score (from Match all or its page), if it has one. */
   match?: StoredMatch;
+  /** The score to show, which may be from an earlier CV when there's no current match. Defaults to the match's. */
+  score?: ListScore;
   /** "Not interested": hide the job, or show it again when `dismissed`. */
   onDismiss?: () => void;
   dismissed?: boolean;
@@ -81,7 +84,8 @@ export function CompanyMark({ job, size = "md" }: { job: Job; size?: "md" | "lg"
   );
 }
 
-export function JobCard({ job, status, expanded, onToggle, onSave, onTailor, match, onDismiss, dismissed }: Props) {
+export function JobCard({ job, status, expanded, onToggle, onSave, onTailor, match, score, onDismiss, dismissed }: Props) {
+  const shown = score ?? (match && { score: match.score, stale: false });
   const salary = formatSalary(job.salary);
   const isSnippet = job.description.trim().length > 0 && !hasFullDescription(job.description);
 
@@ -102,11 +106,11 @@ export function JobCard({ job, status, expanded, onToggle, onSave, onTailor, mat
               >
                 {job.title}
               </button>
-              {match && <MatchBadge score={match.score} />}
+              {shown && <MatchBadge score={shown.score} stale={shown.stale} />}
             </div>
             <p className="mt-0.5 text-sm font-medium text-zinc-700 dark:text-zinc-300">{job.company}</p>
             <div className="mt-1 empty:hidden">
-              <JobFlagChips job={job} score={match?.score} />
+              <JobFlagChips job={job} score={shown ? shown.score : undefined} />
             </div>
             <div className="muted mt-2 flex flex-wrap items-center gap-x-3.5 gap-y-1 text-xs">
               {job.location && (
@@ -204,8 +208,19 @@ export function JobCard({ job, status, expanded, onToggle, onSave, onTailor, mat
   );
 }
 
-/** A quick match score, coloured by how good it is. */
-export function MatchBadge({ score }: { score: number }) {
+/** A quick match score, coloured by how good it is; grey when it's from an earlier CV (`stale`). */
+export function MatchBadge({ score, stale = false }: { score: number; stale?: boolean }) {
+  if (stale) {
+    return (
+      <span
+        className="mt-0.5 inline-flex shrink-0 items-center rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-semibold text-zinc-500 tabular-nums ring-1 ring-zinc-400/30 dark:bg-zinc-800 dark:text-zinc-400"
+        title="From an earlier version of your CV. Match all to update it."
+      >
+        {score}%<span className="ml-1 font-normal">· old CV</span>
+        <span className="sr-only"> match, from an earlier CV</span>
+      </span>
+    );
+  }
   const tone =
     score >= 75
       ? "bg-emerald-50 text-emerald-700 ring-emerald-600/20 dark:bg-emerald-950 dark:text-emerald-300"
