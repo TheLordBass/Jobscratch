@@ -85,6 +85,9 @@ function Bookmarklet() {
   );
 }
 
+/** How many jobs the results list shows before "Show more". */
+const PAGE_SIZE = 50;
+
 /** Loads a results file from scripts/jobspy/search.py, which the user runs on their own computer. */
 function JobspyImporter() {
   const router = useRouter();
@@ -102,6 +105,8 @@ function JobspyImporter() {
   const [error, setError] = useSessionState<string | null>("jobspy:error", null);
   const [expanded, setExpanded] = useSessionState<string | null>("jobspy:expanded", null);
   const [order, setOrder] = useSessionState<"match" | "file">("jobspy:order", "match");
+  // Shown a page at a time: drawing hundreds of jobs at once makes every tap slow.
+  const [limit, setLimit] = useSessionState("jobspy:limit", PAGE_SIZE);
   const [jobFilter, setJobFilter] = useSessionState<JobFilter>("jobspy:jobFilter", ANY_JOB);
   /** A title list to narrow the morning run's jobs to (empty for all of them). */
   const [listFilter, setListFilter] = useSessionState("jobspy:listFilter", "");
@@ -113,6 +118,7 @@ function JobspyImporter() {
     setResult(next);
     setJobFilter(ANY_JOB);
     setListFilter("");
+    setLimit(PAGE_SIZE);
   }
 
   async function load(event: ChangeEvent<HTMLInputElement>) {
@@ -133,9 +139,11 @@ function JobspyImporter() {
   const findCopy = useMemo(() => savedCopyFinder(saved), [saved]);
   const listNames = [...new Set(Object.values(result?.lists ?? {}).flat())].sort();
   // By title list first: a job shown as its saved copy has the saved copy's id, which the run doesn't know.
-  const found = collapseCopies(
-    (result?.jobs ?? []).filter((job) => !listFilter || result?.lists?.[job.id]?.includes(listFilter)),
-    findCopy,
+  // Worked out when the results, the list picked or your saved jobs change, not on every render:
+  // a morning run can bring in hundreds of jobs.
+  const found = useMemo(
+    () => collapseCopies((result?.jobs ?? []).filter((job) => !listFilter || result?.lists?.[job.id]?.includes(listFilter)), findCopy),
+    [result, listFilter, findCopy],
   );
   const wasSaved = (job: Job) => savedBefore.has(job.id) && Boolean(saved[job.id]);
   const savedCount = found.filter(wasSaved).length;
@@ -270,7 +278,7 @@ function JobspyImporter() {
           {shown.length === 0 && isFiltering(jobFilter) && (
             <p className="card muted p-6 text-center text-sm">No jobs match these filters.</p>
           )}
-          {shown.map((job) => (
+          {shown.slice(0, limit).map((job) => (
             <JobCard
               key={job.id}
               job={job}
@@ -294,6 +302,13 @@ function JobspyImporter() {
               }}
             />
           ))}
+          {shown.length > limit && (
+            <div className="flex justify-center">
+              <button type="button" className="btn btn-secondary" onClick={() => setLimit(limit + PAGE_SIZE)}>
+                Show more ({shown.length - limit} left)
+              </button>
+            </div>
+          )}
         </div>
       )}
     </section>

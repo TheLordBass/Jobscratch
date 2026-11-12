@@ -3,9 +3,9 @@
 import { Sparkles, Square } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useCurrentMatches } from "@/components/MatchAll";
-import { findSavedCopy } from "@/lib/import";
+import { savedCopyFinder } from "@/lib/import";
 import { DEFAULT_QUESTIONS } from "@/lib/ai/prompts";
 import { beginBatch, markBatchSeen, pausedInBackground, stopBatch, useBatch } from "@/lib/batch-runs";
 import { madeFromCurrent } from "@/lib/candidate";
@@ -31,6 +31,8 @@ export function BulkTailor({ jobs, title = "Tailor CVs for top matches", ready =
   const [threshold, setThreshold] = useState(80);
   const [withLetters, setWithLetters] = useState(ready);
   const [withAnswers, setWithAnswers] = useState(ready);
+  // Built once for the list, not once per job.
+  const findCopy = useMemo(() => savedCopyFinder(saved), [saved]);
   // Runs in the background (lib/batch-runs.ts), so going to another page, say to apply, doesn't stop it.
   const page = usePathname();
   const progress = useBatch("tailor", page);
@@ -44,7 +46,7 @@ export function BulkTailor({ jobs, title = "Tailor CVs for top matches", ready =
   if (scored.length === 0) return null;
 
   // Tailored documents are kept on the saved copy of a job, which may have another id.
-  const target = (job: Job) => findSavedCopy(saved, job)?.job ?? job;
+  const target = (job: Job) => findCopy(job)?.job ?? job;
   // A CV or cover letter written from an earlier CV is written again.
   const needs = (job: Job) => {
     const docs = tailored[target(job).id];

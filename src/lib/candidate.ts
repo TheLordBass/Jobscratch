@@ -100,7 +100,19 @@ export function canMatch(job: Job): boolean {
 
 /** Identifies the CV and description a match score was made from, to tell when it's out of date. */
 export function matchKey(job: Job, candidate: Candidate): string {
-  return `${candidate.key}:${hashString(job.description)}`;
+  return `${candidate.key}:${descriptionHash(job)}`;
+}
+
+// Lists look up every job's score on each change, and a description can run to 40,000 characters:
+// each one's hash is worked out once per job (a job whose description changes is a new object).
+const descriptionHashes = new WeakMap<Job, { description: string; hash: string }>();
+
+function descriptionHash(job: Job): string {
+  const known = descriptionHashes.get(job);
+  if (known && known.description === job.description) return known.hash;
+  const hash = hashString(job.description);
+  descriptionHashes.set(job, { description: job.description, hash });
+  return hash;
 }
 
 /** A job's match score, as kept for lists, from its full analysis. */

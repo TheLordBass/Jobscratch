@@ -73,6 +73,8 @@ function csvSafe(cell: string): string {
 
 type Order = "saved" | "posted" | "source" | "match" | "unmatched";
 
+const PAGE_SIZE = 50;
+
 export function SavedView() {
   const hydrated = useHydrated();
   const { saved, updateJob, removeJob, removeJobs } = useSavedJobs();
@@ -81,6 +83,8 @@ export function SavedView() {
   const [statusFilter, setStatusFilter] = useSessionState<ApplicationStatus | "all">("saved:status", "all");
   const { matchFor, scoreFor, candidate } = useCurrentMatches();
   const [order, setOrder] = useSessionState<Order>("saved:order", "saved");
+  // Long lists are shown a page at a time: drawing hundreds of jobs at once makes every tap slow.
+  const [limit, setLimit] = useSessionState("saved:limit", PAGE_SIZE);
   const [jobFilter, setJobFilter] = useSessionState<JobFilter>("saved:jobFilter", ANY_JOB);
   // Clear only jobs saved more than this many days ago; empty clears them whatever their age.
   const [clearDays, setClearDays] = useSessionState("saved:clearDays", "");
@@ -313,7 +317,7 @@ export function SavedView() {
             </p>
           )}
           <ul className="space-y-2.5">
-            {ordered.map(({ job, status, notes, savedAt }, i) => {
+            {ordered.slice(0, limit).map(({ job, status, notes, savedAt }, i) => {
               const docs = tailored[job.id];
               const listScore = scoreFor(job);
               const score = listScore?.score;
@@ -408,6 +412,13 @@ export function SavedView() {
               );
             })}
           </ul>
+          {ordered.length > limit && (
+            <div className="flex justify-center">
+              <button type="button" className="btn btn-secondary" onClick={() => setLimit(limit + PAGE_SIZE)}>
+                Show more ({ordered.length - limit} left)
+              </button>
+            </div>
+          )}
         </>
       )}
     </div>
