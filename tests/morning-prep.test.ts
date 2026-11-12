@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AiError, type BatchedMatch, type BatchOutcome } from "@/lib/ai/claude";
+import { candidateFor } from "@/lib/candidate";
 import type { MatchAnalysis } from "@/lib/ai/prompts";
 import { dismissKeys } from "@/lib/import";
 import { saveRunPart } from "@/lib/jobspy-runs";
@@ -235,6 +236,50 @@ describe("the morning run's preparation", () => {
     expect(calls.batches).toHaveLength(2);
     expect(calls.analyze).toEqual([]);
     expect(calls.write).toEqual(["cv:Data Analyst 1"]);
+  });
+
+  it("matches again saved jobs not applied to whose scores are from an earlier CV", async () => {
+    const outdated = job(5);
+    const applied = job(6);
+    const { deps, calls } = fakes({ "Data Analyst 1": 70, "Data Analyst 5": 66, "Data Analyst 6": 90 });
+    await seed({ match: true, ready: false, notify: false }, [job(1)], true);
+    const at = "2026-10-26T06:00:00.000Z";
+    const old = (score: number): StoredMatch => ({ score, verdict: "Old", missing: [], key: "earlier-cv:x", at, analysis: analysis(score) });
+    await applyOps(backend, [
+      {
+        key: "saved",
+        items: {
+          [outdated.id]: { job: outdated, status: "saved", notes: "", savedAt: at, updatedAt: at },
+          [applied.id]: { job: applied, status: "applied", notes: "", savedAt: at, updatedAt: at },
+        },
+      },
+      { key: "matches", items: { [outdated.id]: old(40), [applied.id]: old(50) } },
+    ]);
+
+    for (let i = 0; i < 6 && (await step(deps)).state !== "done"; i++);
+    // The run's job, then the saved one; one you've applied to is left as it was.
+    expect(calls.analyze).toEqual(["Data Analyst 1", "Data Analyst 5"]);
+    const matches = await readCollection<StoredMatch>(backend, "matches");
+    expect(matches[outdated.id].score).toBe(66);
+    expect(matches[applied.id].score).toBe(50);
+    expect((await readCollection<TailoredDocs>(backend, "tailored"))[outdated.id].analysis?.matchScore).toBe(66);
+  });
+
+  it("keeps a batch's scores marked with the CVs it was sent with, when they've changed since", async () => {
+    const saved = job(1);
+    const { deps } = fakes({ "Data Analyst 1": 80 }, 2);
+    await seed({ match: true, batch: true, ready: false, notify: false }, [saved], true);
+    const at = "2026-10-26T06:00:00.000Z";
+    await applyOps(backend, [{ key: "saved", items: { [saved.id]: { job: saved, status: "saved", notes: "", savedAt: at, updatedAt: at } } }]);
+    const sentWith = candidateFor({ text: CV, updatedAt: "2026-10-27T06:00:00.000Z" }, { website: "", github: "", evidence: "", enabled: true }).key;
+
+    expect((await step(deps)).state).toBe("waiting");
+    // The CV changes while Claude has the batch.
+    await applyOps(backend, [{ key: "cv", value: { text: `${CV} Now with Looker too.`, updatedAt: "2026-10-27T06:30:00.000Z" } }]);
+    for (let i = 0; i < 3 && (await step(deps)).state === "waiting"; i++);
+    const docs = (await readCollection<TailoredDocs>(backend, "tailored"))[saved.id];
+    expect(docs.analysis?.matchScore).toBe(80);
+    expect(docs.analysisFrom).toBe(sentWith);
   });
 
   it("cancels a batch that takes over an hour and matches the rest one at a time", async () => {

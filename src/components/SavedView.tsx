@@ -4,7 +4,8 @@ import { ArrowRight, BriefcaseBusiness, Download, FileText, Mail, StickyNote, Tr
 import Link from "next/link";
 import { Fragment, useMemo } from "react";
 import { BulkTailor } from "@/components/BulkTailor";
-import { CompanyMark, MatchBadge } from "@/components/JobCard";
+import { CompanyMark, MatchBadge, Outdated } from "@/components/JobCard";
+import { madeFromCurrent } from "@/lib/candidate";
 import { JobFlagChips, PostedDate } from "@/components/JobFlags";
 import { JobFilters } from "@/components/JobFilters";
 import { MatchAllButton, useCurrentMatches } from "@/components/MatchAll";
@@ -78,7 +79,7 @@ export function SavedView() {
   const [tailored, setTailored] = useTailored();
   // How the list is shown is kept for the session, so coming back from a job finds it as you left it.
   const [statusFilter, setStatusFilter] = useSessionState<ApplicationStatus | "all">("saved:status", "all");
-  const { matchFor, scoreFor } = useCurrentMatches();
+  const { matchFor, scoreFor, candidate } = useCurrentMatches();
   const [order, setOrder] = useSessionState<Order>("saved:order", "saved");
   const [jobFilter, setJobFilter] = useSessionState<JobFilter>("saved:jobFilter", ANY_JOB);
   // Clear only jobs saved more than this many days ago; empty clears them whatever their age.
@@ -353,11 +354,15 @@ export function SavedView() {
                           {docs?.cv && (
                             <span className="inline-flex items-center gap-1">
                               <FileText size={12} aria-hidden /> CV tailored
+                              {!madeFromCurrent(docs, "cv", candidate) && <Outdated className="text-amber-700 dark:text-amber-300" />}
                             </span>
                           )}
                           {docs?.coverLetter && (
                             <span className="inline-flex items-center gap-1">
                               <Mail size={12} aria-hidden /> Cover letter
+                              {!madeFromCurrent(docs, "coverLetter", candidate) && (
+                                <Outdated className="text-amber-700 dark:text-amber-300" />
+                              )}
                             </span>
                           )}
                           {notes.trim() && (
