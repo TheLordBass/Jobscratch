@@ -9,7 +9,6 @@ import { JobFlagChips, PostedDate } from "@/components/JobFlags";
 import { JobFilters } from "@/components/JobFilters";
 import { MatchAllButton, useCurrentMatches } from "@/components/MatchAll";
 import { MY_JOBS_TABS, SectionTabs } from "@/components/Nav";
-import { currentScore } from "@/lib/candidate";
 import { downloadBlob, formatPosted, formatSalary, olderThan } from "@/lib/format";
 import { ANY_JOB, filterJobs, jobSite, type JobFilter } from "@/lib/job-filters";
 import { useSessionState } from "@/lib/session-state";
@@ -79,7 +78,7 @@ export function SavedView() {
   const [tailored, setTailored] = useTailored();
   // How the list is shown is kept for the session, so coming back from a job finds it as you left it.
   const [statusFilter, setStatusFilter] = useSessionState<ApplicationStatus | "all">("saved:status", "all");
-  const { matchFor, candidate } = useCurrentMatches();
+  const { matchFor, scoreFor } = useCurrentMatches();
   const [order, setOrder] = useSessionState<Order>("saved:order", "saved");
   const [jobFilter, setJobFilter] = useSessionState<JobFilter>("saved:jobFilter", ANY_JOB);
   // Clear only jobs saved more than this many days ago; empty clears them whatever their age.
@@ -97,10 +96,10 @@ export function SavedView() {
     return result;
   }, [entries]);
   const byStatus = statusFilter === "all" ? entries : entries.filter((e) => e.status === statusFilter);
-  // The job's analysis (from its page or Match all); unscored jobs go last, as do ones scored from an earlier CV.
-  const scoreOf = (job: Job) => currentScore(tailored[job.id], candidate, matchFor(job)?.score);
+  // The job's latest score (from its page or Match all; one from an earlier CV shows grey). Unscored jobs go last.
+  const scoreOf = (job: Job) => scoreFor(job)?.score;
   // The From and Show filters narrow the list further, and Match all and the rest act on what's left.
-  const isMatched = (job: Job) => scoreOf(job) !== undefined;
+  const isMatched = (job: Job) => matchFor(job) !== undefined;
   const shown = filterJobs(byStatus, (entry) => entry.job, jobFilter, isMatched);
   const anyScored = entries.some((entry) => scoreOf(entry.job) !== undefined);
   const byScore = (a: SavedJob, b: SavedJob) => (scoreOf(b.job) ?? -1) - (scoreOf(a.job) ?? -1);
@@ -315,7 +314,8 @@ export function SavedView() {
           <ul className="space-y-2.5">
             {ordered.map(({ job, status, notes, savedAt }, i) => {
               const docs = tailored[job.id];
-              const score = scoreOf(job);
+              const listScore = scoreFor(job);
+              const score = listScore?.score;
               const salary = formatSalary(job.salary);
               const href = `/tailor?job=${encodeURIComponent(job.id)}`;
               const site = jobSite(job);
@@ -338,7 +338,7 @@ export function SavedView() {
                           <Link href={href} className="font-bold hover:text-indigo-600 dark:hover:text-indigo-400">
                             {job.title}
                           </Link>
-                          {score !== undefined && <MatchBadge score={score} />}
+                          {listScore && <MatchBadge score={listScore.score} stale={listScore.stale} />}
                         </div>
                         <p className="text-sm text-zinc-700 dark:text-zinc-300">
                           {job.company}
