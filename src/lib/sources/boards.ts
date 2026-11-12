@@ -12,6 +12,8 @@ export function parseBoardToken(provider: keyof CompanyBoards, input: string): s
   const value = input.trim();
   if (!value) return undefined;
   if (!/^https?:\/\//i.test(value)) {
+    // A feed is always a full address.
+    if (provider === "feeds") return undefined;
     return /^[a-z0-9][a-z0-9._-]*$/i.test(value) ? value.toLowerCase() : undefined;
   }
   let url: URL;
@@ -31,6 +33,7 @@ export function parseBoardToken(provider: keyof CompanyBoards, input: string): s
       return token?.toLowerCase();
     }
   }
+  if (provider === "feeds") return url.toString();
   if (provider === "lever" && host.endsWith("lever.co")) return segments[0]?.toLowerCase();
   if (provider === "ashby" && host.endsWith("ashbyhq.com")) {
     const boardIndex = segments.indexOf("job-board");
@@ -47,7 +50,7 @@ export async function perBoard(
 ): Promise<Job[]> {
   const tokens = [
     ...new Set(
-      ctx.companyBoards[provider]
+      (ctx.companyBoards[provider] ?? [])
         .map((entry) => parseBoardToken(provider, entry))
         .filter((token): token is string => Boolean(token)),
     ),
@@ -62,7 +65,7 @@ export async function perBoard(
 }
 
 export function boardsAvailability(ctx: SearchContext, provider: keyof CompanyBoards) {
-  return ctx.companyBoards[provider].some((entry) => parseBoardToken(provider, entry))
+  return (ctx.companyBoards[provider] ?? []).some((entry) => parseBoardToken(provider, entry))
     ? ({ ok: true } as const)
-    : ({ ok: false, reason: "No companies added — add some in Settings" } as const);
+    : ({ ok: false, reason: provider === "feeds" ? "No feeds added: add some in Settings" : "No companies added — add some in Settings" } as const);
 }

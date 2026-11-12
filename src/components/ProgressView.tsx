@@ -4,8 +4,9 @@ import { ArrowRight, Table2, BarChart3 } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState, type ReactNode } from "react";
 import { MY_JOBS_TABS, SectionTabs } from "@/components/Nav";
-import { progressStats, type SiteCount, type WeekCount } from "@/lib/progress";
-import { useHydrated, useSavedJobs } from "@/lib/store";
+import { useCurrentMatches } from "@/components/MatchAll";
+import { progressStats, type GroupCount, type WeekCount } from "@/lib/progress";
+import { useHydrated, useSavedJobs, useTailored } from "@/lib/store";
 
 const plural = (count: number, one: string, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 const weekLabel = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
@@ -149,7 +150,7 @@ function WeeklyTable({ weeks }: { weeks: WeekCount[] }) {
   );
 }
 
-function SiteChart({ sites }: { sites: SiteCount[] }) {
+function SiteChart({ sites }: { sites: GroupCount[] }) {
   const most = Math.max(...sites.map((site) => site.applied));
   return (
     <div className="space-y-3">
@@ -204,12 +205,12 @@ function SiteChart({ sites }: { sites: SiteCount[] }) {
   );
 }
 
-function SiteTable({ sites }: { sites: SiteCount[] }) {
+function SiteTable({ sites, heading = "Site" }: { sites: GroupCount[]; heading?: string }) {
   return (
     <table className="w-full text-sm">
       <thead>
         <tr className="muted border-b border-zinc-200 text-left text-xs dark:border-zinc-800">
-          <th className="py-1.5 font-semibold">Site</th>
+          <th className="py-1.5 font-semibold">{heading}</th>
           <th className="py-1.5 text-right font-semibold">Applications</th>
           <th className="py-1.5 text-right font-semibold">Interviews</th>
           <th className="py-1.5 text-right font-semibold">Rate</th>
@@ -232,8 +233,19 @@ function SiteTable({ sites }: { sites: SiteCount[] }) {
 export function ProgressView() {
   const hydrated = useHydrated();
   const { saved } = useSavedJobs();
+  const [tailored] = useTailored();
+  const { scoreFor } = useCurrentMatches();
   // Only in the browser: the weeks depend on today's date, which a prerender would fix at build time.
-  const stats = useMemo(() => (hydrated ? progressStats(saved) : null), [hydrated, saved]);
+  const stats = useMemo(
+    () =>
+      hydrated
+        ? progressStats(saved, new Date(), 8, {
+            scoreOf: (entry) => scoreFor(entry.job)?.score,
+            hasLetter: (entry) => Boolean(tailored[entry.job.id]?.coverLetter),
+          })
+        : null,
+    [hydrated, saved, tailored, scoreFor],
+  );
 
   const header = (
     <>
@@ -275,7 +287,7 @@ export function ProgressView() {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
             <StatTile
               label="Applications"
               value={String(stats.applied)}
@@ -285,6 +297,11 @@ export function ProgressView() {
               label="Interviews"
               value={String(stats.interviews)}
               detail={`${percent(stats.interviewRate ?? 0)} of applications got one`}
+            />
+            <StatTile
+              label="No reply"
+              value={String(stats.noReply)}
+              detail="applied 3+ weeks ago, nothing back"
             />
             <StatTile label="Offers" value={String(stats.offers)} detail={`${plural(stats.now.rejected, "job")} closed`} />
             <StatTile label="Still to apply" value={String(stats.now.saved)} detail="saved, not applied yet" />
@@ -309,6 +326,26 @@ export function ProgressView() {
           >
             <SiteChart sites={stats.sites} />
           </ChartCard>
+
+          {stats.bands.length > 1 && (
+            <ChartCard
+              title="Interviews by match score"
+              subtitle="Applications grouped by each job’s latest match with your CV. If low scores rarely lead anywhere, spend your time on the high ones."
+              table={<SiteTable sites={stats.bands} heading="Match score" />}
+            >
+              <SiteChart sites={stats.bands} />
+            </ChartCard>
+          )}
+
+          {stats.letters.length > 1 && (
+            <ChartCard
+              title="With a cover letter or without"
+              subtitle="Applications with a cover letter written in JobScratch, against those without one."
+              table={<SiteTable sites={stats.letters} heading="Cover letter" />}
+            >
+              <SiteChart sites={stats.letters} />
+            </ChartCard>
+          )}
 
           {stats.estimated > 0 && (
             <p className="muted text-xs">

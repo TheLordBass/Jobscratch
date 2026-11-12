@@ -28,6 +28,8 @@ import {
 } from "@/lib/job-tasks";
 import { jobKeys } from "@/lib/import";
 import { documentFileName } from "@/lib/apply";
+import { daysSinceApplied, followUpDue } from "@/lib/follow-ups";
+import { appliedAt } from "@/lib/progress";
 import { unsupportedFigures } from "@/lib/figures";
 import { downloadBlob, formatPosted } from "@/lib/format";
 import {
@@ -56,9 +58,40 @@ import type { Job } from "@/lib/types";
 
 type DocKind = DocumentTaskKind;
 type Tab = "job" | "analysis" | DocKind | "answers";
-const TABS: Tab[] = ["job", "analysis", "cv", "coverLetter", "answers", "interview"];
-const DOC_LABEL: Record<DocKind, string> = { cv: "tailored CV", coverLetter: "cover letter", interview: "interview prep" };
-const isDocKind = (tab: Tab): tab is DocKind => tab === "cv" || tab === "coverLetter" || tab === "interview";
+const TABS: Tab[] = ["job", "analysis", "cv", "coverLetter", "answers", "outreach", "testPrep", "interview", "followUp"];
+const DOC_LABEL: Record<DocKind, string> = {
+  cv: "tailored CV",
+  coverLetter: "cover letter",
+  interview: "interview prep",
+  testPrep: "test prep",
+  outreach: "message to the hiring manager",
+  followUp: "follow-up",
+};
+const isDocKind = (tab: Tab): tab is DocKind => tab in DOC_LABEL;
+/** How each document's file is named when downloaded. */
+const FILE_KIND: Record<DocKind, Parameters<typeof documentFileName>[1]> = {
+  cv: "cv",
+  coverLetter: "cover-letter",
+  interview: "interview-prep",
+  testPrep: "test-prep",
+  outreach: "message",
+  followUp: "follow-up",
+};
+/** What a document is for, shown before one is written, and the button that writes it. */
+const DOC_INTRO: Partial<Record<DocKind, { text: string; button: string }>> = {
+  testPrep: {
+    text: "Been sent a test or online assessment? See what it’s likely to cover, practise questions like it with worked answers, and work on the skills the job asks for that your CV shows least.",
+    button: "Prepare me for the test",
+  },
+  outreach: {
+    text: "A short LinkedIn note and a message for the recruiter or hiring manager, with two of your achievements that answer what the job asks for. An application with a message to a real person gets noticed more.",
+    button: "Write my message",
+  },
+  followUp: {
+    text: "A week after applying with no reply, a short, polite follow-up keeps you in mind: an email and a LinkedIn version, with one achievement worth mentioning.",
+    button: "Write my follow-up",
+  },
+};
 
 interface Generation {
   status: "idle" | "streaming" | "error";
@@ -370,8 +403,7 @@ function DocumentPanel({
   const canUndoRemoval = beforeRemoval !== null && content === removeProjectSections(beforeRemoval);
   const lastThought = generation.thinking.trim().split("\n").filter(Boolean).at(-1);
 
-  const fileBase = () =>
-    documentFileName(content, kind === "cv" ? "cv" : kind === "coverLetter" ? "cover-letter" : "interview-prep", job.company);
+  const fileBase = () => documentFileName(content, FILE_KIND[kind], job.company);
 
   const print = () => {
     const win = window.open("", "_blank");
@@ -405,8 +437,10 @@ function DocumentPanel({
             {hasSentCv ? "It’s written from the tailored CV you sent." : "Tailor your CV first and it’s written from that."}
           </p>
         )}
+        {DOC_INTRO[kind] && <p className="mx-auto mb-4 max-w-md">{DOC_INTRO[kind].text}</p>}
         <button type="button" className="btn btn-primary" disabled={Boolean(blocker)} onClick={onGenerate}>
-          <Sparkles size={15} aria-hidden /> {kind === "interview" ? "Prepare me for the interview" : `Write my ${label}`}
+          <Sparkles size={15} aria-hidden />{" "}
+          {kind === "interview" ? "Prepare me for the interview" : (DOC_INTRO[kind]?.button ?? `Write my ${label}`)}
         </button>
         {blocker && <p className="mt-2 text-xs">{blocker}</p>}
       </div>
@@ -586,6 +620,9 @@ function TailorWorkspace({ entry, initialTab }: { entry: SavedJob; initialTab?: 
   const cvTask = useJobTask(job.id, "cv");
   const letterTask = useJobTask(job.id, "coverLetter");
   const interviewTask = useJobTask(job.id, "interview");
+  const testPrepTask = useJobTask(job.id, "testPrep");
+  const outreachTask = useJobTask(job.id, "outreach");
+  const followUpTask = useJobTask(job.id, "followUp");
   const answersTask = useJobTask(job.id, "answers");
   const analysisState =
     analysisTask?.status === "running"
@@ -597,13 +634,16 @@ function TailorWorkspace({ entry, initialTab }: { entry: SavedJob; initialTab?: 
     cv: toGeneration(cvTask),
     coverLetter: toGeneration(letterTask),
     interview: toGeneration(interviewTask),
+    testPrep: toGeneration(testPrepTask),
+    outreach: toGeneration(outreachTask),
+    followUp: toGeneration(followUpTask),
   };
   // Anything that finished while you were elsewhere has now been seen.
   useEffect(() => {
-    for (const task of [analysisTask, cvTask, letterTask, interviewTask, answersTask]) {
+    for (const task of [analysisTask, cvTask, letterTask, interviewTask, testPrepTask, outreachTask, followUpTask, answersTask]) {
       if (task?.status === "done") dismissTask(task.jobId, task.kind);
     }
-  }, [analysisTask, cvTask, letterTask, interviewTask, answersTask]);
+  }, [analysisTask, cvTask, letterTask, interviewTask, testPrepTask, outreachTask, followUpTask, answersTask]);
   const label = `${job.title} at ${job.company}`;
 
   const description = docs?.jobDescription ?? job.description;
@@ -682,11 +722,14 @@ function TailorWorkspace({ entry, initialTab }: { entry: SavedJob; initialTab?: 
     setTab(kind);
     // Interview prep is written from the CV they applied with, which the interviewer has read.
     const sentCv = kind === "interview" ? docs?.cv?.slice(0, 30_000) : undefined;
+    // A follow-up says when they applied.
+    const applied = kind === "followUp" ? appliedAt(entry) : null;
+    const appliedOn = applied ? new Date(applied).toLocaleDateString("en-GB", { day: "numeric", month: "long" }) : undefined;
     startDocument(
       job.id,
       label,
       kind,
-      { cv: cvText, cvs: payloadCvs, job: payloadJob, profile: payloadProfile, skills: payloadSkills, notes: payloadNotes, options, sentCv },
+      { cv: cvText, cvs: payloadCvs, job: payloadJob, profile: payloadProfile, skills: payloadSkills, notes: payloadNotes, options, sentCv, appliedOn },
       candidate.key,
     );
   }
@@ -794,6 +837,26 @@ function TailorWorkspace({ entry, initialTab }: { entry: SavedJob; initialTab?: 
         </div>
       )}
 
+      {followUpDue(entry) && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg bg-indigo-50 px-3 py-2 text-sm text-indigo-800 dark:bg-indigo-950 dark:text-indigo-200">
+          <p className="flex-1">
+            You applied {daysSinceApplied(entry)} days ago and haven’t heard back. A short follow-up keeps you in mind.
+          </p>
+          {tab !== "followUp" && (
+            <button type="button" className="btn btn-primary btn-sm" onClick={() => setTab("followUp")}>
+              Follow up
+            </button>
+          )}
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={() => updateJob(job.id, { followedUpAt: new Date().toISOString() })}
+          >
+            Done, or no need
+          </button>
+        </div>
+      )}
+
       <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
         <div className="card min-w-0 p-4 lg:self-start">
           <div className="-mx-1 mb-4 flex gap-1 overflow-x-auto border-b border-zinc-100 px-1 pb-2 dark:border-zinc-800" role="tablist">
@@ -808,7 +871,11 @@ function TailorWorkspace({ entry, initialTab }: { entry: SavedJob; initialTab?: 
                 ["cv", "Tailored CV", Boolean(docs?.cv)],
                 ["coverLetter", "Cover letter", Boolean(docs?.coverLetter)],
                 ["answers", "Answers", Boolean(docs?.answers?.length)],
+                ["outreach", "Message", Boolean(docs?.outreach)],
+                ["testPrep", "Test prep", Boolean(docs?.testPrep)],
                 ["interview", "Interview prep", Boolean(docs?.interview)],
+                // Once applied: a follow-up on the application.
+                ...(entry.status === "saved" ? [] : ([["followUp", "Follow-up", Boolean(docs?.followUp)]] as const)),
               ] as const
             ).map(([id, label, done]) => (
               <button

@@ -10,6 +10,7 @@ import { CompanyMark, MatchBadge, Outdated } from "@/components/JobCard";
 import { JobFlagNotes, PostedDate } from "@/components/JobFlags";
 import { useCurrentMatches, type ListScore } from "@/components/MatchAll";
 import { MY_JOBS_TABS, SectionTabs } from "@/components/Nav";
+import { FollowUps, TodayShortlist } from "@/components/TodayAndFollowUps";
 import { APPLICATION_DETAIL_LABELS, type ApplicationDetails } from "@/lib/ai/prompts";
 import { applyQueue, documentFileName, type ApplyOrder } from "@/lib/apply";
 import { madeFromCurrent, type Candidate } from "@/lib/candidate";
@@ -63,6 +64,8 @@ export function ApplyView() {
               .
             </p>
           )}
+          <TodayShortlist />
+          <FollowUps />
           {!hasDetails && (
             <p className="muted text-sm">
               Tip: add your right to work, notice period and salary under{" "}

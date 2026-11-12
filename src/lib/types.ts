@@ -14,6 +14,7 @@ export const SOURCE_IDS = [
   "nhs-jobs",
   "google-jobs",
   "jsearch",
+  "feeds",
 ] as const;
 
 export type SearchSourceId = (typeof SOURCE_IDS)[number];
@@ -67,6 +68,8 @@ export interface CompanyBoards {
   greenhouse: string[];
   lever: string[];
   ashby: string[];
+  /** Employer RSS or Atom feeds of vacancies (their addresses). Optional: settings saved before it don't have it. */
+  feeds?: string[];
 }
 
 export interface SearchRequest {

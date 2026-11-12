@@ -9,7 +9,10 @@ import {
   answersInstruction,
   candidateBlock,
   coverLetterInstruction,
+  assessmentPrepInstruction,
+  followUpInstruction,
   interviewPrepInstruction,
+  outreachInstruction,
   cvInstruction,
   hasProfile,
   jobBlock,
@@ -259,7 +262,7 @@ export async function draftAnswers(
     .filter((entry) => entry.answer);
 }
 
-export type DocumentKind = "cv" | "cover-letter" | "interview";
+export type DocumentKind = "cv" | "cover-letter" | "interview" | "test-prep" | "outreach" | "follow-up";
 
 export type StreamEvent =
   | { type: "thinking"; text: string }
@@ -314,6 +317,8 @@ export async function* streamDocument(
   env: Env,
   signal?: AbortSignal,
   sentCv?: string,
+  /** For a follow-up: when the candidate applied, e.g. "3 November". */
+  appliedOn?: string,
 ): AsyncGenerator<StreamEvent> {
   const started = Date.now();
   try {
@@ -324,12 +329,19 @@ export async function* streamDocument(
         ? cvInstruction(options, withProfile)
         : kind === "cover-letter"
           ? coverLetterInstruction(options, withProfile)
-          : interviewPrepInstruction(options, sentCv);
+          : kind === "interview"
+            ? interviewPrepInstruction(options, sentCv)
+            : kind === "test-prep"
+              ? assessmentPrepInstruction(options)
+              : kind === "outreach"
+                ? outreachInstruction(options)
+                : followUpInstruction(options, appliedOn);
     const params = {
       ...modelParams(env, "document"),
       max_tokens: 64000,
       thinking: { type: "adaptive" as const, display: "summarized" as const },
-      output_config: { effort: kind === "cv" ? ("high" as const) : ("medium" as const) },
+      // Short messages need little thought; a CV the most.
+      output_config: { effort: kind === "cv" ? ("high" as const) : kind === "outreach" || kind === "follow-up" ? ("low" as const) : ("medium" as const) },
       system: SYSTEM_PROMPT,
       messages: buildMessages(materials, instruction),
     };

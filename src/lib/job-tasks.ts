@@ -15,10 +15,17 @@ import { requestAnswers, streamTailored, type AnswersRequest, type TailorRequest
  * app in the background starts again when you're back.
  */
 
-export type TaskKind = "analysis" | "cv" | "coverLetter" | "interview" | "answers";
-export type DocumentTaskKind = "cv" | "coverLetter" | "interview";
+export type DocumentTaskKind = "cv" | "coverLetter" | "interview" | "testPrep" | "outreach" | "followUp";
+export type TaskKind = "analysis" | "answers" | DocumentTaskKind;
 
-const REQUEST_KIND: Record<DocumentTaskKind, TailorRequest["kind"]> = { cv: "cv", coverLetter: "cover-letter", interview: "interview" };
+const REQUEST_KIND: Record<DocumentTaskKind, TailorRequest["kind"]> = {
+  cv: "cv",
+  coverLetter: "cover-letter",
+  interview: "interview",
+  testPrep: "test-prep",
+  outreach: "outreach",
+  followUp: "follow-up",
+};
 
 export interface JobTask {
   jobId: string;
@@ -192,7 +199,7 @@ export function stopTask(jobId: string, kind: TaskKind) {
 
 /** Stops everything for a job and forgets it (when the job is removed). */
 export function stopJobTasks(jobId: string) {
-  for (const kind of ["analysis", "cv", "coverLetter", "interview", "answers"] as const) {
+  for (const kind of ["analysis", "cv", "coverLetter", "interview", "testPrep", "outreach", "followUp", "answers"] as const) {
     stopTask(jobId, kind);
     tasks.delete(keyOf(jobId, kind));
   }

@@ -19,9 +19,10 @@ const CATEGORY_LABEL: Record<SourceCategory, string> = {
 };
 
 const BOARD_HELP: Record<keyof CompanyBoards, { name: string; example: string }> = {
-  greenhouse: { name: "Greenhouse", example: "https://boards.greenhouse.io/stripe  or  stripe" },
-  lever: { name: "Lever", example: "https://jobs.lever.co/plaid  or  plaid" },
-  ashby: { name: "Ashby", example: "https://jobs.ashbyhq.com/ramp  or  ramp" },
+  greenhouse: { name: "Greenhouse companies", example: "https://boards.greenhouse.io/stripe  or  stripe" },
+  lever: { name: "Lever companies", example: "https://jobs.lever.co/plaid  or  plaid" },
+  ashby: { name: "Ashby companies", example: "https://jobs.ashbyhq.com/ramp  or  ramp" },
+  feeds: { name: "Employer job feeds (RSS)", example: "https://jobs.greatermanchester.ac.uk/rss/rss.aspx" },
 };
 
 
@@ -33,7 +34,7 @@ function BoardEditor({ provider, values, onChange }: { provider: keyof CompanyBo
   return (
     <div>
       <label htmlFor={`board-${provider}`} className="label">
-        {help.name} companies (one per line)
+        {help.name} (one per line)
       </label>
       <textarea
         id={`board-${provider}`}
@@ -273,7 +274,7 @@ export function SettingsView() {
                 {items.map((source) => {
                   const enabled = !settings.disabledSources.includes(source.id);
                   const companies =
-                    source.category === "company" ? settings.companyBoards[source.id as keyof CompanyBoards].length : 0;
+                    source.category === "company" ? (settings.companyBoards[source.id as keyof CompanyBoards] ?? []).length : 0;
                   return (
                     <li key={source.id} className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center">
                       <label className="flex flex-1 items-start gap-3">
@@ -327,17 +328,19 @@ export function SettingsView() {
         <div>
           <h2 className="font-semibold">Company career pages</h2>
           <p className="muted text-sm">
-            Follow companies you’d love to work for. Paste their careers page link; most tech companies use one of these
-            three systems (look at the address of their jobs page). Their jobs are included in every search.
+            Follow employers you’d love to work for, and their jobs are included in every search. Most tech companies use
+            Greenhouse, Lever or Ashby (look at the address of their jobs page). Universities, and some councils, housing
+            associations and charities, publish an RSS feed of their vacancies: look for an RSS link on their jobs page
+            and paste its address under Employer job feeds.
           </p>
         </div>
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-2">
           {(Object.keys(BOARD_HELP) as Array<keyof CompanyBoards>).map((provider) => (
             <BoardEditor
               // Remount once saved settings are loaded so the text box starts with them.
               key={`${provider}-${hydrated}`}
               provider={provider}
-              values={settings.companyBoards[provider]}
+              values={settings.companyBoards[provider] ?? []}
               onChange={(values) =>
                 setSettings({ ...settings, companyBoards: { ...settings.companyBoards, [provider]: values } })
               }

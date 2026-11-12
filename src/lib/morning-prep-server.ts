@@ -15,7 +15,18 @@ import { canMatch, candidateFor, madeFromCurrent, matchFromAnalysis, matchKey, t
 import { hasCvText } from "@/lib/cvs";
 import { dismissKeys, findSavedCopy } from "@/lib/import";
 import { RUN_JOBS_KEY, RUN_PREP_KEY, readRun, type JobspyRun, type RunJob } from "@/lib/jobspy-runs";
-import { DEFAULT_MORNING_PREP, emptyPrepState, prepSummary, type MorningPrepSettings, type PrepState } from "@/lib/morning-prep";
+import {
+  DEFAULT_MORNING_PREP,
+  TODAY_FROM,
+  TODAY_LIMIT,
+  TODAY_MAX_DAYS,
+  emptyPrepState,
+  prepSummary,
+  type MorningPrepSettings,
+  type PrepState,
+} from "@/lib/morning-prep";
+import { followUpsDue } from "@/lib/follow-ups";
+import { postingFlag } from "@/lib/job-flags";
 import { notifyDevices, type PushMessage } from "@/lib/push";
 import { applyOps, readCollection, readHash, readSomeItems, readValue, type DataBackend } from "@/lib/server-data";
 import type { DismissedJob, SavedJob, Settings, StoredCv, StoredMatch, StoredProfile, TailoredDocs } from "@/lib/store";
@@ -34,6 +45,7 @@ import type { Job } from "@/lib/types";
 /** Analyses in one step, and how many at a time: two rounds stay well inside a function's 300 seconds. */
 const MATCHES_PER_STEP = 6;
 const PARALLEL = 3;
+const DAY_MS = 86_400_000;
 /** How long a batch may take before it's cancelled and the rest are matched one at a time. */
 const BATCH_PATIENCE_MS = 60 * 60 * 1000;
 /** With a batch out and the searches done: how long the run waits before asking again. */
@@ -375,23 +387,68 @@ export async function prepareStep(
     }
   }
 
-  // 3. Done: the summary, once.
+  // 3. Today's shortlist: the best few fresh jobs from employers that name themselves, saved to My jobs.
+  if (settings.shortlist !== false && !prep.today) {
+    const at = new Date().toISOString();
+    const fresh = (job: Job) => !job.postedAt || Date.parse(now) - Date.parse(job.postedAt) <= TODAY_MAX_DAYS * DAY_MS;
+    const picks = runJobs
+      .map((job) => ({ job, match: current(job) }))
+      .filter((entry): entry is { job: Job; match: StoredMatch } => Boolean(entry.match && entry.match.score >= TODAY_FROM))
+      .filter(({ job }) => fresh(job) && !postingFlag(job) && !isDismissed(job))
+      .sort((a, b) => b.match.score - a.match.score || (b.job.postedAt ?? "").localeCompare(a.job.postedAt ?? ""));
+    const today: string[] = [];
+    const newlySaved: Record<string, SavedJob> = {};
+    const scores: Record<string, StoredMatch> = {};
+    for (const { job, match } of picks) {
+      if (today.length >= TODAY_LIMIT) break;
+      const copy = saved[job.id] ?? findSavedCopy(saved, job);
+      // Applied to, interviewing and the like: not one for today.
+      if (copy && copy.status !== "saved") continue;
+      const id = copy?.job.id ?? job.id;
+      if (today.includes(id)) continue;
+      today.push(id);
+      if (!copy) {
+        newlySaved[id] = saved[id] = { job, status: "saved", notes: "", savedAt: at, updatedAt: at, history: [{ status: "saved", at }] };
+        scores[id] = matches[id] = { ...match, at };
+      }
+    }
+    if (Object.keys(newlySaved).length) {
+      await applyOps(backend, [
+        { key: "saved", items: newlySaved },
+        { key: "matches", items: scores },
+      ]);
+    }
+    prep.today = today;
+    await savePrep(backend, prep, now);
+  }
+
+  // 4. Done: the summary, once.
   prep.strong = runJobs.filter((job) => (current(job)?.score ?? -1) >= settings.readyFrom).length;
   prep.finished = true;
   if (settings.notify && !prep.notified) {
-    const readyJobs = prep.ready
-      .map((id) => ({ entry: saved[id], score: matches[id]?.score }))
-      .filter((found) => found.entry)
-      .slice(0, 3)
-      .map(({ entry, score }) => `${entry.job.title} at ${entry.job.company}${score === undefined ? "" : ` (${score}%)`}`);
+    const named = (ids: string[]) =>
+      ids
+        .map((id) => ({ entry: saved[id], score: matches[id]?.score }))
+        .filter((found) => found.entry)
+        .slice(0, 3)
+        .map(({ entry, score }) => `${entry.job.title} at ${entry.job.company}${score === undefined ? "" : ` (${score}%)`}`);
+    const today = prep.today ?? [];
+    const followUps = followUpsDue(saved, Date.parse(now)).length;
     const message: PushMessage = {
-      title: prep.ready.length
-        ? `${prep.ready.length} ${prep.ready.length === 1 ? "job" : "jobs"} ready to apply`
-        : `Morning run: ${run.count} ${run.count === 1 ? "job" : "jobs"}`,
-      body: [`${prepSummary(run.count, prep, settings)}.`, readyJobs.join("; "), prep.stopped && `Stopped early: ${prep.stopped}`]
+      title: today.length
+        ? `Today's top ${today.length}: apply while they're fresh`
+        : prep.ready.length
+          ? `${prep.ready.length} ${prep.ready.length === 1 ? "job" : "jobs"} ready to apply`
+          : `Morning run: ${run.count} ${run.count === 1 ? "job" : "jobs"}`,
+      body: [
+        `${prepSummary(run.count, prep, settings)}.`,
+        (today.length ? named(today) : named(prep.ready)).join("; "),
+        followUps > 0 && `${followUps} ${followUps === 1 ? "application is" : "applications are"} due a follow-up.`,
+        prep.stopped && `Stopped early: ${prep.stopped}`,
+      ]
         .filter(Boolean)
         .join(" "),
-      url: prep.ready.length ? "/apply" : "/import#morning-run",
+      url: today.length || prep.ready.length || followUps ? "/apply" : "/import#morning-run",
       tag: "morning-run",
     };
     try {

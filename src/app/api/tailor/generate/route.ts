@@ -13,7 +13,9 @@ import { MAX_CVS } from "@/lib/cvs";
 export const maxDuration = 300;
 
 const Body = z.object({
-  kind: z.enum(["cv", "cover-letter", "interview"]),
+  kind: z.enum(["cv", "cover-letter", "interview", "test-prep", "outreach", "follow-up"]),
+  /** For a follow-up: when the candidate applied, e.g. "3 November". */
+  appliedOn: z.string().max(40).optional(),
   /** For interview prep: the tailored CV the candidate applied with. */
   sentCv: z.string().max(30_000).optional(),
   cv: z.string().min(50, "Add your CV first").max(60_000),
@@ -38,9 +40,9 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return Response.json({ error: parsed.error.issues[0]?.message ?? "Invalid request" }, { status: 400 });
   }
-  const { kind, sentCv, cv, cvs, job, profile, notes, skills, options } = parsed.data;
+  const { kind, sentCv, appliedOn, cv, cvs, job, profile, notes, skills, options } = parsed.data;
   const encoder = new TextEncoder();
-  const events = streamDocument(kind, { cv, cvs, job, profile, notes, skills }, options, process.env, request.signal, sentCv);
+  const events = streamDocument(kind, { cv, cvs, job, profile, notes, skills }, options, process.env, request.signal, sentCv, appliedOn);
 
   const body = new ReadableStream<Uint8Array>({
     async pull(controller) {

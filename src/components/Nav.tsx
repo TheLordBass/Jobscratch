@@ -184,6 +184,9 @@ const TASK_NAMES: Record<TaskKind, string> = {
   cv: "Tailored CV",
   coverLetter: "Cover letter",
   interview: "Interview prep",
+  testPrep: "Test prep",
+  outreach: "Message",
+  followUp: "Follow-up",
   answers: "Application answers",
 };
 
