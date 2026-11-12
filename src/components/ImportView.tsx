@@ -85,13 +85,18 @@ function Bookmarklet() {
   );
 }
 
+/** Save all asks first when it would save more than this many. */
+const CONFIRM_SAVE_ABOVE = 10;
+
 /** How many jobs the results list shows before "Show more". */
 const PAGE_SIZE = 50;
 
 /** Loads a results file from scripts/jobspy/search.py, which the user runs on their own computer. */
 function JobspyImporter() {
   const router = useRouter();
-  const { saved, saveJob, saveJobs, removeJob } = useSavedJobs();
+  const { saved, saveJob, saveJobs, removeJob, removeJobs } = useSavedJobs();
+  // The jobs Save all just added, so they can be taken out again in one go.
+  const [justSaved, setJustSaved] = useState<string[] | null>(null);
   const { matchFor, scoreFor } = useCurrentMatches();
   const { isDismissed, dismiss, restore } = useDismissed();
   // The jobs and how they're shown are kept for the session (lib/session-state.ts), so going to one
@@ -227,12 +232,43 @@ function JobspyImporter() {
                 </select>
               )}
               {unsaved.length > 0 && (
-                <button type="button" className="btn btn-secondary btn-sm" onClick={() => saveJobs(unsaved)}>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => {
+                    // A morning run can list hundreds: saving them all is a big change to My jobs, so it asks.
+                    if (
+                      unsaved.length > CONFIRM_SAVE_ABOVE &&
+                      !window.confirm(
+                        `Save all ${unsaved.length} of these jobs to My jobs? To keep only the good matches, use “Save jobs matching” instead.`,
+                      )
+                    ) {
+                      return;
+                    }
+                    setJustSaved(unsaved.filter((job) => !findCopy(job)).map((job) => job.id));
+                    saveJobs(unsaved);
+                  }}
+                >
                   {isFiltering(jobFilter) ? "Save all shown" : "Save all"} ({unsaved.length})
                 </button>
               )}
             </div>
           </div>
+          {justSaved && justSaved.length > 0 && (
+            <p className="flex flex-wrap items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200" role="status">
+              Saved {justSaved.length} {justSaved.length === 1 ? "job" : "jobs"} to My jobs.
+              <button
+                type="button"
+                className="link"
+                onClick={() => {
+                  removeJobs(justSaved);
+                  setJustSaved(null);
+                }}
+              >
+                Undo
+              </button>
+            </p>
+          )}
           {listNames.length > 1 && (
             <label className="flex flex-wrap items-center gap-2 text-sm">
               <span className="muted">Title list</span>
