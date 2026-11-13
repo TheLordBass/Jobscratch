@@ -565,7 +565,8 @@ function DocumentPanel({
         </div>
       )}
       {!streaming && kind === "cv" && content.trim() && <PageCount markdown={content} wanted={pagesWanted} />}
-      {!streaming && content.trim() && <FigureCheck markdown={content} sources={sources} />}
+      {/* Not on test prep: its practice questions use made-up numbers on purpose. */}
+      {!streaming && kind !== "testPrep" && content.trim() && <FigureCheck markdown={content} sources={sources} />}
       {!streaming && kind === "cv" && (
         <p className="muted text-xs">
           Check every line before you send it. Claude is told to use only facts from your CV, but you know your history

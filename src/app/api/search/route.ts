@@ -4,7 +4,8 @@ import { SOURCE_IDS } from "@/lib/types";
 
 export const maxDuration = 60;
 
-const boardList = z.array(z.string().max(300)).max(50).default([]);
+// Long enough for a feed address with a query string.
+const boardList = z.array(z.string().max(1000)).max(50).default([]);
 
 const SearchRequestSchema = z.object({
   keywords: z.array(z.string().max(120)).min(1).max(15),
