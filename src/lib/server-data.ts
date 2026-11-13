@@ -1,5 +1,6 @@
 import { promises as fs } from "node:fs";
 import { createClient } from "redis";
+import { CLEANED_KEYS, staleIds } from "@/lib/cleanup";
 import { RUN_JOBS_KEY, RUN_KEY, RUN_PREP_KEY } from "@/lib/jobspy-runs";
 import {
   SYNC_KEYS,
@@ -297,4 +298,25 @@ export async function clearAll(backend: DataBackend, now = new Date().toISOStrin
     ["SET", META_KEY, now],
   ]);
   return now;
+}
+
+/** HDEL takes many fields; this many at a time keeps each command small. */
+const DELETE_CHUNK = 500;
+
+/**
+ * Clears match scores and tailored documents that are no longer needed (lib/cleanup.ts): those for
+ * jobs that aren't saved, once they're old. Returns how many of each were cleared. The browsers
+ * clear their own copies by the same rule, so the "last changed" time isn't moved on.
+ */
+export async function cleanUp(backend: DataBackend, now = Date.now()): Promise<Record<(typeof CLEANED_KEYS)[number], number>> {
+  const saved = await readCollection<unknown>(backend, "saved");
+  const cleared = { matches: 0, tailored: 0 };
+  for (const key of CLEANED_KEYS) {
+    const ids = staleIds(await readCollection<unknown>(backend, key), saved, now);
+    for (let i = 0; i < ids.length; i += DELETE_CHUNK) {
+      await backend.run([["HDEL", PREFIX + key, ...ids.slice(i, i + DELETE_CHUNK)]]);
+    }
+    cleared[key] = ids.length;
+  }
+  return cleared;
 }
