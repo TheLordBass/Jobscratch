@@ -1,6 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
+import { CLEANED_KEYS, staleIds } from "@/lib/cleanup";
 import {
   COLLECTION_KEYS,
   SINGLETON_KEYS,
@@ -314,17 +315,46 @@ async function pull(updatedAt: string | null) {
     }
   });
 
+  // The saved jobs as they are after merging (saved comes first), which the clean-up below goes by.
+  let saved: Items = {};
   COLLECTION_KEYS.forEach((key, i) => {
     // Changes waiting to be sent are the latest here, removals included.
     const local = { ...((store!.read(key) as Items | null) ?? {}), ...pendingItems.get(key) };
     const { merged, upload } = mergeCollection(local, collections[i]);
+    const waiting = { ...upload, ...pendingItems.get(key) };
+    if (key === "saved") saved = merged;
+    // Old scores and documents for jobs that aren't saved are dropped here and not sent back
+    // (lib/cleanup.ts); the server clears its own copy by the same rule.
+    if ((CLEANED_KEYS as readonly string[]).includes(key)) {
+      for (const id of staleIds({ ...merged, ...waiting }, saved)) {
+        delete merged[id];
+        delete waiting[id];
+      }
+    }
     if (JSON.stringify(merged) !== JSON.stringify(store!.read(key) ?? {})) store!.apply(key, merged);
-    if (Object.keys(upload).length) pendingItems.set(key, { ...upload, ...pendingItems.get(key) });
+    if (Object.keys(waiting).length) pendingItems.set(key, waiting);
+    else pendingItems.delete(key);
   });
 
   lastSeen = updatedAt;
   await flush();
   if (state.status !== "error") setState({ status: "saved" });
+  void cleanServer();
+}
+
+const CLEANED_KEY = "jobscratch-sync:cleaned";
+const CLEAN_EVERY_MS = 24 * 3_600_000;
+
+/** Asks the server to clear what's no longer needed (lib/cleanup.ts), at most once a day from this browser. */
+async function cleanServer() {
+  try {
+    const last = Number(window.localStorage.getItem(CLEANED_KEY)) || 0;
+    if (Date.now() - last < CLEAN_EVERY_MS) return;
+    const response = await fetch("/api/data/cleanup", { method: "POST" });
+    if (response.ok) window.localStorage.setItem(CLEANED_KEY, String(Date.now()));
+  } catch {
+    // Offline or blocked storage: another visit will do it.
+  }
 }
 
 async function checkForChanges() {
