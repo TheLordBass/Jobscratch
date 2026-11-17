@@ -276,3 +276,45 @@ class Preparing(unittest.TestCase):
         scheduled.run(CONFIG, FakeJobSpy(), upload_call=app)
         self.assertTrue(app.prepared)
         self.assertEqual({body["id"] for body in app.prepared}, {app.parts[0]["id"]})
+
+
+class WaitForNetworkTest(unittest.TestCase):
+    def setUp(self):
+        self.now = 0.0
+        self.logged = []
+
+    def clock(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.now += seconds
+
+    def test_starts_straight_away_when_online(self):
+        scheduled.wait_for_network("https://jobscratch.vercel.app", resolve=lambda host, port: [], sleep=self.sleep, clock=self.clock, log=self.logged.append)
+        self.assertEqual(self.now, 0)
+        self.assertEqual(self.logged, [])
+
+    def test_waits_for_the_connection_after_waking(self):
+        tries = []
+
+        def resolve(host, port):
+            tries.append(host)
+            if len(tries) < 4:
+                raise OSError(11001, "getaddrinfo failed")
+            return []
+
+        scheduled.wait_for_network("https://jobscratch.vercel.app", resolve=resolve, sleep=self.sleep, clock=self.clock, log=self.logged.append)
+        self.assertEqual(tries[0], "jobscratch.vercel.app")
+        self.assertEqual(len(tries), 4)
+        self.assertEqual(self.now, 3 * scheduled.NETWORK_CHECK_SECONDS)
+        self.assertIn("waiting for the connection", self.logged[0])
+        self.assertIn("Online after 60 seconds", self.logged[-1])
+
+    def test_gives_up_after_ten_minutes_offline(self):
+        def offline(host, port):
+            raise OSError(11001, "getaddrinfo failed")
+
+        with self.assertRaises(scheduled.RunError) as raised:
+            scheduled.wait_for_network("https://jobscratch.vercel.app", resolve=offline, sleep=self.sleep, clock=self.clock, log=self.logged.append)
+        self.assertIn("Still offline after 10 minutes", str(raised.exception))
+        self.assertGreaterEqual(self.now, scheduled.NETWORK_WAIT_SECONDS)
