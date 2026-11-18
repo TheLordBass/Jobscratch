@@ -20,11 +20,13 @@ these sites' terms forbid scraping, so use it at your own risk.
 """
 
 import json
+import socket
 import os
 import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from datetime import datetime, timezone
@@ -39,6 +41,10 @@ PART_BYTES = 2_000_000
 PART_JOBS = 500
 TRIES = 3
 RETRY_SECONDS = 30
+# Woken from sleep for the run, the computer can take a few minutes to get back online (Wi-Fi
+# reconnecting), so the run waits up to this long before starting rather than giving up at once.
+NETWORK_WAIT_SECONDS = 600
+NETWORK_CHECK_SECONDS = 20
 
 
 class RunError(Exception):
@@ -47,6 +53,30 @@ class RunError(Exception):
     def __init__(self, message, code=None):
         super().__init__(message)
         self.code = code
+
+
+def wait_for_network(url, resolve=socket.getaddrinfo, sleep=time.sleep, clock=time.monotonic, log=None):
+    """Waits until JobScratch's address can be looked up, for up to NETWORK_WAIT_SECONDS."""
+    host = urllib.parse.urlparse(url).hostname
+    if not host:
+        return
+    started = clock()
+    waited = False
+    while True:
+        try:
+            resolve(host, 443)
+            if waited and log:
+                log(f"Online after {round(clock() - started)} seconds.")
+            return
+        except OSError:
+            if clock() - started >= NETWORK_WAIT_SECONDS:
+                raise RunError(
+                    f"Still offline after {NETWORK_WAIT_SECONDS // 60} minutes, so the run didn't start. Is the computer connected to the internet?"
+                ) from None
+            if not waited and log:
+                log("Not online yet (the computer may have just woken up); waiting for the connection…")
+            waited = True
+            sleep(NETWORK_CHECK_SECONDS)
 
 
 def read_config(path=HERE / ".env", environ=os.environ):
@@ -311,6 +341,7 @@ def main():
     log = open_log()
     try:
         config = read_config()
+        wait_for_network(config["url"], log=lambda message: print(message, file=log, flush=True))
         try:
             from jobspy import scrape_jobs
         except ImportError:
