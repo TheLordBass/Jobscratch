@@ -21,6 +21,10 @@ const PREFIX = "jobscratch:";
 const META_KEY = `${PREFIX}meta`;
 /** The devices that asked for notifications (lib/push.ts). */
 export const PUSH_KEY = `${PREFIX}push`;
+/** Match all done by the server (lib/match-queue-server.ts): the jobs waiting, how far it's got, and its lock. */
+export const MATCH_QUEUE_KEY = `${PREFIX}match-queue`;
+export const MATCH_STATE_KEY = `${PREFIX}match-queue:state`;
+export const MATCH_LOCK_KEY = `${PREFIX}match-queue:lock`;
 const PAGE_SIZE = 200;
 
 type Env = Record<string, string | undefined>;
@@ -80,6 +84,8 @@ export function fileBackend(path: string): DataBackend {
         case "GET":
           return data.strings[key] ?? null;
         case "SET":
+          // NX: only when it isn't set yet (EX is ignored here: nothing expires in the file).
+          if (args.includes("NX") && key in data.strings) return null;
           data.strings[key] = args[0];
           changed = true;
           return "OK";
@@ -294,7 +300,7 @@ export async function applyOps(backend: DataBackend, ops: SyncOp[], now = new Da
 /** Deletes everything (Settings → Delete all data, or before restoring a backup). */
 export async function clearAll(backend: DataBackend, now = new Date().toISOString()): Promise<string> {
   await backend.run([
-    ["DEL", ...SYNC_KEYS.map((key) => PREFIX + key), RUN_KEY, RUN_JOBS_KEY, RUN_PREP_KEY, PUSH_KEY],
+    ["DEL", ...SYNC_KEYS.map((key) => PREFIX + key), RUN_KEY, RUN_JOBS_KEY, RUN_PREP_KEY, PUSH_KEY, MATCH_QUEUE_KEY, MATCH_STATE_KEY],
     ["SET", META_KEY, now],
   ]);
   return now;
