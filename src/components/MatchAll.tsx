@@ -9,6 +9,8 @@ import type { MatchAnalysis } from "@/lib/ai/prompts";
 import { hasCvText } from "@/lib/cvs";
 import { beginBatch, markBatchSeen, pausedInBackground, stopBatch, useBatch } from "@/lib/batch-runs";
 import { matchInBatches, matchesInBackground } from "@/lib/match-batches";
+import { matchOnServer } from "@/lib/server-matching";
+import { syncEnabled } from "@/lib/sync";
 import { siteJobKey } from "@/lib/import";
 import { isSavedJob, updateStoredMatch, updateTailoredDocs, useCv, useMatches, useProfile, useSavedJobs, useSettings, useTailored, type StoredMatch } from "@/lib/store";
 import type { Job } from "@/lib/types";
@@ -127,21 +129,30 @@ export function MatchAllButton({ jobs, onMatched }: MatchAllProps) {
 
   async function start() {
     if (todo.length === 0) return;
-    // A big run on a phone goes as batches that carry on while it has the app in the background.
-    const background = matchesInBackground() && todo.length > BATCH_ABOVE;
+    // With server storage on, the server does the matching: nothing runs on this device, so a phone
+    // doesn't freeze, and it carries on with the app closed.
+    const onServer = syncEnabled();
+    // Otherwise a big run on a phone goes as batches that carry on while it has the app in the background.
+    const background = !onServer && matchesInBackground() && todo.length > BATCH_ABOVE;
     if (
       todo.length > CONFIRM_ABOVE &&
       !window.confirm(
-        background
-          ? `Analyse ${todo.length} jobs against your CV? Claude does them all in the background at half price, usually within a few minutes, so you can leave the app meanwhile.`
-          : `Analyse ${todo.length} jobs against your CV? Each is a full analysis, one Claude request per job, so it takes a few minutes.${
-              matchesInBackground() ? " Keep JobScratch open: the scores fill in as each one is done, and it carries on if you come back to it." : ""
-            }`,
+        onServer
+          ? `Analyse ${todo.length} jobs against your CV? Each is a full analysis, done by JobScratch's server, so you can leave the app meanwhile: the scores fill in a few at a time.`
+          : background
+            ? `Analyse ${todo.length} jobs against your CV? Claude does them all in the background at half price, usually within a few minutes, so you can leave the app meanwhile.`
+            : `Analyse ${todo.length} jobs against your CV? Each is a full analysis, one Claude request per job, so it takes a few minutes.${
+                matchesInBackground() ? " Keep JobScratch open: the scores fill in as each one is done, and it carries on if you come back to it." : ""
+              }`,
       )
     ) {
       return;
     }
     const notesOf = (job: Job) => (settings.useJobNotes ? saved[job.id]?.notes.trim().slice(0, 4000) || undefined : undefined);
+    if (onServer) {
+      await matchOnServer(page, candidate, todo.map((job) => ({ job, notes: notesOf(job) })));
+      return;
+    }
     if (background) {
       await matchInBatches(page, candidate, todo.map((job) => ({ job, notes: notesOf(job) })));
       return;
@@ -233,7 +244,7 @@ export function MatchAllButton({ jobs, onMatched }: MatchAllProps) {
               </span>
               <span className="text-xs font-semibold tabular-nums">
                 {progress.background
-                  ? `Claude is matching ${progress.total - progress.done} in the background: you can leave the app, and the scores appear when they’re ready (usually within a few minutes).`
+                  ? `Matching ${progress.done} of ${progress.total} in the background: you can leave the app, and the scores appear as they’re ready.`
                   : `Matching ${progress.done} of ${progress.total}`}
               </span>
             </div>

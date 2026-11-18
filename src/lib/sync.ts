@@ -367,6 +367,11 @@ async function checkForChanges() {
   }
 }
 
+/** Fetches what's changed on the server, e.g. scores the server has made (lib/server-matching.ts). */
+export function refreshFromServer(): Promise<void> {
+  return enabled ? checkForChanges() : Promise.resolve();
+}
+
 /** Starts syncing, once per page load. */
 export function startSync() {
   if (started || typeof window === "undefined") return;

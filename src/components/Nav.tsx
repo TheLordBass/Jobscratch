@@ -12,6 +12,7 @@ import { startSync, useSyncState } from "@/lib/sync";
 import { markBatchSeen, useBatches, type BatchRun } from "@/lib/batch-runs";
 import { dismissTask, useJobTasks, type TaskKind } from "@/lib/job-tasks";
 import { resumeMatchBatches } from "@/lib/match-batches";
+import { resumeServerMatching } from "@/lib/server-matching";
 import { useSearchState, useSearchUnseen } from "@/lib/search-session";
 
 /** Three sections; each covers the pages listed in `paths`. */
@@ -41,6 +42,8 @@ export function Nav() {
     startSync();
     // Matches sent from this phone before a reload: collected when they're back.
     resumeMatchBatches();
+    // Matches the server is doing, started before a reload: their progress shows again.
+    resumeServerMatching();
   }, [onLogin]);
 
   // Notes which tailored documents were made before the CV last changed, while their dates still tell.

@@ -76,7 +76,7 @@ export interface BatchHandle {
   signal: AbortSignal;
   /** Stops the run, e.g. when every job would fail the same way. */
   abort: () => void;
-  report: (patch: Partial<Pick<BatchRun, "done" | "failed" | "current" | "stopped">>) => void;
+  report: (patch: Partial<Pick<BatchRun, "done" | "failed" | "total" | "current" | "stopped">>) => void;
   /** Marks it finished; `done` until its page is looked at again. */
   finish: () => void;
 }
