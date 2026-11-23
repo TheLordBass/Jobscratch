@@ -79,6 +79,28 @@ def wait_for_network(url, resolve=socket.getaddrinfo, sleep=time.sleep, clock=ti
             sleep(NETWORK_CHECK_SECONDS)
 
 
+def is_online(url, resolve=socket.getaddrinfo):
+    """Whether JobScratch's address can be looked up: the internet connection is up."""
+    host = urllib.parse.urlparse(url).hostname
+    if not host:
+        return True
+    try:
+        resolve(host, 443)
+        return True
+    except OSError:
+        return False
+
+
+def wait_until_online(online, sleep=time.sleep, log=print):
+    """While the internet's down: waits until it's back, however long that takes."""
+    if online():
+        return
+    log("    The internet connection dropped; waiting for it to come back…")
+    while not online():
+        sleep(NETWORK_CHECK_SECONDS)
+    log("    Back online; carrying on.")
+
+
 def read_config(path=HERE / ".env", environ=os.environ):
     """KEY=value lines from scripts/jobspy/.env; the same names in the environment win."""
     config = {}
@@ -157,9 +179,13 @@ class Uploader:
     EVERY_SECONDS = 120
     ENOUGH_NEW = 300
 
-    def __init__(self, config, started_at, batch, upload_call=call, clock=time.monotonic):
+    # Sending the last jobs: how many times to wait for the connection and try again.
+    FINISH_TRIES = 3
+
+    def __init__(self, config, started_at, batch, upload_call=call, clock=time.monotonic, online=lambda: True, sleep=time.sleep):
         self.config, self.started_at, self.batch = config, started_at, batch
         self.upload_call, self.clock = upload_call, clock
+        self.online, self.sleep = online, sleep
         self.id = uuid.uuid4().hex
         self.sent = {}
         self.last = clock()
@@ -187,8 +213,14 @@ class Uploader:
             print(f"    Couldn't send the jobs so far ({error}); trying again later.", file=sys.stderr)
 
     def finish(self, document, failed):
-        """At the end: everything not sent yet, marked as the last part."""
-        return self.send(document["query"], self.unsent(document), failed, done=True)
+        """At the end: everything not sent yet, marked as the last part. Waits out a dropped connection."""
+        for attempt in range(1, self.FINISH_TRIES + 1):
+            try:
+                return self.send(document["query"], self.unsent(document), failed, done=True)
+            except RunError as error:
+                if error.code is not None or attempt == self.FINISH_TRIES or self.online():
+                    raise
+                wait_until_online(self.online, self.sleep)
 
     def send(self, query, rows, failed, done):
         groups = list(parts(rows))
@@ -236,8 +268,9 @@ class Preparer:
     # With a batch of matches out, if JobScratch doesn't say how long to wait.
     BATCH_SECONDS = 60
 
-    def __init__(self, config, run_id, prepare_call=call, log=print, sleep=time.sleep):
+    def __init__(self, config, run_id, prepare_call=call, log=print, sleep=time.sleep, online=lambda: True):
         self.config, self.run_id, self.prepare_call, self.log, self.sleep = config, run_id, prepare_call, log, sleep
+        self.online = online
         self.searching_done = threading.Event()
         self.thread = None
         self.result = None
@@ -265,6 +298,11 @@ class Preparer:
                 if error.code == 404:
                     self.log("    This JobScratch doesn't match or prepare jobs yet (update it); skipping that.")
                     return
+                # The internet's down: not JobScratch's fault, so it doesn't count; asked again once it's back.
+                if error.code is None and not self.online():
+                    while not self.online():
+                        self.sleep(NETWORK_CHECK_SECONDS)
+                    continue
                 errors += 1
                 if errors >= self.MAX_ERRORS:
                     self.log(f"    Stopped matching and preparing jobs: {error}")
@@ -294,7 +332,7 @@ class Preparer:
                 self.sleep(self.AFTER_SECONDS)
 
 
-def run(config, scrape_jobs, keep_awake=lambda on: None, upload_call=call, prepare_call=None):
+def run(config, scrape_jobs, keep_awake=lambda on: None, upload_call=call, prepare_call=None, online=None):
     import helper
     import search
 
@@ -309,14 +347,16 @@ def run(config, scrape_jobs, keep_awake=lambda on: None, upload_call=call, prepa
     batch = saved.get("batch") or {}
     part = f", part {batch['index'] + 1} of {batch['count']} of your title lists" if batch.get("count", 1) > 1 else ""
     search.log(f"Searching {', '.join(options.sites)} for {len(terms)} job titles{where} ({len(searches)} searches{part})…")
-    uploader = Uploader(config, started_at, saved.get("batch"), upload_call)
+    # Searching, sending and preparing all pause while the internet's down, and carry on once it's back.
+    online = online or (lambda: is_online(config["url"]))
+    uploader = Uploader(config, started_at, saved.get("batch"), upload_call, online=online)
     # Otherwise JobScratch only hears of the run once its first jobs go up, which can be a while.
     uploader.begin(search.results_file(terms, locations, [], search.unique(name for _, _, name in options.pairs or [] if name))["query"])
-    preparer = Preparer(config, uploader.id, prepare_call or upload_call, log=search.log)
+    preparer = Preparer(config, uploader.id, prepare_call or upload_call, log=search.log, online=online)
     keep_awake(True)
     try:
         preparer.start()
-        document, failed = search.run_searches(scrape_jobs, options, on_found=uploader.maybe_send)
+        document, failed = search.run_searches(scrape_jobs, options, on_found=uploader.maybe_send, online=online)
         total = uploader.finish(document, failed)
         search.log(f"Sent {total} jobs to JobScratch." + (f" Failed searches: {'; '.join(failed)}" if failed else ""))
         # Matching what's left and getting the best ready: well within the task's time limit.

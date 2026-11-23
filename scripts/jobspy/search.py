@@ -213,9 +213,13 @@ def results_file(terms, locations, records, lists=None):
 # in a row. After this many blocks in a row, the rest of the LinkedIn searches are skipped.
 LINKEDIN_COOLDOWNS = [10, 20, 30]
 LINKEDIN_MAX_BLOCKS = 4
+# While the internet's down, how often to check whether it's back.
+OFFLINE_CHECK_SECONDS = 30
+# How many times one search is done again after the connection dropped during it.
+OFFLINE_REDOS = 3
 
 
-def run_searches(scrape_jobs, args, on_progress=None, should_stop=None, on_found=None, on_status=None):
+def run_searches(scrape_jobs, args, on_progress=None, should_stop=None, on_found=None, on_status=None, online=None):
     """
     Run every search in `args` and merge the results into one JobScratch file.
 
@@ -226,8 +230,10 @@ def run_searches(scrape_jobs, args, on_progress=None, should_stop=None, on_found
     on_progress(done, total, label, found) is called before each search and at the end;
     on_found(file) after each search with the jobs found so far; on_status(**fields) with
     waitingUntil/waitingFor during a long wait and endsAround (roughly when it'll finish);
-    should_stop() is checked between searches and during waits. Returns (file contents, failed
-    searches). Used by this script and by helper.py.
+    should_stop() is checked between searches and during waits. With online() (whether the computer
+    can reach the internet), searching pauses while the connection is down and carries on once it's
+    back, and a search that found nothing because the connection dropped during it is done again.
+    Returns (file contents, failed searches). Used by this script, helper.py and scheduled.py.
     """
     pairs = getattr(args, "pairs", None)
     terms, locations, searches = plan(args.search, args.location, pairs)
@@ -265,6 +271,18 @@ def run_searches(scrape_jobs, args, on_progress=None, should_stop=None, on_found
         seconds = extra + sum(slow if is_slow(step) else fast for step in steps[next_step:])
         return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat()
 
+    def wait_until_online():
+        """While the internet's down: waits, checking every so often. False if stopped meanwhile."""
+        if online is None or online():
+            return True
+        log("    The internet connection dropped; searching is paused until it's back…")
+        started = time.monotonic()
+        while not online():
+            if not wait(OFFLINE_CHECK_SECONDS, "the internet connection to come back"):
+                return False
+        log(f"    Back online after {round((time.monotonic() - started) / 60)} minutes; carrying on.")
+        return True
+
     by_url, failed = {}, []
     blocks_in_a_row = 0
     for index, step in enumerate(steps):
@@ -280,23 +298,37 @@ def run_searches(scrape_jobs, args, on_progress=None, should_stop=None, on_found
             gap = pace * random.uniform(0.8, 1.2) if between_linkedin else args.pause
             if gap > 0 and not wait(gap, "the next LinkedIn search" if between_linkedin else "the next search"):
                 break
-        if stopped():
+        if not wait_until_online() or stopped():
             break
         status(endsAround=ends_around(index))
         if on_progress:
             on_progress(index, len(steps), label, len(by_url))
         log(f"[{index + 1}/{len(steps)}] Searching {', '.join(sites)} for {searched}…")
 
-        records, attempt = [], 0
+        records, attempt, redone = [], 0, 0
         while True:
             attempt += 1
             started = time.monotonic()
             try:
                 found, blocked = search_once(scrape_jobs, args, term, location, sites)
             except Exception as error:  # One failed search shouldn't lose the others.
+                if redone < OFFLINE_REDOS and online is not None and not online():
+                    redone += 1
+                    attempt -= 1
+                    if not wait_until_online():
+                        break
+                    continue
                 log(f"    Failed: {error}")
                 failed.append(label)
                 break
+            # Nothing found because the connection dropped during the search (JobSpy logs that and
+            # carries on): done again once it's back.
+            if not found and redone < OFFLINE_REDOS and online is not None and not online():
+                redone += 1
+                attempt -= 1
+                if not wait_until_online():
+                    break
+                continue
             took["slow" if slow else "fast"].append(time.monotonic() - started)
             records += found
             if not (slow and blocked):

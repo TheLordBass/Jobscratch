@@ -18,6 +18,8 @@ import search
 from test_search import FakeJobSpy
 
 CONFIG = {"url": "https://jobscratch.example", "token": "t" * 32}
+# The test address can't be looked up, so a run would think the computer is offline: every test is online.
+scheduled.is_online = lambda url, resolve=None: True
 
 SAVED_SEARCH = {
     "search": ["data analyst"],
@@ -92,9 +94,13 @@ class Run(unittest.TestCase):
         # The real 10 minutes between LinkedIn searches would hold the tests up.
         self.min_pace = helper.MIN_LINKEDIN_PACE
         helper.MIN_LINKEDIN_PACE = 0
+        # The test address can't be looked up, so the run would think it's offline.
+        self.is_online = scheduled.is_online
+        scheduled.is_online = lambda url: True
 
     def tearDown(self):
         helper.MIN_LINKEDIN_PACE = self.min_pace
+        scheduled.is_online = self.is_online
 
     def test_runs_the_saved_search_and_uploads_it(self):
         app = FakeJobScratch()
@@ -257,6 +263,15 @@ class Preparing(unittest.TestCase):
         self.assertEqual(len(app.prepared), 1)
         self.assertIn("update it", logged[0])
 
+    def test_errors_while_the_internet_is_down_dont_count(self):
+        app = FakeJobScratch(prepare=[scheduled.RunError("Couldn't reach JobScratch")] * 8 + [{"state": "done", "message": "ok"}])
+        checks = iter([False, True] * 8)
+        preparer = scheduled.Preparer(
+            CONFIG, "run-1234567890", app, log=lambda message: None, sleep=lambda seconds: None, online=lambda: next(checks)
+        )
+        preparer.loop()
+        self.assertEqual(preparer.result, {"state": "done", "message": "ok"})
+
     def test_gives_up_after_errors_in_a_row(self):
         preparer, app, logged = self.preparer([scheduled.RunError("JobScratch answered 502", 502)])
         preparer.searching_done.set()
@@ -276,6 +291,36 @@ class Preparing(unittest.TestCase):
         scheduled.run(CONFIG, FakeJobSpy(), upload_call=app)
         self.assertTrue(app.prepared)
         self.assertEqual({body["id"] for body in app.prepared}, {app.parts[0]["id"]})
+
+
+class DroppedConnection(unittest.TestCase):
+    def test_the_last_jobs_wait_for_the_connection_to_come_back(self):
+        sent = []
+        checks = iter([False, False, True])
+
+        def upload(config, path, body):
+            if not sent:
+                sent.append("offline")
+                raise scheduled.RunError("Couldn't reach JobScratch")
+            sent.append(body["done"])
+            return {"count": 1}
+
+        uploader = scheduled.Uploader(CONFIG, "now", None, upload, online=lambda: next(checks), sleep=lambda seconds: None)
+        scheduled.print = lambda *args, **kwargs: None
+        try:
+            total = uploader.finish({"query": {}, "jobs": [{"job_url": "https://x.example/1"}]}, [])
+        finally:
+            del scheduled.print
+        self.assertEqual(total, 1)
+        self.assertEqual(sent, ["offline", True])
+
+    def test_a_refused_upload_isnt_retried(self):
+        def upload(config, path, body):
+            raise scheduled.RunError("Wrong token", 401)
+
+        uploader = scheduled.Uploader(CONFIG, "now", None, upload, online=lambda: False)
+        with self.assertRaises(scheduled.RunError):
+            uploader.finish({"query": {}, "jobs": []}, [])
 
 
 class WaitForNetworkTest(unittest.TestCase):
