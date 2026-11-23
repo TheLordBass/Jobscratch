@@ -132,5 +132,51 @@ class RunSearches(unittest.TestCase):
         self.assertEqual(len(jobspy.calls), 3)
 
 
+
+class DroppedConnection(unittest.TestCase):
+    def setUp(self):
+        self.logged = []
+        search.log = self.logged.append
+        self.check = search.OFFLINE_CHECK_SECONDS
+        search.OFFLINE_CHECK_SECONDS = 0.001
+
+    def tearDown(self):
+        search.OFFLINE_CHECK_SECONDS = self.check
+
+    def test_searching_pauses_until_the_connection_is_back(self):
+        jobspy = FakeJobSpy()
+        # Online for the first search, then down for a few checks before the second.
+        checks = iter([True, False, False, False, True] + [True] * 20)
+        document, failed = search.run_searches(jobspy, options(search=["Analyst", "Engineer"]), online=lambda: next(checks))
+        self.assertEqual([term for _, term in jobspy.calls], ["Analyst", "Engineer"])
+        self.assertEqual(failed, [])
+        self.assertTrue(any("paused" in line for line in self.logged))
+        self.assertTrue(any("Back online" in line for line in self.logged))
+
+    def test_a_search_that_lost_the_connection_is_done_again(self):
+        calls = []
+
+        def jobspy(site_name, search_term, **_):
+            calls.append(search_term)
+            # The first try finds nothing: the connection dropped during it.
+            return FakeFrame([] if len(calls) == 1 else [{"site": "indeed", "job_url": "https://x.example/1", "title": "Analyst"}])
+
+        checks = iter([True, False, True] + [True] * 20)
+        document, failed = search.run_searches(jobspy, options(search=["Analyst"]), online=lambda: next(checks))
+        self.assertEqual(calls, ["Analyst", "Analyst"])
+        self.assertEqual(len(document["jobs"]), 1)
+
+    def test_nothing_found_while_online_isnt_done_again(self):
+        jobspy = FakeJobSpy()
+        calls = []
+
+        def empty(site_name, search_term, **_):
+            calls.append(search_term)
+            return FakeFrame([])
+
+        search.run_searches(empty, options(search=["Analyst"]), online=lambda: True)
+        self.assertEqual(calls, ["Analyst"])
+
+
 if __name__ == "__main__":
     unittest.main()
