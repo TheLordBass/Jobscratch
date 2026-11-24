@@ -418,4 +418,28 @@ describe("notifications", () => {
     expect(await notifyDevices(backend, {}, { title: "Hi", body: "", url: "/" }, "https://x.example", async () => void (sent = true))).toEqual({ sent: 0, failed: 0 });
     expect(sent).toBe(false);
   });
+
+  it("isn't stopped by jobs removed in the app", async () => {
+    // Removed items stay on the server as markers, so other devices remove them too.
+    const removed = { $deleted: "2026-10-26T06:00:00.000Z" };
+    await seed({ match: true, ready: true, readyFrom: 80, readyLimit: 2, coverLetters: false, answers: false, notify: true }, [job(1), job(2)], true);
+    await applyOps(backend, [
+      { key: "saved", items: { "linkedin:1": removed } },
+      { key: "tailored", items: { "linkedin:1": removed } },
+      { key: "matches", items: { "linkedin:9": removed } },
+      { key: "dismissed", items: { gone: removed } },
+    ]);
+    const { deps, calls } = fakes({ "Data Analyst 1": 90, "Data Analyst 2": 60 });
+    let result = await step(deps);
+    for (let i = 0; i < 20 && result.state !== "done"; i++) result = await step(deps);
+
+    expect(result.state).toBe("done");
+    expect(calls.analyze.sort()).toEqual(["Data Analyst 1", "Data Analyst 2"]);
+    expect(calls.write).toEqual(["cv:Data Analyst 1"]);
+    const saved = await readCollection<SavedJob>(backend, "saved");
+    expect(saved["linkedin:1"]).toMatchObject({ status: "saved", job: { id: "linkedin:1" } });
+    const docs = (await readCollection<TailoredDocs>(backend, "tailored"))["linkedin:1"];
+    expect(docs).toMatchObject({ cv: "cv for Data Analyst 1" });
+    expect(docs).not.toHaveProperty("$deleted");
+  });
 });

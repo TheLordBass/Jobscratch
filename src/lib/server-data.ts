@@ -4,6 +4,7 @@ import { CLEANED_KEYS, staleIds } from "@/lib/cleanup";
 import { RUN_JOBS_KEY, RUN_KEY, RUN_PREP_KEY } from "@/lib/jobspy-runs";
 import {
   SYNC_KEYS,
+  isTombstone,
   type CollectionKey,
   type SingletonKey,
   type SyncAvailability,
@@ -265,18 +266,24 @@ export async function readHash<T>(backend: DataBackend, key: string): Promise<Re
   return items;
 }
 
-/** A whole collection, for the server's own work on it (lib/morning-prep-server.ts). */
-export function readCollection<T>(backend: DataBackend, key: CollectionKey): Promise<Record<string, T>> {
-  return readHash<T>(backend, PREFIX + key);
+/**
+ * A whole collection, for the server's own work on it (lib/morning-prep-server.ts). Items removed in
+ * the app are left out: they're kept only as markers ({ $deleted }) so other devices remove them too.
+ */
+export async function readCollection<T>(backend: DataBackend, key: CollectionKey): Promise<Record<string, T>> {
+  const items = await readHash<unknown>(backend, PREFIX + key);
+  for (const [id, item] of Object.entries(items)) if (isTombstone(item)) delete items[id];
+  return items as Record<string, T>;
 }
 
-/** Some items of a collection, by id; missing ones are left out. */
+/** Some items of a collection, by id; missing and removed ones are left out. */
 export async function readSomeItems<T>(backend: DataBackend, key: CollectionKey, ids: string[]): Promise<Record<string, T>> {
   if (ids.length === 0) return {};
   const [values] = await backend.run([["HMGET", PREFIX + key, ...ids]]);
   const items: Record<string, T> = {};
   (values as Array<string | null>).forEach((raw, i) => {
-    if (typeof raw === "string") items[ids[i]] = JSON.parse(raw) as T;
+    const item: unknown = typeof raw === "string" ? JSON.parse(raw) : undefined;
+    if (item !== undefined && !isTombstone(item)) items[ids[i]] = item as T;
   });
   return items;
 }
@@ -315,10 +322,11 @@ const DELETE_CHUNK = 500;
  * clear their own copies by the same rule, so the "last changed" time isn't moved on.
  */
 export async function cleanUp(backend: DataBackend, now = Date.now()): Promise<Record<(typeof CLEANED_KEYS)[number], number>> {
-  const saved = await readCollection<unknown>(backend, "saved");
+  // With the removal markers, which are cleared too once they're old.
+  const saved = await readHash<unknown>(backend, PREFIX + "saved");
   const cleared = { matches: 0, tailored: 0 };
   for (const key of CLEANED_KEYS) {
-    const ids = staleIds(await readCollection<unknown>(backend, key), saved, now);
+    const ids = staleIds(await readHash<unknown>(backend, PREFIX + key), saved, now);
     for (let i = 0; i < ids.length; i += DELETE_CHUNK) {
       await backend.run([["HDEL", PREFIX + key, ...ids.slice(i, i + DELETE_CHUNK)]]);
     }
