@@ -13,7 +13,6 @@ import {
   readValue,
   type DataBackend,
 } from "@/lib/server-data";
-import { isTombstone } from "@/lib/sync-types";
 import type {
   SavedJob,
   StoredCv,
@@ -283,7 +282,7 @@ export async function matchStep(
           items: { [id]: matchFromAnalysis(analysis, key, at) as StoredMatch },
         },
       ];
-      if (saved[id] && !isTombstone(saved[id])) {
+      if (saved[id]) {
         const docs = await readSomeItems<TailoredDocs>(backend, "tailored", [
           id,
         ]);
