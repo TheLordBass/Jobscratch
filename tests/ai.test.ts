@@ -307,7 +307,26 @@ describe("streamDocument", () => {
     const { materials, instruction } = requestParts();
     expect(materials).not.toContain("<candidate_links>");
     expect(materials).not.toContain("<online_profile>");
-    expect(instruction.text).not.toContain("Projects");
+    // Projects from the CV itself are still weighed for the job, without links to a profile.
+    expect(instruction.text).toContain("Projects only when this job calls for them");
+    expect(instruction.text).toContain("from the original CV)");
+    expect(instruction.text).not.toContain("github.com");
+  });
+
+  it("decides for each job whether projects help, and keeps only the ones that do", async () => {
+    fetchMock.mockResolvedValueOnce(streamOf(["ok"]));
+    const profile = { website: "https://jane.dev", github: "", evidence: "## Site\n- sales-dashboard" };
+    await collect(streamDocument("cv", { cv: CV, job: JOB, profile }, OPTIONS, ENV));
+    const { instruction } = requestParts();
+    expect(instruction.text).toContain("Projects only when this job calls for them");
+    expect(instruction.text).toContain("no projects section, even if the original CV has one");
+    expect(instruction.text).toContain("at most three");
+    expect(instruction.text).toContain("from the original CV or the online profile");
+
+    fetchMock.mockResolvedValueOnce(streamOf(["ok"]));
+    await collect(streamDocument("cover-letter", { cv: CV, job: JOB, profile }, OPTIONS, ENV));
+    const { instruction: letter } = requestParts();
+    expect(letter.text).toContain("Mention a project only if it shows something this job asks for");
   });
 
   it("leaves projects out when asked, even with an online profile", async () => {

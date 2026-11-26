@@ -328,7 +328,7 @@ export async function* streamDocument(
       kind === "cv"
         ? cvInstruction(options, withProfile)
         : kind === "cover-letter"
-          ? coverLetterInstruction(options, withProfile)
+          ? coverLetterInstruction(options)
           : kind === "interview"
             ? interviewPrepInstruction(options, sentCv)
             : kind === "test-prep"
