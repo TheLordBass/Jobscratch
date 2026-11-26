@@ -280,13 +280,13 @@ export function cvInstruction(options: TailorOptions, withProfile = false): stri
     ? "then one line of contact details as they appear in the CV, plus the website and GitHub links from candidate_links if the CV doesn't already include them (leave out anything missing), with web addresses embedded as links as described below"
     : "then one line of contact details as they appear in the CV (leave out any that are missing), with web addresses embedded as links as described below";
   const skills = withProfile ? "skills evidenced in the CV or the online profile" : "skills evidenced in the CV";
+  const sources = withProfile ? "the original CV or the online profile" : "the original CV";
   const projects = !options.projects
     ? `
 - Leave out projects entirely: no projects section (even if the original CV has one), and don't mention personal or side projects elsewhere in the CV.`
-    : withProfile
-      ? `
-- If the online profile shows projects relevant to this job, add a short "Projects" section after experience: for each, its name linked to the repository or live site (e.g. **[Sales dashboard](https://github.com/…)**), what it does and the technologies used, based only on what the repository or site shows. Leave out projects that don't help this application.`
-      : "";
+    : `
+- Projects only when this job calls for them. First decide whether it does: include projects (from ${sources}) when they show something the job asks for that the work experience doesn't already show well, such as a technical skill or tool the ad names, or hands-on work in its field. Leave them out when the experience already covers what the job wants, or the job values work history, people or operational skills that projects can't show (most admin, customer-facing and operations roles): then no projects section, even if the original CV has one.
+- When you include them, add a short "Projects" section after experience with only the projects that bear on this job's requirements, most relevant first, at most three; drop the rest. For each: its name${withProfile ? " linked to the repository or live site (e.g. **[Sales dashboard](https://github.com/…)**)" : ""}, what it does and the technologies used, in one or two lines, based only on what ${withProfile ? "the CV, repository or site shows" : "the CV says"}.`;
   return `Rewrite the candidate's CV so it is tailored to this job.
 
 ${LENGTH_GUIDE[options.length]}
@@ -335,12 +335,10 @@ export function lengthenCvInstruction(pages: number, words: number): string {
 Reply with only the CV in Markdown: no introduction, notes, or code fences.`;
 }
 
-export function coverLetterInstruction(options: TailorOptions, withProfile = false): string {
+export function coverLetterInstruction(options: TailorOptions): string {
   const project = !options.projects
     ? " Don't mention personal or side projects."
-    : withProfile
-      ? " If a project from the online profile is especially relevant, you may mention it as a project."
-      : "";
+    : " Mention a project only if it shows something this job asks for that the work experience doesn't, and then as a project, briefly; otherwise leave projects out.";
   return `Write a cover letter for this application.
 
 - 250–400 words in 3–5 short paragraphs, addressed to the hiring team at the company (use a person's name only if the job posting gives one).
