@@ -11,6 +11,7 @@ import { GET as getRun } from "@/app/api/jobspy-run/route";
 import { morningHours, morningIndex, planMornings, splitItems, uniqueListName, type JobspyList } from "@/lib/jobspy-lists";
 import { checkHelperToken, readRun, readRunJobs, saveRunPart } from "@/lib/jobspy-runs";
 import { applyOps, clearAll, fileBackend } from "@/lib/server-data";
+import type { Job } from "@/lib/types";
 
 const TOKEN = "a".repeat(40);
 const row = (n: number) => ({
@@ -21,6 +22,23 @@ const row = (n: number) => ({
   location: "Manchester",
   description: "<p>SQL and Power BI.</p>",
 });
+
+/** A job as the helper sends it: its link is on LinkedIn, so another run finding it knows it. */
+const runJob = (id: string, extra: Partial<Job> = {}): Job =>
+  ({
+    id,
+    source: "jobspy",
+    sourceName: "LinkedIn",
+    title: `Analyst ${id}`,
+    company: `Company ${id}`,
+    location: "Manchester",
+    remote: false,
+    url: `https://www.linkedin.com/jobs/view/${id}`,
+    applyOptions: [],
+    description: "",
+    tags: [],
+    ...extra,
+  }) as Job;
 
 let folder: string;
 const saved: Record<string, string | undefined> = {};
@@ -60,7 +78,7 @@ describe("the helper token", () => {
 describe("a morning run", () => {
   it("is kept in parts, and a new run replaces the old one", async () => {
     const backend = fileBackend(join(folder, "parts.json"));
-    const job = (id: string) => ({ job: { id } as never, lists: [] });
+    const job = (id: string) => ({ job: runJob(id), lists: [] });
     await saveRunPart(backend, { id: "run-one-1", startedAt: "2026-10-26T07:00:00Z", failed: [], jobs: [job("a"), job("b")], done: true });
     await saveRunPart(backend, { id: "run-two-2", startedAt: "2026-10-27T07:00:00Z", failed: [], jobs: [job("c")], done: false });
     let run = await saveRunPart(backend, { id: "run-two-2", startedAt: "2026-10-27T07:00:00Z", failed: ["LinkedIn: “x”"], jobs: [job("d")], done: true }, "2026-10-27T07:20:00Z");
@@ -74,7 +92,7 @@ describe("a morning run", () => {
 
   it("counts the jobs stored, so a part sent twice isn't counted twice, and keeps the failed searches", async () => {
     const backend = fileBackend(join(folder, "count.json"));
-    const job = (id: string, lists: string[] = []) => ({ job: { id } as never, lists });
+    const job = (id: string, lists: string[] = []) => ({ job: runJob(id), lists });
     const part = { id: "run-three-3", startedAt: "2026-10-27T10:00:00Z", failed: [] as string[], done: false };
     await saveRunPart(backend, { ...part, jobs: [job("a"), job("b")] });
     // The same part again (a retry), and a job found again by another list.
@@ -86,6 +104,32 @@ describe("a morning run", () => {
     // A part sent during a run doesn't know the failed searches yet, so it keeps the ones there.
     run = await saveRunPart(backend, { ...part, jobs: [], done: true });
     expect(run.failed).toEqual(["LinkedIn: “x”"]);
+  });
+
+  it("marks the jobs an earlier run found, on the same site or another, with when it first found them", async () => {
+    const backend = fileBackend(join(folder, "seen.json"));
+    const found = (job: Job) => ({ job, lists: [] });
+    const day = (n: number) => `2026-11-${String(n).padStart(2, "0")}T10:00:00.000Z`;
+    const ids = async () =>
+      Object.fromEntries((await readRunJobs(backend)).jobs.map((entry) => [entry.job.id, entry.seenBefore ?? null]));
+
+    await saveRunPart(backend, { id: "run-day-1", startedAt: day(1), failed: [], done: true, jobs: [found(runJob("a")), found(runJob("b"))] }, day(1));
+    expect(await ids()).toEqual({ a: null, b: null });
+
+    // The next morning: "a" again, "b" again on Indeed (the same title and company), and a new one.
+    const onIndeed = runJob("indeed-b", { title: "Analyst b", company: "Company b", sourceName: "Indeed", url: "https://uk.indeed.com/viewjob?jk=123" });
+    await saveRunPart(backend, { id: "run-day-2", startedAt: day(2), failed: [], done: false, jobs: [found(runJob("a")), found(onIndeed)] }, day(2));
+    await saveRunPart(backend, { id: "run-day-2", startedAt: day(2), failed: [], done: true, jobs: [found(runJob("c"))] }, day(2));
+    expect(await ids()).toEqual({ a: day(1), "indeed-b": day(1), c: null });
+
+    // A day later "a" keeps its first date, and "c" is now known too.
+    await saveRunPart(backend, { id: "run-day-3", startedAt: day(3), failed: [], done: true, jobs: [found(runJob("a")), found(runJob("c"))] }, day(3));
+    expect(await ids()).toEqual({ a: day(1), c: day(2) });
+
+    // Jobs are forgotten after two weeks.
+    await saveRunPart(backend, { id: "run-day-20", startedAt: day(20), failed: [], done: true, jobs: [found(runJob("c"))] }, day(20));
+    await saveRunPart(backend, { id: "run-day-21", startedAt: day(21), failed: [], done: true, jobs: [found(runJob("a")), found(runJob("c"))] }, day(21));
+    expect(await ids()).toEqual({ a: null, c: day(20) });
   });
 
   it("goes in and comes back out through the routes", async () => {

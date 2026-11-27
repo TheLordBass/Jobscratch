@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import { createClient } from "redis";
 import { CLEANED_KEYS, staleIds } from "@/lib/cleanup";
-import { RUN_JOBS_KEY, RUN_KEY, RUN_PREP_KEY } from "@/lib/jobspy-runs";
+import { RUN_JOBS_KEY, RUN_KEY, RUN_PREP_KEY, SEEN_KEY } from "@/lib/jobspy-runs";
 import {
   SYNC_KEYS,
   isTombstone,
@@ -307,7 +307,7 @@ export async function applyOps(backend: DataBackend, ops: SyncOp[], now = new Da
 /** Deletes everything (Settings → Delete all data, or before restoring a backup). */
 export async function clearAll(backend: DataBackend, now = new Date().toISOString()): Promise<string> {
   await backend.run([
-    ["DEL", ...SYNC_KEYS.map((key) => PREFIX + key), RUN_KEY, RUN_JOBS_KEY, RUN_PREP_KEY, PUSH_KEY, MATCH_QUEUE_KEY, MATCH_STATE_KEY],
+    ["DEL", ...SYNC_KEYS.map((key) => PREFIX + key), RUN_KEY, RUN_JOBS_KEY, RUN_PREP_KEY, SEEN_KEY, PUSH_KEY, MATCH_QUEUE_KEY, MATCH_STATE_KEY],
     ["SET", META_KEY, now],
   ]);
   return now;
