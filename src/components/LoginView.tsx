@@ -52,7 +52,7 @@ export function LoginView() {
   return (
     <div className="mx-auto flex max-w-sm flex-col items-center gap-6 pt-6 sm:pt-12">
       <div className="flex flex-col items-center gap-3 text-center">
-        <span className="grid h-12 w-12 place-items-center rounded-2xl bg-linear-to-br from-indigo-500 to-violet-600 text-white shadow-md shadow-indigo-600/30">
+        <span className="grid h-12 w-12 place-items-center rounded-xl bg-zinc-900 text-white dark:bg-white dark:text-zinc-900">
           <BriefcaseBusiness size={24} aria-hidden />
         </span>
         <div>

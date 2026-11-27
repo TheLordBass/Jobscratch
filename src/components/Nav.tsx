@@ -1,6 +1,6 @@
 "use client";
 
-import { BriefcaseBusiness, Check, Cloud, CloudAlert, CloudUpload, Loader2, LogOut, Menu, Search, UserRound, X } from "lucide-react";
+import { BriefcaseBusiness, Check, Cloud, CloudAlert, CloudUpload, Loader2, LogOut, Search, UserRound, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -31,9 +31,6 @@ export function Nav() {
   const { saved } = useSavedJobs();
   const hydrated = useHydrated();
   const savedCount = Object.keys(saved).length;
-  // The phone menu is open for the page it was opened on, so going to another page closes it.
-  const [menuFor, setMenuFor] = useState<string | null>(null);
-  const menuOpen = menuFor === pathname;
 
   // The sign-in page has nothing to sync yet; signing in reloads the page.
   const onLogin = pathname === "/login";
@@ -63,67 +60,52 @@ export function Nav() {
     });
   }, [tailored, candidate, hasCv, setTailored]);
 
+  const count = hydrated && savedCount > 0 ? savedCount : null;
+
   return (
-    <header className="sticky top-0 z-20 border-b pt-[env(safe-area-inset-top)] border-zinc-200/70 bg-white/75 backdrop-blur-lg dark:border-zinc-800/70 dark:bg-zinc-950/75">
-      <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-2.5 sm:gap-6 sm:px-6 sm:py-3">
-        <Link href="/" className="flex items-center gap-2.5 font-bold tracking-tight">
-          <span className="grid h-8 w-8 place-items-center rounded-xl bg-linear-to-br from-indigo-500 to-violet-600 text-white shadow-sm shadow-indigo-600/30">
-            <BriefcaseBusiness size={16} strokeWidth={2.25} aria-hidden />
-          </span>
-          <span className="text-lg">JobScratch</span>
-        </Link>
-        {onLogin ? null : (
-          <>
-            <nav className="-mx-1 hidden flex-1 gap-1 sm:flex" aria-label="Main">
-              {SECTIONS.map(({ href, label, icon: Icon, paths }) => {
-                const active = inSection(pathname, paths);
-                return (
-                  <Link
-                    key={href}
-                    href={href}
-                    aria-current={active ? "page" : undefined}
-                    className={`btn rounded-full ${active ? "bg-zinc-900 text-white shadow-sm hover:bg-zinc-800 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-100" : "btn-ghost"}`}
-                  >
-                    <Icon size={16} aria-hidden />
-                    {label}
-                    {href === "/saved" && hydrated && savedCount > 0 && (
-                      <span
-                        className={`rounded-full px-1.5 text-[10px] leading-4 font-bold ${active ? "bg-white/20 text-white dark:bg-zinc-900/10 dark:text-zinc-900" : "bg-indigo-600 text-white"}`}
-                      >
-                        {savedCount}
-                      </span>
-                    )}
-                  </Link>
-                );
-              })}
-            </nav>
-            <div className="ml-auto flex items-center gap-1 sm:ml-0">
-              <SyncIndicator />
-              <span className="hidden sm:inline-flex">
+    <>
+      <header className="sticky top-0 z-20 border-b border-zinc-200 bg-zinc-50/85 pt-[env(safe-area-inset-top)] backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/85">
+        <div className="mx-auto flex h-14 max-w-5xl items-center gap-6 px-4 sm:px-6">
+          <Link href="/" className="flex items-center gap-2 font-semibold tracking-tight">
+            <span className="grid h-7 w-7 place-items-center rounded-lg bg-zinc-900 text-white dark:bg-white dark:text-zinc-900">
+              <BriefcaseBusiness size={15} strokeWidth={2.25} aria-hidden />
+            </span>
+            JobScratch
+          </Link>
+          {!onLogin && (
+            <>
+              <nav className="hidden flex-1 items-center gap-1 sm:flex" aria-label="Main">
+                {SECTIONS.map(({ href, label, paths }) => {
+                  const active = inSection(pathname, paths);
+                  return (
+                    <Link
+                      key={href}
+                      href={href}
+                      aria-current={active ? "page" : undefined}
+                      className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${active ? "bg-zinc-900/5 text-zinc-900 dark:bg-white/10 dark:text-white" : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white"}`}
+                    >
+                      {label}
+                      {href === "/saved" && count && <span className="text-xs text-zinc-400 tabular-nums dark:text-zinc-500">{count}</span>}
+                    </Link>
+                  );
+                })}
+              </nav>
+              <div className="ml-auto flex items-center gap-1">
+                <SyncIndicator />
                 <SignOutButton />
-              </span>
-              <button
-                type="button"
-                className="btn btn-ghost btn-icon -mr-1.5 h-10! w-10! sm:hidden"
-                onClick={() => setMenuFor(menuOpen ? null : pathname)}
-                aria-expanded={menuOpen}
-                aria-controls="phone-menu"
-                aria-label={menuOpen ? "Close menu" : "Open menu"}
-              >
-                {menuOpen ? <X size={20} aria-hidden /> : <Menu size={20} aria-hidden />}
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-      {!onLogin && menuOpen && (
+              </div>
+            </>
+          )}
+        </div>
+        {!onLogin && <JobTasksBar />}
+        <ScrollMemory />
+      </header>
+      {!onLogin && (
         <nav
-          id="phone-menu"
-          className="border-t border-zinc-200/70 px-4 pb-3 sm:hidden dark:border-zinc-800/70"
+          className="fixed inset-x-0 bottom-0 z-20 border-t border-zinc-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md sm:hidden dark:border-zinc-800 dark:bg-zinc-950/95"
           aria-label="Main"
-          onKeyDown={(event) => event.key === "Escape" && setMenuFor(null)}
         >
-          <ul className="space-y-1 pt-2">
+          <ul className="grid grid-cols-3">
             {SECTIONS.map(({ href, label, icon: Icon, paths }) => {
               const active = inSection(pathname, paths);
               return (
@@ -131,29 +113,25 @@ export function Nav() {
                   <Link
                     href={href}
                     aria-current={active ? "page" : undefined}
-                    onClick={() => setMenuFor(null)}
-                    className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-base font-semibold ${active ? "bg-zinc-900 text-white dark:bg-white dark:text-zinc-900" : "hover:bg-zinc-900/5 dark:hover:bg-white/5"}`}
+                    className={`flex h-16 flex-col items-center justify-center gap-1 text-xs font-medium ${active ? "text-zinc-900 dark:text-white" : "text-zinc-400 dark:text-zinc-500"}`}
                   >
-                    <Icon size={18} aria-hidden />
-                    <span className="flex-1">{label}</span>
-                    {href === "/saved" && hydrated && savedCount > 0 && (
-                      <span
-                        className={`rounded-full px-2 text-xs leading-5 font-bold ${active ? "bg-white/20 text-white dark:bg-zinc-900/10 dark:text-zinc-900" : "bg-indigo-600 text-white"}`}
-                      >
-                        {savedCount}
-                      </span>
-                    )}
+                    <span className="relative">
+                      <Icon size={22} strokeWidth={active ? 2.25 : 1.75} aria-hidden />
+                      {href === "/saved" && count && (
+                        <span className="absolute -top-1.5 left-4 min-w-4 rounded-full bg-indigo-600 px-1 text-center text-[10px] leading-4 font-semibold text-white tabular-nums">
+                          {count}
+                        </span>
+                      )}
+                    </span>
+                    {label}
                   </Link>
                 </li>
               );
             })}
           </ul>
-          <SignOutButton wide />
         </nav>
       )}
-      {!onLogin && <JobTasksBar />}
-      <ScrollMemory />
-    </header>
+    </>
   );
 }
 
@@ -228,7 +206,7 @@ function JobTasksBar() {
       : null;
   if (tasks.length === 0 && batches.length === 0 && !searching && !searched) return null;
   return (
-    <div className="mx-auto flex max-w-6xl flex-wrap gap-2 px-4 pb-2 sm:px-6" aria-live="polite">
+    <div className="mx-auto flex max-w-5xl flex-wrap gap-2 px-4 pb-2.5 sm:px-6" aria-live="polite">
       {searching && (
         <span className="chip gap-2 py-1">
           <Loader2 size={13} className="animate-spin" aria-hidden />
@@ -300,11 +278,11 @@ function JobTasksBar() {
   );
 }
 
-/** Switches between the pages inside one section, e.g. Search / Add a job. */
+/** Switches between the pages inside one section, e.g. Search / Add a job: a row of tabs over the page. */
 export function SectionTabs({ tabs }: { tabs: ReadonlyArray<{ href: string; label: string }> }) {
   const pathname = usePathname();
   return (
-    <nav className="inline-flex rounded-xl border border-zinc-200/80 bg-zinc-100/80 p-1 dark:border-zinc-800 dark:bg-zinc-900" aria-label="Section">
+    <nav className="-mx-4 flex gap-5 overflow-x-auto border-b border-zinc-200 px-4 sm:mx-0 sm:px-0 dark:border-zinc-800" aria-label="Section">
       {tabs.map(({ href, label }) => {
         const active = pathname === href;
         return (
@@ -312,7 +290,7 @@ export function SectionTabs({ tabs }: { tabs: ReadonlyArray<{ href: string; labe
             key={href}
             href={href}
             aria-current={active ? "page" : undefined}
-            className={`rounded-lg px-3.5 py-1.5 text-sm font-semibold transition-colors ${active ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-800 dark:text-white" : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white"}`}
+            className={`-mb-px border-b-2 py-2.5 text-sm font-medium whitespace-nowrap transition-colors ${active ? "border-zinc-900 text-zinc-900 dark:border-white dark:text-white" : "border-transparent text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white"}`}
           >
             {label}
           </Link>
@@ -355,29 +333,10 @@ function SyncIndicator() {
   );
 }
 
-/** `wide`: a full-width row with the account name, for the phone menu. */
-function SignOutButton({ wide = false }: { wide?: boolean }) {
+function SignOutButton() {
   const session = useSession();
   const [busy, setBusy] = useState(false);
   if (!session?.signedIn) return null;
-  if (wide) {
-    return (
-      <button
-        type="button"
-        className="mt-2 flex w-full cursor-pointer items-center gap-3 rounded-xl border-t border-zinc-200/70 px-3 pt-3 pb-1 text-left text-sm text-zinc-600 dark:border-zinc-800/70 dark:text-zinc-400"
-        onClick={() => {
-          setBusy(true);
-          void signOut();
-        }}
-        disabled={busy}
-      >
-        <LogOut size={18} aria-hidden />
-        <span className="flex-1">
-          Sign out <span className="muted">({session.username})</span>
-        </span>
-      </button>
-    );
-  }
   return (
     <button
       type="button"
