@@ -66,7 +66,7 @@ export function GettingStarted() {
           return (
             <li key={step.title} className={`flex gap-3 p-4 ${current ? "bg-indigo-50/60 dark:bg-indigo-950/30" : ""}`}>
               <span
-                className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${step.done ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400" : current ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/30" : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"}`}
+                className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${step.done ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400" : current ? "bg-zinc-900 text-white dark:bg-white dark:text-zinc-900" : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"}`}
                 aria-hidden
               >
                 {step.done ? <Check size={17} strokeWidth={2.5} /> : <Icon size={17} />}

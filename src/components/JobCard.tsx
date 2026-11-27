@@ -91,7 +91,7 @@ export function JobCard({ job, status, expanded, onToggle, onSave, onTailor, mat
 
   return (
     <article
-      className={`card group p-4 transition hover:border-zinc-300 hover:shadow-md sm:p-5 dark:hover:border-zinc-700 ${dismissed ? "opacity-60" : ""}`}
+      className={`card group p-4 transition-colors hover:border-zinc-300 sm:p-5 dark:hover:border-zinc-700 ${dismissed ? "opacity-60" : ""}`}
     >
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
         <div className="flex min-w-0 flex-1 gap-3.5">

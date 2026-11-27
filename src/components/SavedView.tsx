@@ -335,7 +335,7 @@ export function SavedView() {
                     </li>
                   )}
                   <li
-                    className="card relative flex flex-col gap-3 overflow-hidden p-4 pl-5 transition hover:border-zinc-300 hover:shadow-md sm:flex-row sm:items-center dark:hover:border-zinc-700"
+                    className="card relative flex flex-col gap-3 overflow-hidden p-4 pl-5 transition-colors hover:border-zinc-300 sm:flex-row sm:items-center dark:hover:border-zinc-700"
                   >
                     <span className={`absolute inset-y-0 left-0 w-1 ${STATUS_ACCENT[status]}`} aria-hidden />
                     <div className="flex min-w-0 flex-1 gap-3.5">
