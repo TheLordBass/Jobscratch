@@ -29,20 +29,25 @@ export async function fetchLatestRun(): Promise<{ run: JobspyRun | null; prep: P
   }
 }
 
-/** The run's jobs, and for each one the title lists whose searches found it. */
-export async function fetchRunJobs(): Promise<{ jobs: Job[]; lists: Record<string, string[]> }> {
+/**
+ * The run's jobs; for each one the title lists whose searches found it, and when an earlier run first
+ * found it, if one did.
+ */
+export async function fetchRunJobs(): Promise<{ jobs: Job[]; lists: Record<string, string[]>; seenBefore: Record<string, string> }> {
   const jobs: Job[] = [];
   const lists: Record<string, string[]> = {};
+  const seenBefore: Record<string, string> = {};
   let cursor = "0";
   do {
     const page = await getJson<{ jobs: RunJob[]; cursor: string }>(`/api/jobspy-run?cursor=${cursor}`);
     for (const found of page.jobs) {
       jobs.push(found.job);
       if (found.lists.length) lists[found.job.id] = found.lists;
+      if (found.seenBefore) seenBefore[found.job.id] = found.seenBefore;
     }
     cursor = page.cursor;
   } while (cursor !== "0");
-  return { jobs, lists };
+  return { jobs, lists, seenBefore };
 }
 
 /** "today at 07:02", "yesterday at 07:02" or "on Mon 26 Oct at 07:02". */

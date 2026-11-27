@@ -87,6 +87,8 @@ export interface JobspyImport {
   skipped: number;
   /** From the morning run: for each job id, the title lists whose searches found it. */
   lists?: Record<string, string[]>;
+  /** From the morning run: for each job an earlier run found too, when it first did. */
+  seenBefore?: Record<string, string>;
 }
 
 const isHttp = (value: string) => /^https?:\/\//i.test(value);

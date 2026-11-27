@@ -106,6 +106,8 @@ function JobspyImporter() {
   const [savedBeforeIds, setSavedBefore] = useSessionState("jobspy:savedBefore", NO_IDS);
   const savedBefore = useMemo(() => new Set(savedBeforeIds), [savedBeforeIds]);
   const [showSaved, setShowSaved] = useSessionState("jobspy:showSaved", false);
+  // Jobs an earlier morning run found too are left out, unless you ask to see them.
+  const [showEarlier, setShowEarlier] = useSessionState("jobspy:showEarlier", false);
   const [result, setResult] = useSessionState<JobspyImport | null>("jobspy:result", null);
   const [error, setError] = useSessionState<string | null>("jobspy:error", null);
   const [expanded, setExpanded] = useSessionState<string | null>("jobspy:expanded", null);
@@ -120,6 +122,7 @@ function JobspyImporter() {
   function show(next: JobspyImport) {
     setSavedBefore(Object.keys(saved));
     setShowSaved(false);
+    setShowEarlier(false);
     setResult(next);
     setJobFilter(ANY_JOB);
     setListFilter("");
@@ -146,9 +149,14 @@ function JobspyImporter() {
   // By title list first: a job shown as its saved copy has the saved copy's id, which the run doesn't know.
   // Worked out when the results, the list picked or your saved jobs change, not on every render:
   // a morning run can bring in hundreds of jobs.
+  const inList = useMemo(
+    () => (result?.jobs ?? []).filter((job) => !listFilter || result?.lists?.[job.id]?.includes(listFilter)),
+    [result, listFilter],
+  );
+  const earlierCount = useMemo(() => inList.filter((job) => result?.seenBefore?.[job.id]).length, [inList, result]);
   const found = useMemo(
-    () => collapseCopies((result?.jobs ?? []).filter((job) => !listFilter || result?.lists?.[job.id]?.includes(listFilter)), findCopy),
-    [result, listFilter, findCopy],
+    () => collapseCopies(showEarlier ? inList : inList.filter((job) => !result?.seenBefore?.[job.id]), findCopy),
+    [inList, showEarlier, result, findCopy],
   );
   const wasSaved = (job: Job) => savedBefore.has(job.id) && Boolean(saved[job.id]);
   const savedCount = found.filter(wasSaved).length;
@@ -182,9 +190,9 @@ function JobspyImporter() {
         </p>
       </div>
       <MorningRunBanner
-        onShow={(jobs, run, lists) => {
+        onShow={(jobs, run, lists, seenBefore) => {
           setError(null);
-          show({ jobs, query: run.query, createdAt: run.startedAt, skipped: 0, lists });
+          show({ jobs, query: run.query, createdAt: run.startedAt, skipped: 0, lists, seenBefore });
         }}
       />
       <TitleLists />
@@ -216,6 +224,9 @@ function JobspyImporter() {
           <div className="flex flex-wrap items-center gap-2" role="status">
             <p className="text-sm">
               <strong>{result.jobs.length}</strong> jobs{result.query && ` for “${result.query}”`}
+              {result.seenBefore && Object.keys(result.seenBefore).length > 0 && (
+                <span className="muted"> ({result.jobs.length - Object.keys(result.seenBefore).length} new)</span>
+              )}
               {result.createdAt && <span className="muted">, found {formatPosted(result.createdAt)}</span>}
               {result.skipped > 0 && <span className="muted"> ({result.skipped} without a title or link left out)</span>}
             </p>
@@ -293,6 +304,15 @@ function JobspyImporter() {
           <MatchAllButton jobs={jobs} onMatched={() => setOrder("match")} />
           <SaveByMatch jobs={jobs} />
           <BulkTailor jobs={jobs} />
+          {earlierCount > 0 && (
+            <p className="muted text-xs">
+              {earlierCount} {earlierCount === 1 ? "job" : "jobs"} already found by an earlier run
+              {showEarlier ? ", shown. " : ", hidden. "}
+              <button type="button" className="link cursor-pointer" onClick={() => setShowEarlier(!showEarlier)}>
+                {showEarlier ? "Hide them" : "Show them"}
+              </button>
+            </p>
+          )}
           {savedCount > 0 && (
             <p className="muted text-xs">
               {savedCount} {savedCount === 1 ? "job you’ve" : "jobs you’ve"} already saved

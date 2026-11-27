@@ -95,7 +95,7 @@ function batchText(run: JobspyRun): string | undefined {
 export function MorningRunBanner({
   onShow,
 }: {
-  onShow: (jobs: Job[], run: JobspyRun, lists: Record<string, string[]>) => void;
+  onShow: (jobs: Job[], run: JobspyRun, lists: Record<string, string[]>, seenBefore: Record<string, string>) => void;
 }) {
   const { run, prep } = useLatestRun();
   const [loading, setLoading] = useState(false);
@@ -110,8 +110,8 @@ export function MorningRunBanner({
     setLoading(true);
     setError(null);
     try {
-      const { jobs, lists } = await fetchRunJobs();
-      deliver.current(jobs, latest, lists);
+      const { jobs, lists, seenBefore } = await fetchRunJobs();
+      deliver.current(jobs, latest, lists, seenBefore);
     } catch (err) {
       setError((err as Error).message);
     } finally {
